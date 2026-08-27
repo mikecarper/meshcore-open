@@ -59,6 +59,7 @@ dependencies:
   package_info_plus: ^10.1.0
   mobile_scanner: ^7.1.4  # QR/barcode scanning
   image_picker: ^1.1.2    # Pick photos to send as compressed mesh images
+  file_selector: ^1.1.0   # Pick one or more .mota firmware containers
   qr_flutter: ^4.1.0      # QR code generation
   url_launcher: ^6.3.0    # Launch URLs in system browser
   flutter_linkify: ^6.0.0 # Auto-detect and linkify URLs in text

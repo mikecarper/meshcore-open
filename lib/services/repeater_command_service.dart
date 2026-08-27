@@ -23,10 +23,15 @@ class RepeaterCommandService {
     String command, {
     Function(String)? onResponse,
     Function(int)? onAttempt,
+    void Function()? onPacketSent,
+    PathSelection? pathSelection,
     int retries = maxRetries,
   }) async {
     final attemptCount = retries < 1 ? 1 : retries;
-    final selection = await _connector.preparePathForContactSend(repeater);
+    final selection = await _connector.preparePathForContactSend(
+      repeater,
+      explicitSelection: pathSelection,
+    );
 
     for (int attempt = 0; attempt < attemptCount; attempt++) {
       onAttempt?.call(attempt + 1);
@@ -36,6 +41,7 @@ class RepeaterCommandService {
           command,
           selection,
           attempt,
+          onPacketSent,
         );
         onResponse?.call(response);
         return response;
@@ -52,6 +58,7 @@ class RepeaterCommandService {
     String command,
     PathSelection selection,
     int attempt,
+    void Function()? onPacketSent,
   ) async {
     final repeaterKey = repeater.publicKeyHex;
     final prefix = _nextPrefixToken();
@@ -71,6 +78,7 @@ class RepeaterCommandService {
         text: framedCommand,
         timestampSeconds: timestampSeconds,
         attempt: attempt,
+        onPacketSent: onPacketSent,
       );
       final frame = buildSendCliCommandFrame(
         repeater.publicKey,

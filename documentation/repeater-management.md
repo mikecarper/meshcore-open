@@ -35,10 +35,13 @@ The central management screen showing:
 | Status | Repeater Status Screen | All users |
 | Telemetry | Telemetry Screen | All users |
 | Neighbors | Neighbors Screen | All users |
+| LoRa OTA | LoRa OTA Screen | Admin only |
 | CLI | Repeater CLI Screen | Admin only |
 | Settings | Repeater Settings Screen | Admin only |
 
-The battery chemistry selector and CLI/Settings cards are hidden from guest users.
+The battery chemistry selector and LoRa OTA/CLI/Settings cards are hidden from guest users.
+
+See [Phone-driven LoRa OTA](lora-ota.md) for firmware, pairing, file, and radio requirements.
 
 ---
 

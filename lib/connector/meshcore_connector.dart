@@ -21,6 +21,7 @@ import '../helpers/cyr2lat.dart';
 import '../helpers/smaz.dart';
 import '../services/app_debug_log_service.dart';
 import '../services/ble_debug_log_service.dart';
+import '../services/ble_mota_catalog.dart';
 import '../services/linux_ble_error_classifier.dart';
 import '../services/linux_ble_pairing_service_stub.dart'
     if (dart.library.io) '../services/linux_ble_pairing_service.dart';
@@ -182,6 +183,8 @@ class MeshCoreConnector extends ChangeNotifier {
   BluetoothDevice? _device;
   BluetoothCharacteristic? _rxCharacteristic;
   BluetoothCharacteristic? _txCharacteristic;
+  BluetoothCharacteristic? _bleMotaRequestCharacteristic;
+  BluetoothCharacteristic? _bleMotaResponseCharacteristic;
   String? _deviceDisplayName;
   String? _deviceId;
   BluetoothDevice? _lastDevice;
@@ -216,6 +219,13 @@ class MeshCoreConnector extends ChangeNotifier {
   StreamSubscription<bool>? _isScanningSubscription;
   StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
   StreamSubscription<List<int>>? _notifySubscription;
+  StreamSubscription<List<int>>? _bleMotaRequestSubscription;
+  BleMotaCatalog? _bleMotaCatalog;
+  Future<void> _bleMotaResponseQueue = Future<void>.value();
+  int _bleMotaSessionGeneration = 0;
+  bool _bleMotaNotificationsEnabled = false;
+  String? _bleMotaChannelError;
+  _PendingBleMotaControl? _pendingBleMotaControl;
   Timer? _notifyListenersTimer;
   Timer? _selfInfoRetryTimer;
   Timer? _reconnectTimer;
@@ -477,6 +487,14 @@ class MeshCoreConnector extends ChangeNotifier {
 
   List<Channel> get channels => List.unmodifiable(_channels);
   bool get isConnected => _state == MeshCoreConnectionState.connected;
+  bool get isBleMotaChannelReady =>
+      isConnected &&
+      _activeTransport == MeshCoreTransportType.bluetooth &&
+      _bleMotaNotificationsEnabled &&
+      _bleMotaRequestCharacteristic != null &&
+      _bleMotaResponseCharacteristic != null;
+  String? get bleMotaChannelError => _bleMotaChannelError;
+  BleMotaCatalog? get bleMotaCatalog => _bleMotaCatalog;
   bool get isLoadingContacts => _isLoadingContacts;
   bool get hasLoadedContacts => _hasLoadedContacts;
   bool get isLoadingChannels => _isLoadingChannels;
@@ -1590,7 +1608,10 @@ class MeshCoreConnector extends ChangeNotifier {
       // used here.
       await FlutterBluePlus.startScan(
         withServices: [Guid(MeshCoreUuids.service)],
-        webOptionalServices: [Guid(MeshCoreUuids.service)],
+        webOptionalServices: [
+          Guid(MeshCoreUuids.service),
+          Guid(MeshCoreUuids.bleMotaService),
+        ],
         timeout: timeout,
         androidScanMode: AndroidScanMode.lowLatency,
       );
@@ -2007,6 +2028,12 @@ class MeshCoreConnector extends ChangeNotifier {
       _connectionSubscription = null;
       await _notifySubscription?.cancel();
       _notifySubscription = null;
+      _invalidateBleMotaSession();
+      await _bleMotaRequestSubscription?.cancel();
+      _bleMotaRequestSubscription = null;
+      _bleMotaRequestCharacteristic = null;
+      _bleMotaResponseCharacteristic = null;
+      _bleMotaChannelError = null;
       _connectionSubscription = device.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected && isConnected) {
           _handleDisconnection();
@@ -2327,6 +2354,7 @@ class MeshCoreConnector extends ChangeNotifier {
       _notifySubscription = _txCharacteristic!.onValueReceived.listen(
         _handleFrame,
       );
+      await _configureBleMotaService(services);
 
       _setState(MeshCoreConnectionState.connected);
       if (_shouldGateInitialChannelSync) {
@@ -2378,6 +2406,164 @@ class MeshCoreConnector extends ChangeNotifier {
         await disconnect(manual: false);
       }
       rethrow;
+    }
+  }
+
+  Future<void> _configureBleMotaService(List<BluetoothService> services) async {
+    // Every service-discovery pass owns a distinct generation. Requests which
+    // were queued by an earlier GATT link must never be written into this one.
+    final sessionGeneration = ++_bleMotaSessionGeneration;
+    _bleMotaNotificationsEnabled = false;
+    BluetoothService? motaService;
+    for (final service in services) {
+      if (service.uuid.toString().toLowerCase() ==
+          MeshCoreUuids.bleMotaService) {
+        motaService = service;
+        break;
+      }
+    }
+    if (motaService == null) {
+      return;
+    }
+
+    for (final characteristic in motaService.characteristics) {
+      final uuid = characteristic.uuid.toString().toLowerCase();
+      if (uuid == MeshCoreUuids.bleMotaRequestCharacteristic) {
+        _bleMotaRequestCharacteristic = characteristic;
+      } else if (uuid == MeshCoreUuids.bleMotaResponseCharacteristic) {
+        _bleMotaResponseCharacteristic = characteristic;
+      }
+    }
+
+    final request = _bleMotaRequestCharacteristic;
+    final response = _bleMotaResponseCharacteristic;
+    if (request == null || response == null) {
+      _bleMotaChannelError = 'Bluetooth mOTA characteristics are incomplete';
+      return;
+    }
+    if (!request.properties.notify || !response.properties.write) {
+      _bleMotaChannelError =
+          'Bluetooth mOTA characteristics have incompatible properties';
+      return;
+    }
+
+    final requestSubscription = request.onValueReceived.listen(
+      (data) => _handleBleMotaRequest(data, sessionGeneration),
+      onError: (Object error) {
+        if (sessionGeneration != _bleMotaSessionGeneration) return;
+        _setBleMotaChannelError('Bluetooth mOTA notification failed: $error');
+      },
+    );
+    _bleMotaRequestSubscription = requestSubscription;
+    try {
+      // Firmware requires this characteristic to be encrypted and paired with
+      // MITM protection. A successful subscription is therefore also the
+      // capability/security check used by CMD_BLE_MOTA_SOURCE.
+      await request.setNotifyValue(true);
+      if (sessionGeneration != _bleMotaSessionGeneration) {
+        await requestSubscription.cancel();
+        return;
+      }
+      _bleMotaNotificationsEnabled = true;
+      _bleMotaChannelError = null;
+      _appDebugLogService?.info(
+        'Encrypted Bluetooth mOTA request channel is ready',
+        tag: 'BLE mOTA',
+      );
+    } catch (error) {
+      await requestSubscription.cancel();
+      if (identical(_bleMotaRequestSubscription, requestSubscription)) {
+        _bleMotaRequestSubscription = null;
+      }
+      if (sessionGeneration != _bleMotaSessionGeneration) return;
+      _bleMotaNotificationsEnabled = false;
+      _bleMotaChannelError =
+          'Pairing or mOTA notification setup failed: $error';
+      _appDebugLogService?.warn(_bleMotaChannelError!, tag: 'BLE mOTA');
+    }
+  }
+
+  void _handleBleMotaRequest(List<int> data, int sessionGeneration) {
+    if (sessionGeneration != _bleMotaSessionGeneration ||
+        !_bleMotaNotificationsEnabled) {
+      return;
+    }
+    final request = Uint8List.fromList(data);
+    _bleMotaResponseQueue = _bleMotaResponseQueue
+        .catchError((Object _) {})
+        .then<void>((_) async {
+          if (sessionGeneration != _bleMotaSessionGeneration ||
+              !_bleMotaNotificationsEnabled) {
+            return;
+          }
+          await _serveBleMotaRequest(request, sessionGeneration);
+        });
+  }
+
+  Future<void> _serveBleMotaRequest(
+    Uint8List request,
+    int sessionGeneration,
+  ) async {
+    if (sessionGeneration != _bleMotaSessionGeneration) return;
+    final catalog = _bleMotaCatalog;
+    final characteristic = _bleMotaResponseCharacteristic;
+    if (!_bleMotaNotificationsEnabled || characteristic == null) {
+      return;
+    }
+    if (catalog == null) {
+      _setBleMotaChannelError(
+        'Companion requested an mOTA catalog before one was loaded',
+      );
+      return;
+    }
+
+    try {
+      final response = await catalog.handleRequest(request);
+      if (response == null) {
+        _setBleMotaChannelError('Companion sent a malformed mOTA request');
+        return;
+      }
+      final mtu = _device?.mtuNow ?? 23;
+      final chunkSize = math.min(
+        bleMotaSeederReadMax + 5,
+        math.max(20, mtu - 3),
+      );
+      for (var offset = 0; offset < response.length; offset += chunkSize) {
+        if (sessionGeneration != _bleMotaSessionGeneration ||
+            !isConnected ||
+            !_bleMotaNotificationsEnabled) {
+          return;
+        }
+        final end = math.min(response.length, offset + chunkSize);
+        await characteristic.write(
+          response.sublist(offset, end),
+          withoutResponse: false,
+        );
+      }
+      if (_bleMotaChannelError != null) {
+        _setBleMotaChannelError(null);
+      }
+    } catch (error) {
+      _setBleMotaChannelError('Failed serving mOTA data: $error');
+    }
+  }
+
+  void _setBleMotaChannelError(String? value) {
+    if (_bleMotaChannelError == value) return;
+    _bleMotaChannelError = value;
+    if (isConnected) notifyListeners();
+  }
+
+  void _invalidateBleMotaSession() {
+    _bleMotaSessionGeneration++;
+    _bleMotaNotificationsEnabled = false;
+  }
+
+  void _failPendingBleMotaControl(Object error) {
+    final pending = _pendingBleMotaControl;
+    _pendingBleMotaControl = null;
+    if (pending != null && !pending.completer.isCompleted) {
+      pending.completer.completeError(error);
     }
   }
 
@@ -2745,6 +2931,9 @@ class MeshCoreConnector extends ChangeNotifier {
 
     await _notifySubscription?.cancel();
     _notifySubscription = null;
+    _invalidateBleMotaSession();
+    await _bleMotaRequestSubscription?.cancel();
+    _bleMotaRequestSubscription = null;
 
     await _connectionSubscription?.cancel();
     _connectionSubscription = null;
@@ -2788,6 +2977,11 @@ class MeshCoreConnector extends ChangeNotifier {
     _device = null;
     _rxCharacteristic = null;
     _txCharacteristic = null;
+    _bleMotaRequestCharacteristic = null;
+    _bleMotaResponseCharacteristic = null;
+    _bleMotaCatalog = null;
+    _bleMotaChannelError = null;
+    _failPendingBleMotaControl(StateError('Bluetooth Companion disconnected'));
     _deviceDisplayName = null;
     _deviceId = null;
     _contacts.clear();
@@ -2885,6 +3079,79 @@ class MeshCoreConnector extends ChangeNotifier {
         throw TimeoutException(
           'Timed out waiting for firmware acknowledgement',
         );
+      }
+    }
+  }
+
+  void setBleMotaCatalog(BleMotaCatalog? catalog) {
+    if (identical(_bleMotaCatalog, catalog)) return;
+    _bleMotaCatalog = catalog;
+    _setBleMotaChannelError(null);
+    notifyListeners();
+  }
+
+  Future<String> executeLocalOtaControl(String command) async {
+    final response = await _sendBleMotaControlCommand(
+      buildLocalOtaControlFrame(command),
+      kind: _BleMotaControlKind.localCommand,
+      timeout: const Duration(seconds: 8),
+    );
+    return parseLocalOtaControlResponse(response);
+  }
+
+  Future<BleMotaSourceStatus> controlBleMotaSource(int action) async {
+    if (_activeTransport != MeshCoreTransportType.bluetooth) {
+      throw StateError(
+        'Bluetooth mOTA requires a Bluetooth Companion connection',
+      );
+    }
+    if (!isBleMotaChannelReady) {
+      throw StateError(
+        _bleMotaChannelError ??
+            'This Companion does not expose the encrypted Bluetooth mOTA channel',
+      );
+    }
+    final response = await _sendBleMotaControlCommand(
+      buildBleMotaSourceFrame(action),
+      kind: _BleMotaControlKind.sourceAction,
+      action: action,
+      timeout: const Duration(seconds: 30),
+    );
+    return parseBleMotaSourceResponse(response, expectedAction: action);
+  }
+
+  Future<Uint8List> _sendBleMotaControlCommand(
+    Uint8List frame, {
+    required _BleMotaControlKind kind,
+    int? action,
+    required Duration timeout,
+  }) async {
+    if (!isConnected) {
+      throw StateError('Not connected to a MeshCore Companion');
+    }
+    if (_pendingBleMotaControl != null) {
+      throw StateError('Another local Bluetooth mOTA command is still pending');
+    }
+
+    final pending = _PendingBleMotaControl(
+      kind: kind,
+      action: action,
+      completer: Completer<Uint8List>(),
+    );
+    _pendingBleMotaControl = pending;
+    try {
+      await sendFrame(frame);
+      return await pending.completer.future.timeout(
+        timeout,
+        onTimeout: () {
+          throw TimeoutException(
+            'Timed out waiting for the Companion mOTA response',
+          );
+        },
+      );
+    } finally {
+      if (identical(_pendingBleMotaControl, pending)) {
+        _pendingBleMotaControl = null;
       }
     }
   }
@@ -3429,11 +3696,16 @@ class MeshCoreConnector extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<PathSelection> preparePathForContactSend(Contact contact) async {
+  Future<PathSelection> preparePathForContactSend(
+    Contact contact, {
+    PathSelection? explicitSelection,
+  }) async {
     PathSelection? autoSelection;
     final autoRotationEnabled =
         _appSettingsService?.settings.autoRouteRotationEnabled == true;
-    if (autoRotationEnabled && contact.pathOverride == null) {
+    if (explicitSelection == null &&
+        autoRotationEnabled &&
+        contact.pathOverride == null) {
       final maxRetries = _appSettingsService?.settings.maxMessageRetries ?? 5;
       autoSelection = _selectAutoPathForAttempt(
         contact.publicKeyHex,
@@ -3442,7 +3714,15 @@ class MeshCoreConnector extends ChangeNotifier {
       );
     }
 
-    final resolved = resolvePathSelection(contact, selection: autoSelection);
+    final resolved =
+        explicitSelection ??
+        resolvePathSelection(contact, selection: autoSelection);
+    if (!resolved.useFlood &&
+        (resolved.hopCount < 0 ||
+            resolved.pathBytes.length !=
+                resolved.hopCount * _pathHashByteWidth)) {
+      throw ArgumentError('Explicit route does not match the path hash width');
+    }
 
     if (resolved.useFlood) {
       await clearContactPath(contact);
@@ -3463,6 +3743,7 @@ class MeshCoreConnector extends ChangeNotifier {
     required String text,
     required int timestampSeconds,
     int attempt = 0,
+    void Function()? onPacketSent,
   }) {
     final selfKey = _selfPublicKey;
     if (selfKey == null) return;
@@ -3482,6 +3763,7 @@ class MeshCoreConnector extends ChangeNotifier {
       selection: selection,
       pathLength: selection.useFlood ? -1 : selection.hopCount,
       messageBytes: messageBytes,
+      onPacketSent: onPacketSent,
     );
   }
 
@@ -4278,6 +4560,17 @@ class MeshCoreConnector extends ChangeNotifier {
     final frame = Uint8List.fromList(data);
     _receivedFramesController.add(frame);
     _bleDebugLogService?.logFrame(frame, outgoing: false);
+
+    final pendingMotaControl = _pendingBleMotaControl;
+    if (pendingMotaControl != null && pendingMotaControl.matches(frame)) {
+      _pendingBleMotaControl = null;
+      if (!pendingMotaControl.completer.isCompleted) {
+        pendingMotaControl.completer.complete(frame);
+      }
+      // These RESP_CODE_OK/ERR frames belong to the length-aware mOTA
+      // transaction above. Do not let the generic ACK FIFO consume them.
+      return;
+    }
 
     final code = frame[0];
     // debugPrint('RX frame: code=$code len=${frame.length}');
@@ -5984,6 +6277,11 @@ class MeshCoreConnector extends ChangeNotifier {
     final entry = _pendingRepeaterAcks[ackHashHex];
     if (entry == null) return false;
 
+    if (!entry.sentNotified) {
+      entry.sentNotified = true;
+      entry.onPacketSent?.call();
+    }
+
     entry.timeout?.cancel();
     final effectiveTimeoutMs = timeoutMs > 0
         ? timeoutMs
@@ -6743,12 +7041,19 @@ class MeshCoreConnector extends ChangeNotifier {
 
     _notifySubscription?.cancel();
     _notifySubscription = null;
+    _invalidateBleMotaSession();
+    _bleMotaRequestSubscription?.cancel();
+    _bleMotaRequestSubscription = null;
     _connectionSubscription?.cancel();
     _connectionSubscription = null;
 
     _device = null;
     _rxCharacteristic = null;
     _txCharacteristic = null;
+    _bleMotaRequestCharacteristic = null;
+    _bleMotaResponseCharacteristic = null;
+    _bleMotaChannelError = null;
+    _failPendingBleMotaControl(StateError('Bluetooth Companion disconnected'));
     // Preserve deviceId and displayName for UI display during reconnection
     // They're only cleared on manual disconnect via disconnect() method
     _hasReceivedDeviceInfo = false;
@@ -6898,6 +7203,9 @@ class MeshCoreConnector extends ChangeNotifier {
     _connectionSubscription?.cancel();
     _usbFrameSubscription?.cancel();
     _notifySubscription?.cancel();
+    _invalidateBleMotaSession();
+    _bleMotaRequestSubscription?.cancel();
+    _failPendingBleMotaControl(StateError('Connector disposed'));
     _notifyListenersTimer?.cancel();
     _reconnectTimer?.cancel();
     _batteryPollTimer?.cancel();
@@ -7545,6 +7853,8 @@ class _RepeaterAckContext {
   final PathSelection selection;
   final int pathLength;
   final int messageBytes;
+  final void Function()? onPacketSent;
+  bool sentNotified = false;
   Timer? timeout;
 
   _RepeaterAckContext({
@@ -7552,6 +7862,7 @@ class _RepeaterAckContext {
     required this.selection,
     required this.pathLength,
     required this.messageBytes,
+    this.onPacketSent,
   });
 }
 
@@ -7565,4 +7876,32 @@ class _PendingCommandAck {
     this.channelSendQueueId,
     this.completer,
   });
+}
+
+enum _BleMotaControlKind { localCommand, sourceAction }
+
+class _PendingBleMotaControl {
+  final _BleMotaControlKind kind;
+  final int? action;
+  final Completer<Uint8List> completer;
+
+  const _PendingBleMotaControl({
+    required this.kind,
+    required this.action,
+    required this.completer,
+  });
+
+  bool matches(Uint8List frame) {
+    if (frame.length == 2 && frame[0] == respCodeErr) {
+      return true;
+    }
+    if (kind == _BleMotaControlKind.localCommand) {
+      return frame.length >= 2 &&
+          frame[0] == respCodeOk &&
+          frame.length == frame[1] + 2;
+    }
+    return (frame.length == 7 || frame.length == 11) &&
+        frame[0] == respCodeOk &&
+        frame[1] == action;
+  }
 }

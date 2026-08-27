@@ -16,6 +16,7 @@ MeshCore Open is an open-source Flutter client for MeshCore LoRa mesh networking
 10. [Additional Features](additional-features.md) - GIF picker, localization, debug logs, SMAZ compression, and more
 11. [Routing Paths](routing-paths.md) - Path encoding, validation, device capability detection, and storage
 12. [BLE Protocol & Data Layer](ble-protocol.md) - Technical reference for the communication protocol and data architecture
+13. [Phone-driven LoRa OTA](lora-ota.md) - Update a remote repeater from `.mota` files stored on a phone
 
 ## App Overview
 

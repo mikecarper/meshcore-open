@@ -14,6 +14,7 @@ import 'repeater_cli_screen.dart';
 import 'repeater_settings_screen.dart';
 import 'telemetry_screen.dart';
 import 'neighbors_screen.dart';
+import 'lora_ota_screen.dart';
 
 class RepeaterHubScreen extends StatelessWidget {
   final Contact repeater;
@@ -239,6 +240,22 @@ class RepeaterHubScreen extends StatelessWidget {
             if (isAdmin) ...[
               _HubActionTile(
                 index: 3,
+                icon: Icons.system_update_alt,
+                title: 'LoRa OTA',
+                subtitle: 'Update this repeater from .mota files on your phone',
+                accentColor: MeshPalette.signal,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => LoRaOtaScreen(repeater: repeater),
+                    ),
+                  );
+                },
+              ),
+              _HubActionTile(
+                index: 4,
                 icon: Icons.terminal,
                 title: l10n.repeater_cli,
                 subtitle: l10n.repeater_cliSubtitle,
@@ -257,7 +274,7 @@ class RepeaterHubScreen extends StatelessWidget {
                 },
               ),
               _HubActionTile(
-                index: 4,
+                index: 5,
                 icon: Icons.settings,
                 title: l10n.repeater_settings,
                 subtitle: l10n.repeater_settingsSubtitle,

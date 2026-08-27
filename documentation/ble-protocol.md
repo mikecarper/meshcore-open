@@ -20,6 +20,23 @@ The app supports three transports, all sharing the same command/response protoco
 
 Raw `Uint8List` payloads are written directly to the RX characteristic. Writes use "write without response" if supported, falling back to "write with response".
 
+Protocol-v14 nRF52 Full Companion builds can additionally expose an encrypted,
+authenticated mOTA file-source service:
+
+- **Service UUID**: `14518fc2-7e7a-4d84-8cae-6664b0234cf2`
+- **Request Characteristic** (notify from device): `2bfaa1ee-7030-459a-b65a-e7cfd5b09735`
+- **Response Characteristic** (write with response): `acf38a51-dd58-4dce-917f-0b1135e41b1a`
+
+The app subscribes to this service only after normal NUS setup succeeds. A
+failure to pair or authorize it does not break ordinary Companion messaging.
+Catalog count, descriptor, and bounded range-read requests are serialized, and
+responses are split at the negotiated ATT payload size.
+
+The `0x4B` source-status success response is
+`00 action flags offered_le16 advertised_le16 [source_packets_sent_le32]`.
+The packet counter is present on current firmware and omitted by early
+protocol-v14 previews; the app accepts both forms.
+
 ### USB and TCP Framing
 
 Both use a lightweight packet framing codec:
@@ -127,6 +144,8 @@ On unexpected disconnection, auto-reconnect with exponential backoff:
 | 58 | CMD_SET_AUTO_ADD_CONFIG | Set auto-add configuration |
 | 59 | CMD_GET_AUTO_ADD_CONFIG | Get auto-add configuration |
 | 61 | CMD_SET_PATH_HASH_MODE | Set path hash width (bytes per hop) |
+| 0x4A | CMD_EXEC_LOCAL_OTA_CONTROL | Run an allowlisted local `tempradio`, `normalradio`, or `ota` control command (v14+) |
+| 0x4B | CMD_BLE_MOTA_SOURCE | Read, attach, or detach the encrypted phone-backed mOTA catalog (v14+) |
 
 ## Response / Push Codes (Device → App)
 

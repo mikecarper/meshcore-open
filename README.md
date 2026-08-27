@@ -56,7 +56,8 @@ MeshCore Open is a cross-platform mobile application for communicating with Mesh
 - **BLE, USB, TCP Connection**: Scan and connect to MeshCore devices via Bluetooth, USB or TCP
 - **Device Settings**: Configure radio parameters, power settings, and network options
 - **Battery Monitoring**: Real-time battery status with chemistry-specific voltage curves
-- **Firmware Updates**: Over-the-air firmware updates via BLE (coming soon)
+- **Repeater Firmware Updates**: Serve verified `.mota` files from a phone over
+  encrypted BLE, then pull and install them on a remote LoRa OTA repeater
 
 ### Repeater Hub
 

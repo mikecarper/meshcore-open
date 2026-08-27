@@ -323,7 +323,7 @@ class _PathEditorSheetState extends State<PathEditorSheet> {
                   physics: const NeverScrollableScrollPhysics(),
                   buildDefaultDragHandles: false,
                   itemCount: _hops.length,
-                  onReorderItem: _reorderHop,
+                  onReorder: _reorderHop,
                   itemBuilder: _hopTile,
                 ),
               const Divider(),
