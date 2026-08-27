@@ -68,7 +68,7 @@ void main() {
         )
         .first;
 
-    final start = find.text('Prepare radios and start source');
+    final start = find.text('Test radios and start source');
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     final startButton = find.ancestor(
       of: start,
@@ -80,6 +80,19 @@ void main() {
     for (var tick = 0; tick < 40; tick++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
+
+    expect(connector.localCommands.take(3), <String>[
+      'tempradio 909.950,250,5,5,3',
+      'tempradio',
+      'tempradio 909.950,250,5,5,120',
+    ]);
+    expect(commands.calls.take(4).map((call) => call.command), <String>[
+      'tempradio 909.950,250,5,5,3',
+      'ota status',
+      'tempradio 909.950,250,5,5,120',
+      'ota ls',
+    ]);
+    expect(connector.sourceStarts, 1);
 
     await tester.drag(pageScroll, const Offset(0, 2000));
     await tester.pump();
@@ -121,6 +134,186 @@ void main() {
     stopCallback!();
     await tester.pump();
     await tester.pump();
+    expect(connector.bleMotaCatalog, isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await connector.closeFake();
+  });
+
+  testWidgets('restores radios when the three-minute target probe fails', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final catalog = (await tester.runAsync(
+      () => BleMotaCatalog.load(<XFile>[
+        XFile.fromData(
+          buildTestFullMotaContainer(),
+          path: 'TEST_BOARD-full-v1.17.1.2.mota',
+          name: 'TEST_BOARD-full-v1.17.1.2.mota',
+        ),
+      ]),
+    ))!;
+    final target = Contact(
+      publicKey: Uint8List.fromList(
+        List<int>.generate(pubKeySize, (index) => index + 48),
+      ),
+      name: 'Unreachable repeater',
+      type: advTypeRepeater,
+      pathLength: 0,
+      path: Uint8List(0),
+      lastSeen: DateTime(2026, 8, 27),
+    );
+    final connector = _FakeMotaConnector(target, catalog);
+    final commands = _FakeRepeaterCommandService(
+      connector,
+      unreachableProbeContact: target.name,
+    );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<MeshCoreConnector>.value(
+        value: connector,
+        child: MaterialApp(
+          theme: MeshTheme.dark().copyWith(
+            splashFactory: NoSplash.splashFactory,
+          ),
+          home: LoRaOtaScreen(repeater: target, commandService: commands),
+        ),
+      ),
+    );
+
+    final pageScroll = find
+        .descendant(
+          of: find.byType(ListView),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final start = find.text('Test radios and start source');
+    await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
+    tester
+        .widget<FilledButton>(
+          find.ancestor(of: start, matching: find.byType(FilledButton)),
+        )
+        .onPressed!();
+    for (var tick = 0; tick < 40; tick++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(connector.sourceStarts, 0);
+    expect(commands.commands, <String>[
+      'tempradio 909.950,250,5,5,3',
+      'ota status',
+      'normalradio',
+    ]);
+    expect(connector.localCommands, <String>[
+      'tempradio 909.950,250,5,5,3',
+      'tempradio',
+      'normalradio',
+    ]);
+    expect(connector.bleMotaCatalog, isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await connector.closeFake();
+  });
+
+  testWidgets('blocks the source when a controlled relay probe fails', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    Contact repeater(String name, int prefix, List<int> path) => Contact(
+      publicKey: Uint8List.fromList(<int>[
+        prefix,
+        ...List<int>.generate(pubKeySize - 1, (index) => index + prefix + 1),
+      ]),
+      name: name,
+      type: advTypeRepeater,
+      pathLength: path.length,
+      path: Uint8List.fromList(path),
+      lastSeen: DateTime(2026, 8, 27),
+    );
+
+    final relay = repeater('Unreachable relay', 0x41, const <int>[]);
+    final target = repeater('Reachable target', 0x62, <int>[
+      relay.publicKey.first,
+    ]);
+    final catalog = (await tester.runAsync(
+      () => BleMotaCatalog.load(<XFile>[
+        XFile.fromData(
+          buildTestFullMotaContainer(),
+          path: 'TEST_BOARD-full-v1.17.1.2.mota',
+          name: 'TEST_BOARD-full-v1.17.1.2.mota',
+        ),
+      ]),
+    ))!;
+    final connector = _FakeMotaConnector(
+      target,
+      catalog,
+      additionalContacts: <Contact>[relay],
+    );
+    final commands = _FakeRepeaterCommandService(
+      connector,
+      unreachableProbeContact: relay.name,
+    );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<MeshCoreConnector>.value(
+        value: connector,
+        child: MaterialApp(
+          theme: MeshTheme.dark().copyWith(
+            splashFactory: NoSplash.splashFactory,
+          ),
+          home: LoRaOtaScreen(repeater: target, commandService: commands),
+        ),
+      ),
+    );
+
+    final pageScroll = find
+        .descendant(
+          of: find.byType(ListView),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final add = find.text('Add controlled intermediate');
+    await tester.ensureVisible(add);
+    await tester.pumpAndSettle();
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(relay.name));
+    await tester.pumpAndSettle();
+
+    final start = find.text('Test radios and start source');
+    await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
+    tester
+        .widget<FilledButton>(
+          find.ancestor(of: start, matching: find.byType(FilledButton)),
+        )
+        .onPressed!();
+    for (var tick = 0; tick < 40; tick++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(connector.sourceStarts, 0);
+    expect(commands.commands.where((command) => command == 'ver').length, 1);
+    expect(
+      commands.commands.where(
+        (command) => command == 'tempradio 909.950,250,5,5,120',
+      ),
+      isEmpty,
+    );
+    expect(
+      commands.calls
+          .where((call) => call.command == 'normalradio')
+          .map((call) => call.contact),
+      <String>['Reachable target', 'Unreachable relay'],
+    );
+    expect(connector.localCommands.last, 'normalradio');
     expect(connector.bleMotaCatalog, isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -202,7 +395,7 @@ void main() {
     await tester.tap(find.text('Near relay'));
     await tester.pumpAndSettle();
 
-    final start = find.text('Prepare radios and start source');
+    final start = find.text('Test radios and start source');
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     final startButton = find.ancestor(
       of: start,
@@ -217,9 +410,22 @@ void main() {
 
     final setup = commands.calls
         .where((call) => call.command.startsWith('tempradio '))
+        .map((call) => '${call.contact}: ${call.command}')
+        .toList();
+    expect(setup, <String>[
+      'Target repeater: tempradio 909.950,250,5,5,3',
+      'Far relay: tempradio 909.950,250,5,5,3',
+      'Near relay: tempradio 909.950,250,5,5,3',
+      'Target repeater: tempradio 909.950,250,5,5,120',
+      'Far relay: tempradio 909.950,250,5,5,120',
+      'Near relay: tempradio 909.950,250,5,5,120',
+    ]);
+    final probes = commands.calls
+        .where((call) => call.command == 'ota status' || call.command == 'ver')
         .map((call) => call.contact)
         .toList();
-    expect(setup, <String>['Target repeater', 'Far relay', 'Near relay']);
+    expect(probes, <String>['Target repeater', 'Far relay', 'Near relay']);
+    expect(connector.sourceStarts, 1);
 
     final stop = find.text('Stop and restore controlled radios');
     await tester.scrollUntilVisible(stop, 300, scrollable: pageScroll);
@@ -291,7 +497,7 @@ void main() {
           matching: find.byType(Scrollable),
         )
         .first;
-    final start = find.text('Prepare radios and start source');
+    final start = find.text('Test radios and start source');
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     final startButton = find.ancestor(
       of: start,
@@ -326,7 +532,7 @@ void main() {
       connector.localCommands
           .where((command) => command.startsWith('tempradio '))
           .length,
-      2,
+      3,
     );
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -393,7 +599,11 @@ class _FakeMotaConnector extends MeshCoreConnector {
   @override
   Future<String> executeLocalOtaControl(String command) async {
     localCommands.add(command);
-    return command == 'normalradio' ? 'OK normal radio' : 'OK temporary radio';
+    return switch (command) {
+      'normalradio' => 'OK normal radio',
+      'tempradio' => 'TempRadio active: 909.950,250.00,5,5 177s left',
+      _ => 'OK temporary radio',
+    };
   }
 
   @override
@@ -469,11 +679,12 @@ class _FakeMotaConnector extends MeshCoreConnector {
 }
 
 class _FakeRepeaterCommandService extends RepeaterCommandService {
+  final String? unreachableProbeContact;
   final List<String> commands = <String>[];
   final List<({String contact, String command, List<int> path})> calls =
       <({String contact, String command, List<int> path})>[];
 
-  _FakeRepeaterCommandService(super.connector);
+  _FakeRepeaterCommandService(super.connector, {this.unreachableProbeContact});
 
   @override
   Future<String> sendCommand(
@@ -493,6 +704,10 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
     ));
     onAttempt?.call(1);
     onPacketSent?.call();
+    if (repeater.name == unreachableProbeContact &&
+        (command == 'ota status' || command == 'ver')) {
+      throw TimeoutException('${repeater.name} did not answer on TempRadio');
+    }
     final response = switch (command) {
       'ota ls' => '44332211  TEST_BOARD full 1.17.1.2',
       'ota status' => 'download: 1/3 (33%)',

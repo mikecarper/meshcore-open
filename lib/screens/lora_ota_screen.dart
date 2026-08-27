@@ -29,6 +29,8 @@ class LoRaOtaScreen extends StatefulWidget {
 }
 
 class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
+  static const int _reachabilityWindowMinutes = 3;
+
   static const _bandwidths = <double>[
     7.8,
     10.4,
@@ -314,19 +316,22 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
     }
   }
 
-  String _tempRadioCommand() {
+  String _tempRadioCommand({int? minutesOverride}) {
     final frequencyText = _frequencyController.text.trim();
     final frequency = double.tryParse(frequencyText);
     final minutes = int.tryParse(_minutesController.text.trim());
     if (frequency == null || frequency < 150 || frequency > 2500) {
       throw const FormatException('Frequency must be 150-2500 MHz.');
     }
-    if (minutes == null || minutes < 1 || minutes > 10080) {
-      throw const FormatException('Duration must be 1-10080 minutes.');
+    if (minutes == null ||
+        minutes < _reachabilityWindowMinutes ||
+        minutes > 10080) {
+      throw const FormatException('Duration must be 3-10080 minutes.');
     }
     final bandwidth = _numberText(_bandwidth);
+    final effectiveMinutes = minutesOverride ?? minutes;
     return 'tempradio $frequencyText,$bandwidth,$_spreadingFactor,'
-        '$_codingRate,$minutes';
+        '$_codingRate,$effectiveMinutes';
   }
 
   ({Future<void> dispatched, Future<String> response}) _beginRemoteCommand(
@@ -414,6 +419,94 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
       throw StateError('${contact.name} rejected the radio command: $response');
     }
     return response;
+  }
+
+  bool _isErrorResponse(String response) {
+    final normalized = response.trimLeft().toLowerCase();
+    return normalized.isEmpty ||
+        normalized.startsWith('err') ||
+        normalized.startsWith('(err');
+  }
+
+  Future<void> _requireTemporaryReachability(
+    Contact contact,
+    String command,
+    PathSelection path,
+  ) async {
+    final response = await _sendRemoteCommand(contact, command, path);
+    if (_isErrorResponse(response)) {
+      throw StateError(
+        '${contact.name} rejected the temporary-radio reachability probe: '
+        '$response',
+      );
+    }
+    _addEvent('${contact.name} reachable on temporary radio: $response');
+  }
+
+  Future<void> _waitForCompanionTemporaryRadio() async {
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    var lastStatus = 'TempRadio status unavailable';
+    while (DateTime.now().isBefore(deadline)) {
+      lastStatus = await _connector.executeLocalOtaControl('tempradio');
+      final normalized = lastStatus.trimLeft().toLowerCase();
+      if (normalized.startsWith('tempradio active:')) {
+        _addEvent('Companion safety check: $lastStatus');
+        return;
+      }
+      if (!normalized.startsWith('tempradio pending:')) break;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    throw StateError(
+      'Companion did not confirm an active temporary radio: $lastStatus',
+    );
+  }
+
+  Future<void> _verifyTemporaryRadioParticipants() async {
+    // A target reply proves the complete temporary path, including every
+    // owner-prepared passive relay that the app cannot probe independently.
+    await _requireTemporaryReachability(
+      _currentRepeater(),
+      'ota status',
+      _temporaryTargetSelection,
+    );
+    for (final plan in _farthestFirst(temporary: true)) {
+      await _requireTemporaryReachability(
+        plan.contact,
+        'ver',
+        _pathSelection(plan.temporaryPath),
+      );
+    }
+    _addEvent(
+      'Three-minute safety test passed for the target, controlled relays, '
+      'Companion, and passive target path.',
+    );
+  }
+
+  Future<void> _extendTemporaryRadioParticipants(String tempRadio) async {
+    _addEvent('Extending verified temporary-radio windows.');
+    final targetOperation = _beginRemoteCommand(
+      _currentRepeater(),
+      tempRadio,
+      _temporaryTargetSelection,
+    );
+    await _awaitRadioCommand(_currentRepeater(), targetOperation);
+
+    for (final plan in _farthestFirst(temporary: true)) {
+      final operation = _beginRemoteCommand(
+        plan.contact,
+        tempRadio,
+        _pathSelection(plan.temporaryPath),
+      );
+      await _awaitRadioCommand(plan.contact, operation);
+    }
+
+    final localReply = await _connector.executeLocalOtaControl(tempRadio);
+    _addEvent('Companion: $localReply');
+    if (!localReply.trimLeft().toLowerCase().startsWith('ok')) {
+      throw StateError(
+        'Companion rejected the temporary-radio extension: $localReply',
+      );
+    }
   }
 
   Future<void> _editTargetPath({required bool temporary}) async {
@@ -697,6 +790,9 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
       }
 
       final tempRadio = _tempRadioCommand();
+      final testTempRadio = _tempRadioCommand(
+        minutesOverride: _reachabilityWindowMinutes,
+      );
       _validateRoutePlan();
       await _loginControlledHops();
       catalog.resetTransferMetrics();
@@ -704,15 +800,19 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
       _switchedControlledKeys.clear();
       var targetMayBeTemporary = false;
       var localMayBeTemporary = false;
+      var localTemporaryConfirmed = false;
       try {
-        _addEvent('Sending TempRadio to ${widget.repeater.name}.');
+        _addEvent(
+          'Starting a three-minute temporary-radio safety test with '
+          '${widget.repeater.name}.',
+        );
         // Arm recovery before the first byte can leave. If a local sent
         // notification or the remote reply is lost, the command may still
         // have reached the target and scheduled its handoff.
         targetMayBeTemporary = true;
         final targetOperation = _beginRemoteCommand(
           _currentRepeater(),
-          tempRadio,
+          testTempRadio,
           _normalTargetSelection,
         );
         await _awaitRadioCommand(_currentRepeater(), targetOperation);
@@ -724,7 +824,7 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
           _switchedControlledKeys.add(plan.contact.publicKeyHex);
           final operation = _beginRemoteCommand(
             plan.contact,
-            tempRadio,
+            testTempRadio,
             _pathSelection(plan.normalPath),
           );
           await _awaitRadioCommand(plan.contact, operation);
@@ -735,10 +835,22 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
         // the local timer starts. A nearer hop can therefore switch without
         // cutting off a command still destined for a node behind it.
         localMayBeTemporary = true;
-        final localReply = await _connector.executeLocalOtaControl(tempRadio);
+        final localReply = await _connector.executeLocalOtaControl(
+          testTempRadio,
+        );
         _addEvent('Companion: $localReply');
+        if (!localReply.trimLeft().toLowerCase().startsWith('ok')) {
+          throw StateError(
+            'Companion rejected the three-minute safety window: $localReply',
+          );
+        }
 
         await Future<void>.delayed(const Duration(milliseconds: 2500));
+        await _waitForCompanionTemporaryRadio();
+        localTemporaryConfirmed = true;
+        await _verifyTemporaryRadioParticipants();
+        await _extendTemporaryRadioParticipants(tempRadio);
+
         final status = await _connector.controlBleMotaSource(
           bleMotaActionStart,
         );
@@ -779,12 +891,16 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
         if (targetMayBeTemporary ||
             localMayBeTemporary ||
             _switchedControlledKeys.isNotEmpty) {
-          if (!localMayBeTemporary) {
+          if (!localTemporaryConfirmed) {
             try {
-              final reply = await _connector.executeLocalOtaControl(tempRadio);
+              final reply = await _connector.executeLocalOtaControl(
+                testTempRadio,
+              );
               localMayBeTemporary = true;
               _addEvent('Companion recovery handoff: $reply');
               await Future<void>.delayed(const Duration(milliseconds: 2500));
+              await _waitForCompanionTemporaryRadio();
+              localTemporaryConfirmed = true;
             } catch (error) {
               _addEvent(
                 'Could not join the temporary channel for cleanup: $error',
@@ -1440,6 +1556,8 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
                         labelText: 'Duration (minutes)',
+                        helperText:
+                            'A 3-minute reachability test runs before this window starts.',
                       ),
                     ),
                   ],
@@ -1502,7 +1620,7 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                             ? null
                             : _startSession,
                         icon: const Icon(Icons.wifi_tethering),
-                        label: const Text('Prepare radios and start source'),
+                        label: const Text('Test radios and start source'),
                       )
                     else ...[
                       Wrap(

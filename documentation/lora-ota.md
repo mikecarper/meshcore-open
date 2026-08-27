@@ -45,8 +45,9 @@ client but reports that the mOTA channel is unavailable.
    TempRadio; include those repeaters only as hops in the applicable temporary
    paths.
 6. Enter the temporary frequency, bandwidth, spreading factor, coding rate,
-   and bounded duration. Use a frequency legal for your region.
-7. Tap **Prepare radios and start source**.
+   and bounded duration. The requested duration must be at least three minutes.
+   Use a frequency legal for your region.
+7. Tap **Test radios and start source**.
 
 Before changing a radio, the app validates every normal and temporary route and
 logs into every controlled intermediate. It sends `tempradio` to the target,
@@ -64,8 +65,19 @@ The OTA target must remain the endpoint: do not use it as a relay in a
 controlled intermediate's setup or restore path. The app rejects that topology
 because installing the target reboots it before the other nodes can be restored.
 
-After all selected radios change, the app attaches the phone catalog and asks
-the repeater to discover it with `ota ls`.
+The first handoff always uses a fixed three-minute safety window, regardless of
+the longer duration entered on screen. Once every selected radio has changed,
+the app confirms that the Companion reports TempRadio active, requires an
+`ota status` round trip from the target over its temporary path, and requires a
+`ver` round trip from every controlled intermediate over its temporary path.
+The target round trip also proves that owner-prepared passive hops in that path
+can carry traffic. If any check fails, the firmware source is never attached
+and the app immediately attempts the ordered `normalradio` recovery; the
+three-minute timers remain the final fallback.
+
+Only after every check succeeds does the app extend the target, controlled
+intermediates, and Companion to the requested duration. It then attaches the
+phone catalog and asks the repeater to discover it with `ota ls`.
 
 ## Downloading and Installing
 
@@ -103,12 +115,15 @@ the Companion's contact table back on the normal paths. Passive repeaters are
 never changed. The screen blocks normal navigation while a source is active
 and asks before stopping it.
 
-If setup fails after any radio may have switched, the app joins the temporary
-channel if needed and attempts the same ordered cleanup automatically. Every
-temporary-radio command is time-bounded, so a controlled node returns to its
-configured radio even if the phone disconnects before manual restore reaches
-it. An owner-prepared passive relay has its own timer; make sure that timer
-covers setup, transfer, retries, installation, and recovery margin.
+If setup or the three-minute reachability test fails after any radio may have
+switched, the app joins the temporary channel if needed and attempts the same
+ordered cleanup automatically. Before the test passes, every app-controlled
+participant still has only the three-minute window, so a failed temporary path
+cannot strand it for the full transfer duration. Every temporary-radio command
+is time-bounded, so a controlled node returns to its configured radio even if
+the phone disconnects before manual restore reaches it. An owner-prepared
+passive relay has its own timer; make sure that timer covers setup, transfer,
+retries, installation, and recovery margin.
 
 ## Security Boundaries
 
