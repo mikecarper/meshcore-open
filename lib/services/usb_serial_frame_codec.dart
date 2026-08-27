@@ -4,6 +4,12 @@ const int usbSerialTxFrameStart = 0x3c;
 const int usbSerialRxFrameStart = 0x3e;
 const int usbSerialHeaderLength = 3;
 const int usbSerialMaxPayloadLength = 172;
+const String usbLoggingPortErrorMessage =
+    'Selected MeshCore USB interface 02 is for plaintext logging only. '
+    'Choose Companion interface 00.';
+final List<int> _usbLoggingBanner = 'MeshCore USB logging port'.codeUnits;
+final List<int> _usbLoggingInterfaceBanner =
+    'USB CDC 1; interface 02'.codeUnits;
 
 Uint8List wrapUsbSerialTxFrame(Uint8List payload) {
   if (payload.length > usbSerialMaxPayloadLength) {
@@ -31,6 +37,47 @@ class UsbSerialDecodedPacket {
   final Uint8List payload;
 
   bool get isRxFrame => frameStart == usbSerialRxFrameStart;
+}
+
+class UsbLoggingPortDetector {
+  final List<int> _tail = <int>[];
+  bool _detected = false;
+
+  bool get detected => _detected;
+
+  void reset() {
+    _tail.clear();
+    _detected = false;
+  }
+
+  bool ingest(Uint8List bytes) {
+    if (_detected) return true;
+    final maxLength =
+        _usbLoggingBanner.length > _usbLoggingInterfaceBanner.length
+        ? _usbLoggingBanner.length
+        : _usbLoggingInterfaceBanner.length;
+    for (final byte in bytes) {
+      _tail.add(byte);
+      if (_tail.length > maxLength) {
+        _tail.removeAt(0);
+      }
+      if (_endsWith(_usbLoggingBanner) ||
+          _endsWith(_usbLoggingInterfaceBanner)) {
+        _detected = true;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _endsWith(List<int> pattern) {
+    if (_tail.length < pattern.length) return false;
+    final offset = _tail.length - pattern.length;
+    for (var index = 0; index < pattern.length; index++) {
+      if (_tail[offset + index] != pattern[index]) return false;
+    }
+    return true;
+  }
 }
 
 class UsbSerialFrameDecoder {

@@ -244,7 +244,9 @@ class _UsbScreenState extends State<UsbScreen> {
       itemCount: _ports.length,
       itemBuilder: (context, index) {
         final port = _ports[index];
-        final displayName = friendlyUsbPortName(port);
+        final role = classifyUsbPortRole(port);
+        final loggingOnly = role == UsbPortRole.logging;
+        final displayName = usbPortDisplayName(port);
         final rawName = normalizeUsbPortName(port);
         final showRawName =
             rawName != displayName && !rawName.startsWith('web:');
@@ -254,7 +256,8 @@ class _UsbScreenState extends State<UsbScreen> {
           child: MeshCard(
             padding: EdgeInsets.zero,
             child: ListTile(
-              onTap: isConnecting
+              enabled: !loggingOnly,
+              onTap: isConnecting || loggingOnly
                   ? null
                   : () {
                       HapticFeedback.selectionClick();
@@ -275,19 +278,23 @@ class _UsbScreenState extends State<UsbScreen> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              subtitle: showRawName
+              subtitle: loggingOnly || showRawName
                   ? Text(
-                      rawName,
+                      [
+                        if (loggingOnly)
+                          'Interface 02 - plaintext logging only',
+                        if (showRawName) rawName,
+                      ].join('\n'),
                       style: MeshTheme.mono(
                         fontSize: 11,
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     )
                   : null,
               trailing: Icon(
-                Icons.chevron_right,
+                loggingOnly ? Icons.text_snippet_outlined : Icons.chevron_right,
                 size: 18,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -320,7 +327,7 @@ class _UsbScreenState extends State<UsbScreen> {
       setState(() {
         _ports
           ..clear()
-          ..addAll(ports);
+          ..addAll(orderUsbPortsForCompanion(ports));
       });
     } catch (_) {
       // Silent — hot-plug failures are non-critical.
@@ -341,7 +348,7 @@ class _UsbScreenState extends State<UsbScreen> {
       setState(() {
         _ports
           ..clear()
-          ..addAll(ports);
+          ..addAll(orderUsbPortsForCompanion(ports));
         _isLoadingPorts = false;
       });
     } catch (error) {

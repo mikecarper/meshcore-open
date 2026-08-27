@@ -36,6 +36,7 @@ class UsbSerialService {
   final StreamController<Uint8List> _frameController =
       StreamController<Uint8List>.broadcast();
   final UsbSerialFrameDecoder _frameDecoder = UsbSerialFrameDecoder();
+  final UsbLoggingPortDetector _loggingPortDetector = UsbLoggingPortDetector();
 
   UsbSerialStatus _status = UsbSerialStatus.disconnected;
   JSObject? _port;
@@ -90,6 +91,7 @@ class UsbSerialService {
     _status = UsbSerialStatus.connecting;
     _lastError = null;
     _frameDecoder.reset();
+    _loggingPortDetector.reset();
 
     try {
       final requestedPortName = normalizeUsbPortName(portName);
@@ -187,6 +189,7 @@ class UsbSerialService {
     _connectedPortName = null;
     _connectedPortKey = null;
     _frameDecoder.reset();
+    _loggingPortDetector.reset();
 
     if (reader != null) {
       try {
@@ -573,6 +576,12 @@ class UsbSerialService {
   }
 
   void _ingestRawBytes(Uint8List bytes) {
+    if (_loggingPortDetector.ingest(bytes) && _lastError == null) {
+      final error = StateError(usbLoggingPortErrorMessage);
+      _lastError = error;
+      _addFrameError(error);
+      return;
+    }
     for (final packet in _frameDecoder.ingest(bytes)) {
       if (!packet.isRxFrame) {
         _debugLogService?.info(

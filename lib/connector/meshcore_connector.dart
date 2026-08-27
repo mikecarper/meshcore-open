@@ -1784,6 +1784,10 @@ class MeshCoreConnector extends ChangeNotifier {
           '${cause == null ? '' : ': $cause'}',
         );
       }
+      final earlyUsbError = _usbManager.lastError;
+      if (earlyUsbError != null) {
+        throw StateError('USB device rejected during connect: $earlyUsbError');
+      }
 
       _usbFrameSubscription = _usbManager.frameStream.listen(
         _handleFrame,
@@ -1796,6 +1800,12 @@ class MeshCoreConnector extends ChangeNotifier {
           unawaited(disconnect(manual: false));
         },
       );
+      final usbErrorBeforeHandshake = _usbManager.lastError;
+      if (usbErrorBeforeHandshake != null) {
+        throw StateError(
+          'USB device rejected before handshake: $usbErrorBeforeHandshake',
+        );
+      }
 
       _setState(MeshCoreConnectionState.connected);
       _pendingInitialChannelSync = true;

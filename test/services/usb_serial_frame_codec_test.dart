@@ -159,4 +159,44 @@ void main() {
     expect(packets.single.isRxFrame, isTrue);
     expect(packets.single.payload, orderedEquals(<int>[0x88]));
   });
+
+  test('UsbLoggingPortDetector recognizes a split logging banner', () {
+    final detector = UsbLoggingPortDetector();
+
+    expect(
+      detector.ingest(Uint8List.fromList('MeshCore USB log'.codeUnits)),
+      isFalse,
+    );
+    expect(
+      detector.ingest(Uint8List.fromList('ging port\r\n'.codeUnits)),
+      isTrue,
+    );
+    expect(detector.detected, isTrue);
+  });
+
+  test('UsbLoggingPortDetector ignores ordinary Companion frames', () {
+    final detector = UsbLoggingPortDetector();
+
+    expect(
+      detector.ingest(
+        Uint8List.fromList(<int>[
+          usbSerialRxFrameStart,
+          0x02,
+          0x00,
+          0x05,
+          0x06,
+        ]),
+      ),
+      isFalse,
+    );
+  });
+
+  test('UsbLoggingPortDetector reset clears partial banner state', () {
+    final detector = UsbLoggingPortDetector();
+    detector.ingest(Uint8List.fromList('MeshCore USB log'.codeUnits));
+
+    detector.reset();
+
+    expect(detector.ingest(Uint8List.fromList('ging port'.codeUnits)), isFalse);
+  });
 }

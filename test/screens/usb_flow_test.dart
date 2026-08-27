@@ -147,6 +147,38 @@ void main() {
     expect(connector.lastConnectPortName, 'COM6');
   });
 
+  testWidgets('UsbScreen orders and disables the logging-only CDC port', (
+    tester,
+  ) async {
+    final connector = _FakeMeshCoreConnector(
+      ports: <String>[
+        'COM8 - MeshCore Logging - USB\\VID_303A&PID_1001&MI_02',
+        'COM7 - MeshCore Companion - USB\\VID_303A&PID_1001&MI_00',
+      ],
+    );
+
+    await tester.pumpWidget(
+      _buildTestApp(connector: connector, child: const UsbScreen()),
+    );
+    await tester.pumpAndSettle();
+
+    final tiles = tester.widgetList<ListTile>(find.byType(ListTile)).toList();
+    expect((tiles[0].title! as Text).data, 'MeshCore Companion');
+    expect((tiles[1].title! as Text).data, 'MeshCore Logging');
+    expect(tiles[0].enabled, isTrue);
+    expect(tiles[1].enabled, isFalse);
+    expect(find.textContaining('plaintext logging only'), findsOneWidget);
+
+    await tester.tap(find.text('MeshCore Logging'));
+    await tester.pump();
+    expect(connector.connectUsbCalls, 0);
+
+    await tester.tap(find.text('MeshCore Companion'));
+    await tester.pump();
+    expect(connector.connectUsbCalls, 1);
+    expect(connector.lastConnectPortName, 'COM7');
+  });
+
   testWidgets('ScannerScreen USB action reflects platform support', (
     tester,
   ) async {

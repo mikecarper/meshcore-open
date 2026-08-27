@@ -128,4 +128,56 @@ void main() {
       'Seeed Wio Tracker L1 (VID:2886 PID:1667)',
     );
   });
+
+  test('classifies common dual-CDC interface labels', () {
+    expect(
+      classifyUsbPortRole(
+        '/dev/serial/by-id/usb-MeshCore-if00 - MeshCore - interface 00',
+      ),
+      UsbPortRole.companion,
+    );
+    expect(
+      classifyUsbPortRole(
+        'COM8 - MeshCore Logging - USB\\VID_303A&PID_1001&MI_02',
+      ),
+      UsbPortRole.logging,
+    );
+    expect(classifyUsbPortRole('/dev/ttyUSB0 - CP2102'), UsbPortRole.unknown);
+  });
+
+  test('orders Companion before unknown ports and logging last', () {
+    expect(
+      orderUsbPortsForCompanion(<String>[
+        'COM8 - MeshCore Logging - MI_02',
+        'COM3 - CP2102',
+        'COM7 - MeshCore Companion - MI_00',
+      ]),
+      <String>[
+        'COM7 - MeshCore Companion - MI_00',
+        'COM3 - CP2102',
+        'COM8 - MeshCore Logging - MI_02',
+      ],
+    );
+  });
+
+  test('keeps the Web Serial chooser ahead of authorized ports', () {
+    expect(
+      orderUsbPortsForCompanion(<String>[
+        'web:port:1 - MeshCore Companion - MI_00',
+        'web:request - Select a USB device',
+      ]).first,
+      'web:request - Select a USB device',
+    );
+  });
+
+  test('adds explicit role names to generic dual-CDC labels', () {
+    expect(
+      usbPortDisplayName('/dev/ttyACM1 - USB Serial - interface 02'),
+      'USB Serial - MeshCore Logging',
+    );
+    expect(
+      usbPortDisplayName('/dev/ttyACM0 - USB Serial - interface 00'),
+      'USB Serial - MeshCore Companion',
+    );
+  });
 }

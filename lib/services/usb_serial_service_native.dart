@@ -26,6 +26,7 @@ class UsbSerialService {
   final StreamController<Uint8List> _frameController =
       StreamController<Uint8List>.broadcast();
   final UsbSerialFrameDecoder _frameDecoder = UsbSerialFrameDecoder();
+  final UsbLoggingPortDetector _loggingPortDetector = UsbLoggingPortDetector();
   StreamSubscription<dynamic>? _androidDataSubscription;
   StreamSubscription<FlSerialEventArgs>? _dataSubscription;
   UsbSerialStatus _status = UsbSerialStatus.disconnected;
@@ -121,8 +122,10 @@ class UsbSerialService {
     }
 
     _status = UsbSerialStatus.connecting;
+    _lastError = null;
     var normalizedPortName = normalizeUsbPortName(portName);
     _frameDecoder.reset();
+    _loggingPortDetector.reset();
 
     if (_useAndroidUsbHost) {
       try {
@@ -301,6 +304,7 @@ class UsbSerialService {
     _connectedPortKey = null;
     _connectedPortLabel = null;
     _frameDecoder.reset();
+    _loggingPortDetector.reset();
 
     if (_useAndroidUsbHost) {
       await _androidDataSubscription?.cancel();
@@ -416,6 +420,12 @@ class UsbSerialService {
   }
 
   void _ingestRawBytes(Uint8List bytes) {
+    if (_loggingPortDetector.ingest(bytes) && _lastError == null) {
+      final error = StateError(usbLoggingPortErrorMessage);
+      _lastError = error;
+      _addFrameError(error);
+      return;
+    }
     for (final packet in _frameDecoder.ingest(bytes)) {
       if (!packet.isRxFrame) {
         _debugLogService?.info(
