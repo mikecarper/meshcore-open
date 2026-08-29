@@ -226,6 +226,8 @@ class MeshCoreConnector extends ChangeNotifier {
   bool _bleMotaNotificationsEnabled = false;
   String? _bleMotaChannelError;
   _PendingBleMotaControl? _pendingBleMotaControl;
+  bool _localCliRequestPending = false;
+  int _localCliCorrelationCounter = 0;
   Timer? _notifyListenersTimer;
   Timer? _selfInfoRetryTimer;
   Timer? _reconnectTimer;
@@ -3109,6 +3111,78 @@ class MeshCoreConnector extends ChangeNotifier {
     return parseLocalOtaControlResponse(response);
   }
 
+  /// Execute [command] on the connected Companion itself using protocol
+  /// command 66. This does not send an on-air CLI message to a mesh contact.
+  Future<String> executeLocalCliCommand(
+    String command, {
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    if (!isConnected) {
+      throw StateError('Not connected to a MeshCore Companion');
+    }
+    if ((firmwareVerCode ?? 0) < 14) {
+      throw UnsupportedError(
+        'Local CLI commands require Companion protocol version 14 or newer',
+      );
+    }
+    if (_localCliRequestPending) {
+      throw StateError('Another local CLI command is still pending');
+    }
+
+    final correlationTag = (_localCliCorrelationCounter++ & 0xFF)
+        .toRadixString(16)
+        .padLeft(2, '0')
+        .toUpperCase();
+    final expectedPrefix = '$correlationTag|';
+    final frame = buildRunCliCommandFrame(
+      command,
+      correlationTag: correlationTag,
+    );
+    final completer = Completer<String>();
+    late final StreamSubscription<Uint8List> subscription;
+
+    _localCliRequestPending = true;
+    subscription = receivedFrames.listen(
+      (responseFrame) {
+        if (completer.isCompleted || responseFrame.isEmpty) return;
+        // Valid command-66 requests receive a correlated response 29. Generic
+        // error frames are uncorrelated and may belong to another transaction.
+        if (responseFrame[0] != respCodeCliReply) return;
+        try {
+          final reply = parseRunCliCommandResponse(responseFrame);
+          if (!reply.startsWith(expectedPrefix)) return;
+          completer.complete(reply.substring(expectedPrefix.length));
+        } catch (error, stackTrace) {
+          completer.completeError(error, stackTrace);
+        }
+      },
+      onDone: () {
+        if (!completer.isCompleted) {
+          completer.completeError(
+            StateError(
+              'Companion frame stream closed during local CLI command',
+            ),
+          );
+        }
+      },
+    );
+
+    try {
+      await sendFrame(frame);
+      return await completer.future.timeout(
+        timeout,
+        onTimeout: () {
+          throw TimeoutException(
+            'Timed out waiting for the Companion local CLI response',
+          );
+        },
+      );
+    } finally {
+      _localCliRequestPending = false;
+      await subscription.cancel();
+    }
+  }
+
   Future<BleMotaSourceStatus> controlBleMotaSource(int action) async {
     if (_activeTransport != MeshCoreTransportType.bluetooth) {
       throw StateError(
@@ -4730,6 +4804,10 @@ class MeshCoreConnector extends ChangeNotifier {
         break;
       case respCodeCustomVars:
         _handleCustomVars(frame);
+        break;
+      case respCodeCliReply:
+        // Local CLI transactions consume their correlated reply from the
+        // receivedFrames stream.
         break;
       // RESP_CODE_ERR is a defined firmware response (code 1), not an unknown frame.
       case respCodeErr:

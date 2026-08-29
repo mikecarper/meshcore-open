@@ -214,6 +214,7 @@ const int cmdSendAnonReq = 57;
 const int cmdSetAutoAddConfig = 58;
 const int cmdGetAutoAddConfig = 59;
 const int cmdSetPathHashMode = 61;
+const int cmdRunCliCommand = 0x42;
 const int cmdExecLocalOtaControl = 0x4A;
 const int cmdBleMotaSource = 0x4B;
 
@@ -273,6 +274,7 @@ const int respCodeChannelInfo = 18;
 const int respCodeCustomVars = 21;
 const int respCodeAutoAddConfig = 25;
 const int respCodeStats = 24;
+const int respCodeCliReply = 0x1D;
 
 const int statsTypeCore = 0;
 const int statsTypeRadio = 1;
@@ -654,6 +656,66 @@ Uint8List buildSetCustomVarFrame(String value) {
 // Format: [cmd]["reboot"]
 Uint8List buildRebootFrame() {
   return Uint8List.fromList([cmdReboot, ...utf8.encode('reboot')]);
+}
+
+// Build CMD_RUN_CLI_COMMAND frame for a command executed on the connected
+// Companion itself. This is distinct from buildSendCliCommandFrame(), which
+// sends an on-air command to another mesh node.
+Uint8List buildRunCliCommandFrame(String command, {String? correlationTag}) {
+  if (command.isEmpty) {
+    throw ArgumentError.value(command, 'command', 'must not be empty');
+  }
+  if (command.contains('\u0000')) {
+    throw ArgumentError.value(
+      command,
+      'command',
+      'must not contain an embedded NUL',
+    );
+  }
+  if (correlationTag != null &&
+      !RegExp(r'^[0-9A-Fa-f]{2}$').hasMatch(correlationTag)) {
+    throw ArgumentError.value(
+      correlationTag,
+      'correlationTag',
+      'must be exactly two hexadecimal characters',
+    );
+  }
+
+  final text = correlationTag == null
+      ? command
+      : '${correlationTag.toUpperCase()}|$command';
+  final bytes = utf8.encode(text);
+  if (bytes.length > maxFrameSize - 1) {
+    throw ArgumentError.value(
+      command,
+      'command',
+      'UTF-8 command exceeds the Companion frame limit',
+    );
+  }
+  return Uint8List.fromList(<int>[cmdRunCliCommand, ...bytes]);
+}
+
+String parseRunCliCommandResponse(Uint8List frame) {
+  if (frame.isEmpty) {
+    throw const FormatException('Empty local CLI response');
+  }
+  if (frame[0] == respCodeErr) {
+    if (frame.length != 2) {
+      throw const FormatException('Malformed local CLI error response');
+    }
+    throw StateError(
+      'Companion rejected the local CLI command (error ${frame[1]})',
+    );
+  }
+  if (frame[0] != respCodeCliReply || frame.length > maxFrameSize) {
+    throw const FormatException('Malformed local CLI response');
+  }
+
+  final reply = frame.sublist(1);
+  if (reply.contains(0)) {
+    throw const FormatException('Local CLI response contains an embedded NUL');
+  }
+  return utf8.decode(reply, allowMalformed: false);
 }
 
 bool isAllowedLocalOtaControlCommand(String command) {
