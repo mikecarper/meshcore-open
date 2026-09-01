@@ -140,6 +140,92 @@ void main() {
     await connector.closeFake();
   });
 
+  testWidgets('rejects non-finite frequencies before sending radio commands', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final catalog = (await tester.runAsync(
+      () => BleMotaCatalog.load(<XFile>[
+        XFile.fromData(
+          buildTestFullMotaContainer(),
+          path: 'TEST_BOARD-full-v1.17.1.2.mota',
+          name: 'TEST_BOARD-full-v1.17.1.2.mota',
+        ),
+      ]),
+    ))!;
+    final target = Contact(
+      publicKey: Uint8List.fromList(
+        List<int>.generate(pubKeySize, (index) => index + 24),
+      ),
+      name: 'Finite-frequency target',
+      type: advTypeRepeater,
+      pathLength: 0,
+      path: Uint8List(0),
+      lastSeen: DateTime(2026, 8, 30),
+    );
+    final connector = _FakeMotaConnector(target, catalog);
+    final commands = _FakeRepeaterCommandService(connector);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<MeshCoreConnector>.value(
+        value: connector,
+        child: MaterialApp(
+          theme: MeshTheme.dark().copyWith(
+            splashFactory: NoSplash.splashFactory,
+          ),
+          home: LoRaOtaScreen(repeater: target, commandService: commands),
+        ),
+      ),
+    );
+
+    final pageScroll = find
+        .descendant(
+          of: find.byType(ListView),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final frequencyField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField &&
+          widget.decoration?.labelText == 'Frequency (MHz)',
+    );
+
+    for (final (index, invalidFrequency) in <String>[
+      'NaN',
+      'Infinity',
+    ].indexed) {
+      await tester.scrollUntilVisible(
+        frequencyField,
+        index == 0 ? 300 : -300,
+        scrollable: pageScroll,
+      );
+      await tester.enterText(frequencyField, invalidFrequency);
+      final start = find.text('Test radios and start source');
+      await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
+      tester
+          .widget<FilledButton>(
+            find.ancestor(of: start, matching: find.byType(FilledButton)),
+          )
+          .onPressed!();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Frequency must be 150-2500 MHz.'),
+        findsWidgets,
+      );
+      expect(commands.commands, isEmpty);
+      expect(connector.localCommands, isEmpty);
+      expect(connector.sourceStarts, 0);
+    }
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await connector.closeFake();
+  });
+
   testWidgets('restores radios when the three-minute target probe fails', (
     tester,
   ) async {

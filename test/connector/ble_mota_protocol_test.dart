@@ -5,18 +5,81 @@ import 'package:meshcore_open/connector/meshcore_protocol.dart';
 
 void main() {
   group('local OTA control frames', () {
-    test('accepts only the firmware allowlisted command families', () {
-      expect(isAllowedLocalOtaControlCommand('normalradio'), isTrue);
-      expect(isAllowedLocalOtaControlCommand('tempradio'), isTrue);
-      expect(
-        isAllowedLocalOtaControlCommand('tempradio 909.950,250,5,5,120'),
-        isTrue,
-      );
-      expect(isAllowedLocalOtaControlCommand('ota status'), isTrue);
-      expect(isAllowedLocalOtaControlCommand('ota folder on'), isFalse);
-      expect(isAllowedLocalOtaControlCommand('ota status; reboot'), isFalse);
-      expect(isAllowedLocalOtaControlCommand('ota status\nreboot'), isFalse);
-      expect(isAllowedLocalOtaControlCommand('reboot'), isFalse);
+    test('accepts every exact command used by the OTA workflow', () {
+      for (final command in <String>[
+        'normalradio',
+        'tempradio',
+        'tempradio 909.950,250,5,5,120',
+        'tempradio 150,7.8,12,8,3',
+        'tempradio 2500,500,5,5,10080',
+        'ota ls',
+        'ota status',
+        'ota pull 44332211 flash',
+        'ota pull a1b2c3d4 flash',
+        'ota install',
+      ]) {
+        expect(
+          isAllowedLocalOtaControlCommand(command),
+          isTrue,
+          reason: command,
+        );
+      }
+    });
+
+    test('rejects malformed or non-finite temporary-radio commands', () {
+      for (final command in <String>[
+        'tempradio NaN,250,5,5,120',
+        'tempradio Infinity,250,5,5,120',
+        'tempradio -Infinity,250,5,5,120',
+        'tempradio 149.999,250,5,5,120',
+        'tempradio 2500.001,250,5,5,120',
+        'tempradio 909.950,100,5,5,120',
+        'tempradio 909.950,250,4,5,120',
+        'tempradio 909.950,250,5,9,120',
+        'tempradio 909.950,250,5,5,2',
+        'tempradio 909.950,250,5,5,10081',
+        'tempradio 909.950,250,5,5',
+        'tempradio 909.950,250,5,5,120,extra',
+        'tempradio 909.950, 250,5,5,120',
+      ]) {
+        expect(
+          isAllowedLocalOtaControlCommand(command),
+          isFalse,
+          reason: command,
+        );
+      }
+    });
+
+    test('rejects unexpected OTA verbs, arguments, and injection syntax', () {
+      for (final command in <String>[
+        'ota',
+        'ota help',
+        'ota folder on',
+        'ota erase',
+        'ota cancel',
+        'ota ls all',
+        'ota status now',
+        'ota install now',
+        'ota pull 4433221 flash',
+        'ota pull 443322110 flash',
+        'ota pull 44332Z11 flash',
+        'ota pull 44332211 ram',
+        'ota pull 44332211 flash extra',
+        'ota status; reboot',
+        'ota status && reboot',
+        'ota status|reboot',
+        'ota status\nreboot',
+        r'ota status$(reboot)',
+        'ota status`reboot`',
+        'ota "status"',
+        'reboot',
+      ]) {
+        expect(
+          isAllowedLocalOtaControlCommand(command),
+          isFalse,
+          reason: command,
+        );
+      }
     });
 
     test('builds and parses the length-delimited protocol-v14 reply', () {

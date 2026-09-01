@@ -320,7 +320,10 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
     final frequencyText = _frequencyController.text.trim();
     final frequency = double.tryParse(frequencyText);
     final minutes = int.tryParse(_minutesController.text.trim());
-    if (frequency == null || frequency < 150 || frequency > 2500) {
+    if (frequency == null ||
+        !frequency.isFinite ||
+        frequency < 150 ||
+        frequency > 2500) {
       throw const FormatException('Frequency must be 150-2500 MHz.');
     }
     if (minutes == null ||

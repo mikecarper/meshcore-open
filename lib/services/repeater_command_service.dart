@@ -129,12 +129,23 @@ class RepeaterCommandService {
     String responsePayload = responseText;
     if (responseText.length >= 3 && responseText[2] == '|') {
       final prefix = responseText.substring(0, 3);
-      commandId = _pendingByPrefix[prefix];
+      final correlatedCommandId = _pendingByPrefix[prefix];
+      final expectedCommandId = '${repeaterKey}_$prefix';
+
+      // The short prefix disambiguates concurrent/retried commands, but it is
+      // not an identity. Bind it to the contact whose authenticated direct
+      // message carried the reply. Otherwise another logged-in contact could
+      // guess a live prefix and complete a different repeater's operation.
+      // Unknown prefixes are rejected as well, rather than falling through to
+      // the legacy same-contact path and turning a delayed reply into an ACK
+      // for the contact's next command.
+      if (correlatedCommandId != expectedCommandId) return;
+      commandId = correlatedCommandId;
       responsePayload = responseText.substring(3).trimLeft();
     }
 
     commandId ??= _pendingCommands.keys.firstWhere(
-      (id) => id.startsWith(repeaterKey),
+      (id) => id.startsWith('${repeaterKey}_'),
       orElse: () => '',
     );
 
@@ -175,6 +186,12 @@ class RepeaterCommandService {
         return token;
       }
     }
-    return '00|';
+    // Prefixes correlate replies which have already passed the Mesh
+    // transport's sender authentication and replay checks; they are not
+    // security nonces. Reuse after a completed command is intentional, but
+    // two live commands must never share a token. Fail before inserting or
+    // sending when all 256 values are occupied instead of overwriting the
+    // owner of 00| and misrouting one of the replies.
+    throw StateError('All repeater command correlation prefixes are in use');
   }
 }

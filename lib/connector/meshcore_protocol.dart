@@ -740,15 +740,55 @@ bool isAllowedLocalOtaControlCommand(String command) {
     }
   }
 
-  bool token(String value) {
-    return command == value || command.startsWith('$value ');
-  }
-
   if (command == 'normalradio') return true;
   if (command == 'tempradio') return true;
-  if (token('tempradio')) return command.length > 'tempradio '.length;
-  if (!token('ota')) return false;
-  return !token('ota folder');
+  if (command.startsWith('tempradio ')) {
+    final fields = command.substring('tempradio '.length).split(',');
+    if (fields.length != 5 || fields.any((field) => field.trim() != field)) {
+      return false;
+    }
+
+    final frequency = double.tryParse(fields[0]);
+    final bandwidth = double.tryParse(fields[1]);
+    final spreadingFactor = int.tryParse(fields[2]);
+    final codingRate = int.tryParse(fields[3]);
+    final minutes = int.tryParse(fields[4]);
+    const allowedBandwidths = <double>[
+      7.8,
+      10.4,
+      15.6,
+      20.8,
+      31.25,
+      41.7,
+      62.5,
+      125,
+      250,
+      500,
+    ];
+    return frequency != null &&
+        frequency.isFinite &&
+        frequency >= 150 &&
+        frequency <= 2500 &&
+        bandwidth != null &&
+        bandwidth.isFinite &&
+        allowedBandwidths.contains(bandwidth) &&
+        spreadingFactor != null &&
+        spreadingFactor >= 5 &&
+        spreadingFactor <= 12 &&
+        codingRate != null &&
+        codingRate >= 5 &&
+        codingRate <= 8 &&
+        minutes != null &&
+        minutes >= 3 &&
+        minutes <= 10080;
+  }
+
+  if (command == 'ota ls' ||
+      command == 'ota status' ||
+      command == 'ota install') {
+    return true;
+  }
+  return RegExp(r'^ota pull [0-9A-Fa-f]{8} flash$').hasMatch(command);
 }
 
 Uint8List buildLocalOtaControlFrame(String command) {
@@ -756,7 +796,8 @@ Uint8List buildLocalOtaControlFrame(String command) {
     throw ArgumentError.value(
       command,
       'command',
-      'must be an allowed printable tempradio, normalradio, or ota command',
+      'must be an exact normalradio, tempradio, ota ls/status/install, or '
+          'ota pull <8-hex-id> flash command',
     );
   }
   return Uint8List.fromList([cmdExecLocalOtaControl, ...command.codeUnits]);
