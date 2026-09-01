@@ -146,6 +146,9 @@ flutter build apk --release
 flutter build ios --release
 ```
 
+Signed TestFlight releases can be uploaded with the manual GitHub Actions
+workflow described in [documentation/testflight.md](documentation/testflight.md).
+
 ## Project Structure
 
 ```
