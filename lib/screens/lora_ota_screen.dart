@@ -11,6 +11,7 @@ import '../connector/meshcore_protocol.dart';
 import '../models/contact.dart';
 import '../models/path_selection.dart';
 import '../services/ble_mota_catalog.dart';
+import '../services/lora_ota_bootloader_install.dart';
 import '../services/lora_ota_route_planner.dart';
 import '../services/repeater_command_service.dart';
 import '../services/storage_service.dart';
@@ -1058,13 +1059,27 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
   }
 
   Future<void> _install() async {
+    final selectedFile = _selectedFile;
+    if (selectedFile == null) {
+      _showError(StateError('No downloaded firmware file is selected.'));
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Install staged firmware?'),
+        title: Text(
+          selectedFile.isBootloader
+              ? 'Install staged bootloader?'
+              : 'Install staged firmware?',
+        ),
         content: Text(
-          '${widget.repeater.name} will verify the package, approve it, and '
-          'reboot. Do not remove power during the bootloader update.',
+          selectedFile.isBootloader
+              ? '${widget.repeater.name} will replace its bootloader and '
+                    'reboot. The app will first require an exact staged MID '
+                    '${selectedFile.manifestId} and hash '
+                    '${selectedFile.imageHashPrefix}. Do not remove power.'
+              : '${widget.repeater.name} will verify the package, approve it, '
+                    'and reboot. Do not remove power during the update.',
         ),
         actions: [
           TextButton(
@@ -1085,9 +1100,22 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
       if (!_readyToInstall) {
         throw StateError('The download is not reported ready to install.');
       }
+      var installCommand = 'ota install';
+      if (selectedFile.isBootloader) {
+        final bootloaderStatus = await _sendTargetCommand('ota bootloader');
+        _addEvent('${widget.repeater.name}: $bootloaderStatus');
+        installCommand = confirmedBootloaderInstallCommand(
+          status: bootloaderStatus,
+          expectedManifestId: selectedFile.manifestId,
+          expectedImageHashPrefix: selectedFile.imageHashPrefix,
+        );
+        _addEvent(
+          'Staged bootloader MID and image hash match the selected file.',
+        );
+      }
       final operation = _beginRemoteCommand(
         _currentRepeater(),
-        'ota install',
+        installCommand,
         _temporaryTargetSelection,
       );
       await operation.dispatched.timeout(const Duration(seconds: 30));

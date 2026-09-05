@@ -53,6 +53,7 @@ class BleMotaFile {
   final int leavesOffset;
   final int payloadOffset;
   final String hardwareId;
+  final Uint8List _imageHash;
   final Uint8List _descriptor;
   final List<List<_ByteRange>> _payloadCoverage;
   final List<int> _payloadCoveredByBlock;
@@ -80,8 +81,10 @@ class BleMotaFile {
     required this.leavesOffset,
     required this.payloadOffset,
     required this.hardwareId,
+    required Uint8List imageHash,
     required Uint8List descriptor,
-  }) : _descriptor = descriptor,
+  }) : _imageHash = Uint8List.fromList(imageHash),
+       _descriptor = descriptor,
        _payloadCoverage = List<List<_ByteRange>>.generate(
          blockCount,
          (_) => <_ByteRange>[],
@@ -93,6 +96,8 @@ class BleMotaFile {
   bool get isBootloader => (flags & _flagBootloader) != 0;
 
   String get manifestId => _hex(_descriptor.sublist(0, 4));
+
+  String get imageHashPrefix => _hex(_imageHash.sublist(0, 8));
 
   String get versionLabel {
     return '${(firmwareVersion >> 24) & 0xFF}.'
@@ -337,6 +342,7 @@ class BleMotaFile {
       leavesOffset: leavesOffset,
       payloadOffset: payloadOffset,
       hardwareId: _readHardwareId(manifest.sublist(57, 89)),
+      imageHash: manifest.sublist(24, 56),
       descriptor: descriptor,
     );
   }

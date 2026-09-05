@@ -226,6 +226,110 @@ void main() {
     await connector.closeFake();
   });
 
+  testWidgets('uses explicit staged confirmation for a bootloader install', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final catalog = (await tester.runAsync(
+      () async => BleMotaCatalog.load(<XFile>[
+        XFile.fromData(
+          await buildTestBootloaderMotaContainer(),
+          path: 'GAT562-bootloader-2.4.5.mota',
+          name: 'GAT562-bootloader-2.4.5.mota',
+        ),
+      ]),
+    ))!;
+    final file = catalog.files.single;
+    final target = Contact(
+      publicKey: Uint8List.fromList(
+        List<int>.generate(pubKeySize, (index) => index + 80),
+      ),
+      name: 'Remote GAT562',
+      type: advTypeRepeater,
+      pathLength: 0,
+      path: Uint8List(0),
+      lastSeen: DateTime(2026, 9, 5),
+    );
+    final connector = _FakeMotaConnector(target, catalog);
+    final commands = _FakeRepeaterCommandService(
+      connector,
+      readyToInstall: true,
+      bootloaderStatus:
+          'BL board=239A0029 target=D50D2D44 name=GAT562_DFU '
+          'crc=12345678 abi=3 caps=0A | staged:ready '
+          'mid=${file.manifestId} hash=${file.imageHashPrefix}',
+    );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<MeshCoreConnector>.value(
+        value: connector,
+        child: MaterialApp(
+          theme: MeshTheme.dark().copyWith(
+            splashFactory: NoSplash.splashFactory,
+          ),
+          home: LoRaOtaScreen(repeater: target, commandService: commands),
+        ),
+      ),
+    );
+
+    final pageScroll = find
+        .descendant(
+          of: find.byType(ListView),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final start = find.text('Test radios and start source');
+    await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
+    tester
+        .widget<FilledButton>(
+          find.ancestor(of: start, matching: find.byType(FilledButton)),
+        )
+        .onPressed!();
+    for (var tick = 0; tick < 40; tick++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    await tester.drag(pageScroll, const Offset(0, 2000));
+    await tester.pump();
+    await tester.tap(find.text('Pull'));
+    await tester.pump();
+    await tester.tap(find.text('Start download'));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.drag(pageScroll, const Offset(0, -2400));
+    await tester.pump();
+    await tester.tap(find.text('Check download'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('READY TO INSTALL'), findsOneWidget);
+
+    await tester.tap(find.text('Install and reboot'));
+    await tester.pump();
+    expect(find.text('Install staged bootloader?'), findsOneWidget);
+    expect(find.textContaining(file.manifestId), findsOneWidget);
+    expect(find.textContaining(file.imageHashPrefix), findsOneWidget);
+    await tester.tap(find.text('Install and reboot').last);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(commands.commands, contains('ota bootloader'));
+    expect(
+      commands.commands,
+      contains(
+        'ota bootloader install ${file.manifestId} ${file.imageHashPrefix}',
+      ),
+    );
+    expect(commands.commands, isNot(contains('ota install')));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await connector.closeFake();
+  });
+
   testWidgets('restores radios when the three-minute target probe fails', (
     tester,
   ) async {
@@ -766,11 +870,18 @@ class _FakeMotaConnector extends MeshCoreConnector {
 
 class _FakeRepeaterCommandService extends RepeaterCommandService {
   final String? unreachableProbeContact;
+  final bool readyToInstall;
+  final String? bootloaderStatus;
   final List<String> commands = <String>[];
   final List<({String contact, String command, List<int> path})> calls =
       <({String contact, String command, List<int> path})>[];
 
-  _FakeRepeaterCommandService(super.connector, {this.unreachableProbeContact});
+  _FakeRepeaterCommandService(
+    super.connector, {
+    this.unreachableProbeContact,
+    this.readyToInstall = false,
+    this.bootloaderStatus,
+  });
 
   @override
   Future<String> sendCommand(
@@ -796,8 +907,14 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
     }
     final response = switch (command) {
       'ota ls' => '44332211  TEST_BOARD full 1.17.1.2',
-      'ota status' => 'download: 1/3 (33%)',
+      'ota status' =>
+        readyToInstall
+            ? 'download: 40/40 (100%) ready to install'
+            : 'download: 1/3 (33%)',
       String value when value.startsWith('ota pull ') => 'OK download started',
+      'ota bootloader' => bootloaderStatus ?? 'staged:none mid=- hash=-',
+      String value when value.startsWith('ota bootloader install ') =>
+        'OK bootloader update armed',
       'ota install' => 'OK installing',
       'normalradio' => 'OK normal radio',
       String value when value.startsWith('tempradio ') => 'OK temporary radio',

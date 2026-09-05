@@ -22,6 +22,7 @@ void main() {
       expect(file.blockCount, 3);
       expect(file.descriptor.length, bleMotaDescriptorSize);
       expect(file.manifestId, isNotEmpty);
+      expect(file.imageHashPrefix, 'CC767F36F143D4F1');
     });
 
     test('rejects payload that no longer matches its leaves', () async {
@@ -35,6 +36,24 @@ void main() {
         ),
         throwsA(isA<BleMotaFormatException>()),
       );
+    });
+
+    test('validates bootloader confirmation identifiers', () async {
+      final file = await BleMotaFile.load(
+        XFile.fromData(
+          await buildTestBootloaderMotaContainer(),
+          path: 'gat562-bootloader.mota',
+          name: 'gat562-bootloader.mota',
+        ),
+      );
+
+      expect(file.isBootloader, isTrue);
+      expect(file.isFull, isTrue);
+      expect(file.isSigned, isTrue);
+      expect(file.targetId, 0xD50D2D44);
+      expect(file.hardwareId, 'GAT562_DFU');
+      expect(file.manifestId, hasLength(8));
+      expect(file.imageHashPrefix, hasLength(16));
     });
 
     test(

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:cryptography/cryptography.dart';
 
 Uint8List buildTestFullMotaContainer() {
   final payload = Uint8List.fromList(
@@ -34,6 +35,65 @@ Uint8List buildTestFullMotaContainer() {
   manifest.setRange(24, 56, crypto.sha256.convert(payload).bytes);
   manifest[56] = 0;
   manifest.setRange(57, 67, 'TEST_BOARD'.codeUnits);
+  manifest.fillRange(193, 197, 0xFF);
+
+  final total = 8 + manifest.length + leaves.length * 4 + payload.length + 5;
+  final result = BytesBuilder(copy: false)
+    ..add('mOTA'.codeUnits)
+    ..add(_uint32(total))
+    ..add(manifest);
+  for (final leaf in leaves) {
+    result.add(leaf);
+  }
+  result
+    ..add(payload)
+    ..add('vk496'.codeUnits);
+  return result.toBytes();
+}
+
+Future<Uint8List> buildTestBootloaderMotaContainer() async {
+  final payload = Uint8List.fromList(
+    List<int>.generate(0xA000, (index) => (index * 29 + 7) & 0xFF),
+  );
+  const blockSize = 1024;
+  final leaves = <Uint8List>[];
+  for (var offset = 0; offset < payload.length; offset += blockSize) {
+    leaves.add(
+      Uint8List.fromList(
+        crypto.sha256
+            .convert(payload.sublist(offset, offset + blockSize))
+            .bytes
+            .sublist(0, 4),
+      ),
+    );
+  }
+
+  final manifest = Uint8List(197);
+  final manifestData = ByteData.sublistView(manifest);
+  manifest[0] = 3;
+  manifest[1] = 0x07;
+  manifest[2] = 0x12;
+  manifestData.setUint32(3, 0xD50D2D44, Endian.little);
+  manifestData.setUint32(7, 0x02040500, Endian.little);
+  manifestData.setUint32(11, payload.length, Endian.little);
+  manifestData.setUint32(15, payload.length, Endian.little);
+  manifest[19] = 10;
+  manifest.setRange(20, 24, _merkleRoot(leaves));
+  manifest.setRange(24, 56, crypto.sha256.convert(payload).bytes);
+  manifest[56] = 0;
+  manifest.setRange(57, 67, 'GAT562_DFU'.codeUnits);
+
+  final algorithm = Ed25519();
+  final keyPair = await algorithm.newKeyPairFromSeed(
+    List<int>.generate(32, (index) => index + 1),
+  );
+  final publicKey = await keyPair.extractPublicKey();
+  manifest.setRange(97, 129, publicKey.bytes);
+  final signature = await algorithm.sign(
+    manifest.sublist(0, 129),
+    keyPair: keyPair,
+  );
+  manifest.setRange(129, 193, signature.bytes);
   manifest.fillRange(193, 197, 0xFF);
 
   final total = 8 + manifest.length + leaves.length * 4 + payload.length + 5;

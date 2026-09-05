@@ -96,8 +96,15 @@ phone catalog and asks the repeater to discover it with `ota ls`.
   seven-byte status without this counter and is shown as unavailable.
 - **Install and reboot** remains disabled until the repeater reports that the
   staged image is ready.
-- Confirm **Install and reboot** to run the repeater's own final verification,
-  approval, installation, and reboot sequence.
+- For an application package, confirm **Install and reboot** to run the
+  repeater's own final verification, approval, installation, and reboot
+  sequence.
+- For a bootloader package, the app first reads `ota bootloader` from the
+  remote repeater and requires the reported staged manifest ID and first eight
+  image-hash bytes to exactly match the selected, locally validated `.mota`.
+  Only then does it send the explicit
+  `ota bootloader install <MID8> <HASH16>` approval command. A missing or
+  different value stops installation without writing the bootloader.
 
 The phone checks container magic and size, manifest geometry, every block leaf,
 the Merkle root, full-image hashes, and Ed25519 signature consistency. The
