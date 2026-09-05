@@ -39,6 +39,19 @@ jobs:
           test/services/ble_mota_catalog_test.dart
           test/services/lora_ota_bootloader_install_test.dart
           test/screens/lora_ota_screen_test.dart
+      - name: Isolate the field build from normal app installs
+        shell: bash
+        run: |
+          sed -i \
+            's/applicationId = "com.meshcore.meshcore_open"/applicationId = "com.meshcore.meshcore_open.otafixfield"/' \
+            android/app/build.gradle.kts
+          sed -i \
+            's/android:label="MeshCore Open"/android:label="MeshCore Open OTAFIX Field"/' \
+            android/app/src/main/AndroidManifest.xml
+          grep -F 'applicationId = "com.meshcore.meshcore_open.otafixfield"' \
+            android/app/build.gradle.kts
+          grep -F 'android:label="MeshCore Open OTAFIX Field"' \
+            android/app/src/main/AndroidManifest.xml
       - name: Build installable arm64 APK
         run: >-
           flutter build apk --release --no-pub
@@ -48,14 +61,14 @@ jobs:
         shell: bash
         run: |
           install -m 644 build/app/outputs/flutter-apk/app-release.apk \
-            "MeshCore-Open-${{ inputs.build_name }}-LoRa-OTA-arm64.apk"
-          sha256sum "MeshCore-Open-${{ inputs.build_name }}-LoRa-OTA-arm64.apk" \
-            > "MeshCore-Open-${{ inputs.build_name }}-LoRa-OTA-arm64.apk.sha256"
+            "MeshCore-Open-${{ inputs.build_name }}-OTAFIX-field-arm64.apk"
+          sha256sum "MeshCore-Open-${{ inputs.build_name }}-OTAFIX-field-arm64.apk" \
+            > "MeshCore-Open-${{ inputs.build_name }}-OTAFIX-field-arm64.apk.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: meshcore-open-${{ inputs.build_name }}-lora-ota-android
           path: |
-            MeshCore-Open-${{ inputs.build_name }}-LoRa-OTA-arm64.apk
-            MeshCore-Open-${{ inputs.build_name }}-LoRa-OTA-arm64.apk.sha256
+            MeshCore-Open-${{ inputs.build_name }}-OTAFIX-field-arm64.apk
+            MeshCore-Open-${{ inputs.build_name }}-OTAFIX-field-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 30
