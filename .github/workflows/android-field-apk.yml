@@ -54,13 +54,14 @@ jobs:
             android/app/src/main/AndroidManifest.xml
       - name: Build installable arm64 APK
         run: >-
-          flutter build apk --release --no-pub
+          flutter build apk --release --no-pub --split-per-abi
           --build-name "${{ inputs.build_name }}"
           --build-number "${{ inputs.build_number }}"
       - name: Name and checksum artifact
         shell: bash
         run: |
-          install -m 644 build/app/outputs/flutter-apk/app-release.apk \
+          install -m 644 \
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
             "MeshCore-Open-${{ inputs.build_name }}-OTAFIX-field-arm64.apk"
           sha256sum "MeshCore-Open-${{ inputs.build_name }}-OTAFIX-field-arm64.apk" \
             > "MeshCore-Open-${{ inputs.build_name }}-OTAFIX-field-arm64.apk.sha256"
