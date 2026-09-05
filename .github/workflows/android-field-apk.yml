@@ -1,0 +1,61 @@
+name: Android field APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_name:
+        description: Android version name
+        required: true
+        default: 9.5.1
+        type: string
+      build_number:
+        description: Android version code
+        required: true
+        default: "17"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.2
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Test LoRa OTA install safety
+        run: >-
+          flutter test
+          test/services/ble_mota_catalog_test.dart
+          test/services/lora_ota_bootloader_install_test.dart
+          test/screens/lora_ota_screen_test.dart
+      - name: Build installable arm64 APK
+        run: >-
+          flutter build apk --release --no-pub
+          --build-name "${{ inputs.build_name }}"
+          --build-number "${{ inputs.build_number }}"
+      - name: Name and checksum artifact
+        shell: bash
+        run: |
+          install -m 644 build/app/outputs/flutter-apk/app-release.apk \
+            "MeshCore-Open-${{ inputs.build_name }}-LoRa-OTA-arm64.apk"
+          sha256sum "MeshCore-Open-${{ inputs.build_name }}-LoRa-OTA-arm64.apk" \
+            > "MeshCore-Open-${{ inputs.build_name }}-LoRa-OTA-arm64.apk.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meshcore-open-${{ inputs.build_name }}-lora-ota-android
+          path: |
+            MeshCore-Open-${{ inputs.build_name }}-LoRa-OTA-arm64.apk
+            MeshCore-Open-${{ inputs.build_name }}-LoRa-OTA-arm64.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
