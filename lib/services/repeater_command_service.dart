@@ -4,6 +4,16 @@ import '../models/path_selection.dart';
 import '../connector/meshcore_connector.dart';
 import '../connector/meshcore_protocol.dart';
 
+/// Companion firmware (MeshCore commit 4a869163, 2025-12-30) replaces the CLI
+/// frame timestamp with the companion node's RTC for TXT_TYPE_CLI_DATA, so a
+/// plain "clock sync" sets the repeater clock to the node clock. The official
+/// meshcore-cli translates it to an explicit `time <epoch>` command instead;
+/// do the same so the repeater always gets the phone's time.
+String normalizeRepeaterClockSyncCommand(String command, {int? nowSeconds}) {
+  final epoch = nowSeconds ?? DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  return command.trim().toLowerCase() == 'clock sync' ? 'time $epoch' : command;
+}
+
 class RepeaterCommandService {
   final MeshCoreConnector _connector;
   final Map<String, Completer<String>> _pendingCommands = {};
@@ -13,11 +23,13 @@ class RepeaterCommandService {
   int _prefixCounter = 0;
 
   static const int maxRetries = 5;
+  static final RegExp _prefixPattern = RegExp(r'^[0-9A-Fa-f]{2}\|');
 
   RepeaterCommandService(this._connector);
 
   /// Send a CLI command to a repeater with automatic retries
-  /// Returns a future that completes when a response is received or after max retries
+  /// Returns a future that completes when a response is received or after max retries.
+  /// With [raw], the command is sent verbatim without the `XX|` reply prefix.
   Future<String> sendCommand(
     Contact repeater,
     String command, {
@@ -26,7 +38,9 @@ class RepeaterCommandService {
     void Function()? onPacketSent,
     PathSelection? pathSelection,
     int retries = maxRetries,
+    bool raw = false,
   }) async {
+    if (!raw) command = normalizeRepeaterClockSyncCommand(command);
     final attemptCount = retries < 1 ? 1 : retries;
     final selection = await _connector.preparePathForContactSend(
       repeater,
@@ -42,6 +56,7 @@ class RepeaterCommandService {
           selection,
           attempt,
           onPacketSent,
+          raw,
         );
         onResponse?.call(response);
         return response;
@@ -59,6 +74,7 @@ class RepeaterCommandService {
     PathSelection selection,
     int attempt,
     void Function()? onPacketSent,
+    bool raw,
   ) async {
     final repeaterKey = repeater.publicKeyHex;
     final prefix = _nextPrefixToken();
@@ -69,7 +85,7 @@ class RepeaterCommandService {
     _pendingByPrefix[prefix] = commandId;
 
     try {
-      final framedCommand = '$prefix$command';
+      final framedCommand = raw ? command : '$prefix$command';
       final pathLengthValue = selection.useFlood ? -1 : selection.hopCount;
       final timestampSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       _connector.trackRepeaterAck(
@@ -120,6 +136,15 @@ class RepeaterCommandService {
     }
   }
 
+  /// Send [line] verbatim and don't wait for a reply. While `region load` is
+  /// active the firmware consumes each line before prefix stripping and
+  /// sends nothing back (simple_repeater/MyMesh.cpp handleCommand).
+  Future<void> sendUnansweredLine(Contact repeater, String line) {
+    return _connector.sendFrame(
+      buildSendCliCommandFrame(repeater.publicKey, line),
+    );
+  }
+
   /// Call this when a text message response is received from a repeater
   void handleResponse(Contact repeater, String responseText) {
     // Find pending command for this repeater and complete it
@@ -127,8 +152,8 @@ class RepeaterCommandService {
 
     String? commandId;
     String responsePayload = responseText;
-    if (responseText.length >= 3 && responseText[2] == '|') {
-      final prefix = responseText.substring(0, 3);
+    if (_prefixPattern.hasMatch(responseText)) {
+      final prefix = responseText.substring(0, 3).toUpperCase();
       final correlatedCommandId = _pendingByPrefix[prefix];
       final expectedCommandId = '${repeaterKey}_$prefix';
 

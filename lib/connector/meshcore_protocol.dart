@@ -213,6 +213,7 @@ const int cmdGetStats = 56;
 const int cmdSendAnonReq = 57;
 const int cmdSetAutoAddConfig = 58;
 const int cmdGetAutoAddConfig = 59;
+const int cmdGetAllowedRepeatFreq = 60;
 const int cmdSetPathHashMode = 61;
 const int cmdRunCliCommand = 0x42;
 const int cmdExecLocalOtaControl = 0x4A;
@@ -273,6 +274,7 @@ const int respCodeChannelMsgRecvV3 = 17;
 const int respCodeChannelInfo = 18;
 const int respCodeCustomVars = 21;
 const int respCodeAutoAddConfig = 25;
+const int respCodeAllowedRepeatFreq = 26;
 const int respCodeStats = 24;
 const int respCodeCliReply = 0x1D;
 
@@ -294,6 +296,8 @@ const int pushCodeNewAdvert = 0x8A;
 const int pushCodeTelemetryResponse = 0x8B;
 const int pushCodeBinaryResponse = 0x8C;
 const int pushCodeControlData = 0x8E;
+const int pushCodeContactDeleted = 0x8F;
+const int pushCodeContactsFull = 0x90;
 
 // Contact/advertisement types
 const int advTypeChat = 1;
@@ -353,6 +357,10 @@ const int bleMotaMinFirmwareProtocol = 14;
 const int bleMotaLocalCommandMaxBytes = 174;
 // Matches firmware MAX_TEXT_LEN (10 * CIPHER_BLOCK_SIZE).
 const int maxTextPayloadBytes = 160;
+// From attempt 4 on the firmware appends [0][attempt] to the DM payload, so
+// the text must fit in MAX_TEXT_LEN - 2 (BaseChatMesh::composeMsgPacket).
+const int maxFullLengthTextAttempt = 3;
+const int maxTextPayloadBytesAfterFullLengthAttempts = maxTextPayloadBytes - 2;
 const int _sendTextMsgOverheadBytes =
     1 + 1 + 1 + 4 + 6 + 1 + 2; // +2 safety margin
 const int _sendChannelTextMsgOverheadBytes =
@@ -603,7 +611,7 @@ Uint8List buildGetStatsFrame(int statsType) {
 
 /// Path hash width on air: [61][0][mode], mode 0..3 → (mode+1) bytes per hop hash.
 Uint8List buildSetPathHashModeFrame(int mode) {
-  final m = mode.clamp(0, 3).toInt();
+  final m = mode.clamp(0, 2).toInt();
   return Uint8List.fromList([cmdSetPathHashMode, 0, m]);
 }
 
@@ -944,7 +952,9 @@ Uint8List buildResetPathFrame(Uint8List pubKey) {
 }
 
 // Build CMD_ADD_UPDATE_CONTACT frame to set custom path
-// Format: [cmd][pub_key x32][type][flags][path_len][path x64][name x32][Lat? x4, Lon? x4][timestamp? x4]
+// Format: [cmd][pub_key x32][type][flags][path_len][path x64][name x32][last_advert x4][Lat? x4, Lon? x4][lastmod? x4]
+// The firmware stores last_advert as the contact's replay guard, so it must be
+// the contact's own advert timestamp (0 when unknown), never the phone clock.
 Uint8List buildUpdateContactPathFrame(
   Uint8List pubKey,
   Uint8List path,
@@ -954,6 +964,7 @@ Uint8List buildUpdateContactPathFrame(
   String name = '',
   double? lat,
   double? lon,
+  DateTime? lastAdvert,
   DateTime? lastModified,
 }) {
   final writer = BufferWriter();
@@ -968,9 +979,10 @@ Uint8List buildUpdateContactPathFrame(
   // Name (32 bytes, null-padded)
   writer.writeCString(name, maxNameSize);
 
-  // Timestamp
-  final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-  writer.writeUInt32LE(timestamp);
+  final lastAdvertSeconds = lastAdvert == null
+      ? 0
+      : lastAdvert.millisecondsSinceEpoch ~/ 1000;
+  writer.writeUInt32LE(lastAdvertSeconds.clamp(0, 0xFFFFFFFF).toInt());
 
   // Optional [Lat x4, Lon x4][timestamp x4] tail per the doc comment above.
   // Emit 8 bytes of position (zero-filled when only lastModified is provided)
@@ -1008,28 +1020,51 @@ Uint8List buildGetAutoAddFlagsFrame() {
   return Uint8List.fromList([cmdGetAutoAddConfig]);
 }
 
+Uint8List buildGetAllowedRepeatFreqFrame() {
+  return Uint8List.fromList([cmdGetAllowedRepeatFreq]);
+}
+
+typedef RepeatFreqRange = ({int lowKHz, int highKHz});
+
+// RESP_ALLOWED_REPEAT_FREQ: [code] then [lower_khz u32][upper_khz u32] pairs.
+List<RepeatFreqRange> parseAllowedRepeatFreqFrame(Uint8List frame) {
+  final ranges = <RepeatFreqRange>[];
+  final data = ByteData.sublistView(frame);
+  for (var i = 1; i + 8 <= frame.length; i += 8) {
+    ranges.add((
+      lowKHz: data.getUint32(i, Endian.little),
+      highKHz: data.getUint32(i + 4, Endian.little),
+    ));
+  }
+  return ranges;
+}
+
 // Calculate LoRa airtime for a packet
 // Based on Semtech SX127x datasheet formula
 // Returns airtime in milliseconds
+// Preamble defaults to the firmware's per-SF length (32 up to SF8, 16 above,
+// RadioLibWrappers.h preambleLengthForSF); LDRO defaults to the RadioLib rule
+// (symbol time > 16 ms).
 int calculateLoRaAirtime({
   required int payloadBytes,
   required int spreadingFactor,
   required int bandwidthHz,
   required int codingRate,
-  int preambleSymbols = 8,
-  bool lowDataRateOptimize = false,
+  int? preambleSymbols,
+  bool? lowDataRateOptimize,
   bool explicitHeader = true,
 }) {
   // Symbol duration (Ts) in milliseconds
   final symbolDuration = (1 << spreadingFactor) / (bandwidthHz / 1000.0);
 
   // Preamble time
-  final preambleTime = (preambleSymbols + 4.25) * symbolDuration;
+  final preamble = preambleSymbols ?? (spreadingFactor <= 8 ? 32 : 16);
+  final preambleTime = (preamble + 4.25) * symbolDuration;
 
   // Payload symbol count
   final headerBytes = explicitHeader ? 0 : 20;
   final crc = 1; // CRC enabled
-  final de = lowDataRateOptimize ? 1 : 0;
+  final de = (lowDataRateOptimize ?? symbolDuration > 16.0) ? 1 : 0;
 
   final numerator =
       8 * payloadBytes - 4 * spreadingFactor + 28 + 16 * crc - headerBytes;
@@ -1062,7 +1097,6 @@ int calculateMessageTimeout({
     spreadingFactor: sf,
     bandwidthHz: bwHz,
     codingRate: cr,
-    lowDataRateOptimize: sf >= 11,
   );
 
   if (pathLength < 0) {
@@ -1235,6 +1269,7 @@ Uint8List buildSetAutoAddConfigFrame({
   required bool autoAddRoomServer,
   required bool autoAddSensor,
   required bool overwriteOldest,
+  int? maxHops,
 }) {
   final writer = BufferWriter();
   writer.writeByte(cmdSetAutoAddConfig);
@@ -1245,6 +1280,8 @@ Uint8List buildSetAutoAddConfigFrame({
   if (autoAddSensor) flags |= autoAddSensorFlag;
   if (overwriteOldest) flags |= autoAddOverwriteOldestFlag;
   writer.writeByte(flags);
+  // Optional autoadd_max_hops (firmware keeps its value when omitted).
+  if (maxHops != null) writer.writeByte(maxHops.clamp(0, 64).toInt());
   return writer.toBytes();
 }
 
