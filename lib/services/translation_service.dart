@@ -44,7 +44,9 @@ class TranslationService extends ChangeNotifier {
     TranslationFileStore? fileStore,
   }) : _fileStore = fileStore ?? TranslationFileStore() {
     // Initialize langdetect once at service construction.
-    _langDetectInit = initLangDetect();
+    if (!const bool.fromEnvironment('LEGACY_ARM32')) {
+      _langDetectInit = initLangDetect();
+    }
   }
 
   bool _disposed = false;
@@ -110,7 +112,10 @@ class TranslationService extends ChangeNotifier {
     required bool isCli,
     required bool isOutgoing,
   }) {
-    if (!_settings.translationEnabled || isCli || isOutgoing) {
+    if (const bool.fromEnvironment('LEGACY_ARM32') ||
+        !_settings.translationEnabled ||
+        isCli ||
+        isOutgoing) {
       return false;
     }
     return _isPlainTextEligible(text);
@@ -120,7 +125,8 @@ class TranslationService extends ChangeNotifier {
     required String text,
     required String? targetLanguageCode,
   }) {
-    return _settings.composerTranslationEnabled &&
+    return !const bool.fromEnvironment('LEGACY_ARM32') &&
+        _settings.composerTranslationEnabled &&
         targetLanguageCode != null &&
         targetLanguageCode.isNotEmpty &&
         _isPlainTextEligible(text);
@@ -181,6 +187,11 @@ class TranslationService extends ChangeNotifier {
     String? fileName,
     String? id,
   }) async {
+    if (const bool.fromEnvironment('LEGACY_ARM32')) {
+      throw UnsupportedError(
+        'On-device translation is unavailable on this 32-bit Android build.',
+      );
+    }
     final uri = Uri.tryParse(sourceUrl);
     if (uri == null || !uri.hasScheme) {
       throw ArgumentError('Invalid model URL.');
@@ -477,6 +488,7 @@ class TranslationService extends ChangeNotifier {
   }
 
   Future<String?> detectLanguage(String text) async {
+    if (const bool.fromEnvironment('LEGACY_ARM32')) return null;
     try {
       // Ensure the detector is initialized (constructor starts init).
       await (_langDetectInit ??= initLangDetect());
@@ -562,7 +574,10 @@ class TranslationService extends ChangeNotifier {
 
   bool get _hasUsableModel {
     final model = selectedModel;
-    return !kIsWeb && model != null && model.localPath.isNotEmpty;
+    return !kIsWeb &&
+        !const bool.fromEnvironment('LEGACY_ARM32') &&
+        model != null &&
+        model.localPath.isNotEmpty;
   }
 
   bool _isPlainTextEligible(String text) {

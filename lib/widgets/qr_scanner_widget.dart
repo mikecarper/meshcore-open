@@ -156,7 +156,7 @@ class _QrScannerWidgetState extends State<QrScannerWidget>
         MobileScanner(
           controller: _controller,
           onDetect: _handleDetection,
-          errorBuilder: (context, error) {
+          errorBuilder: (context, error, child) {
             return _buildErrorWidget(context, error);
           },
         ),

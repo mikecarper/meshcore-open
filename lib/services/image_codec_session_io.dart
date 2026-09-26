@@ -8,8 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../models/image_codec_support.dart';
 import '../widgets/image_send_codec_binding.dart' show kImageCodecSquareSize;
-import 'image_codec_backend.dart';
-import 'entropy_tables.dart';
+import 'image_codec_backend_legacy.dart';
 
 /// Owns a long-lived [Isolate] and the native codec session inside it.
 ///
@@ -470,19 +469,10 @@ Future<void> _codecWorkerMain(List<Object?> boot) async {
       'unimplemented': true,
       'error':
           'no inference backend is compiled into this build '
-          '(see lib/services/image_codec_backend.dart)',
+          '(see lib/services/image_codec_backend_legacy.dart)',
     });
     return;
   }
-
-  // The bitstream path is a seam so that image_codec_backend.dart can compile
-  // for web, where dart:io does not exist. This worker isolate is native-only,
-  // so it is the correct place to close it -- and it must happen BEFORE
-  // backend.load(), because load() reads supportsBitstreamCodec to decide
-  // whether the codec can encode or decode at all. Left unassigned, the whole
-  // entropy path is dead even with kImageCodecBitstreamPathAvailable true.
-  imageCodecRansCoderBuilder ??= (path) async =>
-      AeicRansCoders(EntropyTables.parse(await File(path).readAsBytes()));
 
   try {
     await backend.load(bundle);

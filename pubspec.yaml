@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 9.5.0+16
 
 environment:
-  sdk: ^3.9.2
+  sdk: '>=3.8.0 <4.0.0'
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -48,7 +48,7 @@ dependencies:
   uuid: ^4.3.3
   flutter_map: ^8.2.2
   latlong2: ^0.9.1
-  flutter_local_notifications: ^22.0.0
+  flutter_local_notifications: ^20.1.0
   crypto: ^3.0.3
   pointycastle: ^4.0.0
   http: ^1.2.0
@@ -56,16 +56,16 @@ dependencies:
   flutter_cache_manager: ^3.4.1
   flutter_foreground_task: ^9.2.0
   characters: ^1.4.0
-  package_info_plus: ^10.1.0
-  mobile_scanner: ^7.1.4  # QR/barcode scanning
+  package_info_plus: ^8.3.1
+  mobile_scanner: 6.0.10  # API 21-compatible QR/barcode scanning
   image_picker: ^1.1.2    # Pick photos to send as compressed mesh images
-  file_selector: ^1.1.0   # Pick .mota files and save desktop GPX exports
+  file_selector: ^1.0.3   # Dart 3.8-compatible legacy device build
   qr_flutter: ^4.1.0      # QR code generation
   url_launcher: ^6.3.0    # Launch URLs in system browser
   flutter_linkify: ^6.0.0 # Auto-detect and linkify URLs in text
   gpx: ^2.3.0
   path_provider: ^2.1.5
-  share_plus: ^13.1.0
+  share_plus: ^12.0.2
   build_pipe: ^0.3.1
   material_symbols_icons: ^4.2928.1
   web: ^1.1.1
@@ -73,27 +73,16 @@ dependencies:
   flutter_blue_plus_platform_interface: ^9.0.2
   ml_algo: ^16.0.0
   ml_dataframe: ^1.0.0
-  llamadart: ^0.8.0
+  llamadart:
+    path: legacy_shims/llamadart
   flutter_langdetect: ^0.0.1
   cryptography: ^2.9.0
-  cryptography_flutter: ^2.3.4
+  cryptography_flutter:
+    path: legacy_shims/cryptography_flutter
+  flutter_onnxruntime:
+    path: legacy_shims/flutter_onnxruntime
   convert: ^3.1.2
-  # ONNX Runtime 1.23.0 via platform channels. Powers the AEIC-SE image codec
-  # decoder (lib/services/image_codec_backend.dart). arm64-only on Android — see
-  # the abiFilters note in android/app/build.gradle.kts; a universal APK pays
-  # ~56 MB for ORT instead of ~18 MB.
-  flutter_onnxruntime: ^1.8.3
   base32: ^2.2.0
-
-hooks:
-  user_defines:
-    llamadart:
-      llamadart_native_backends:
-        platforms:
-          android-arm64:
-            backends: [cpu]
-          android-x64:
-            backends: [cpu]
 
 dev_dependencies:
   flutter_test:

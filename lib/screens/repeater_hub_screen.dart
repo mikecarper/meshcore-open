@@ -140,7 +140,7 @@ class RepeaterHubScreen extends StatelessWidget {
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
                 child: DropdownButtonFormField<String>(
-                  initialValue: chemistry,
+                  value: chemistry,
                   isExpanded: true,
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.battery_full, size: 18),

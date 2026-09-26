@@ -1335,7 +1335,7 @@ class _RepeaterSettingsScreenState extends State<RepeaterSettingsScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                initialValue: _bandwidth,
+                value: _bandwidth,
                 decoration: InputDecoration(labelText: l10n.repeater_bandwidth),
                 items: _bandwidthOptions.map((bw) {
                   return DropdownMenuItem(
@@ -1354,7 +1354,7 @@ class _RepeaterSettingsScreenState extends State<RepeaterSettingsScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                initialValue: _spreadingFactor,
+                value: _spreadingFactor,
                 decoration: InputDecoration(
                   labelText: l10n.repeater_spreadingFactor,
                 ),
@@ -1372,7 +1372,7 @@ class _RepeaterSettingsScreenState extends State<RepeaterSettingsScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                initialValue: _codingRate,
+                value: _codingRate,
                 decoration: InputDecoration(
                   labelText: l10n.repeater_codingRate,
                 ),
@@ -1784,7 +1784,7 @@ class _RepeaterSettingsScreenState extends State<RepeaterSettingsScreen> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      initialValue: _loopDetect,
+                      value: _loopDetect,
                       decoration: InputDecoration(
                         labelText: l10n.repeater_loopDetect,
                         helperText: l10n.repeater_loopDetectHelper,
@@ -1975,7 +1975,7 @@ class _RepeaterSettingsScreenState extends State<RepeaterSettingsScreen> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<int>(
-                  initialValue: _pathHashMode,
+                  value: _pathHashMode,
                   decoration: InputDecoration(
                     labelText: l10n.repeater_pathHashMode,
                     helperText: l10n.repeater_pathHashModeHelper,

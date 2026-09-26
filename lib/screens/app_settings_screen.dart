@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide RadioListTile;
 import 'package:provider/provider.dart';
 
 import '../connector/meshcore_connector.dart';
@@ -16,6 +16,7 @@ import '../services/translation_service.dart';
 import '../theme/mesh_theme.dart';
 import '../widgets/adaptive_app_bar_title.dart';
 import '../widgets/mesh_ui.dart';
+import '../widgets/legacy_radio.dart';
 import '../widgets/sync_progress_overlay.dart';
 import '../helpers/snack_bar_builder.dart';
 import 'map_cache_screen.dart';
@@ -866,7 +867,7 @@ class AppSettingsScreen extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          initialValue: selection,
+          value: selection,
           isExpanded: true,
           decoration: const InputDecoration(
             border: UnderlineInputBorder(),
@@ -1419,6 +1420,13 @@ class AppSettingsScreen extends StatelessWidget {
     AppSettingsService settingsService,
     TranslationService translationService,
   ) {
+    if (const bool.fromEnvironment('LEGACY_ARM32')) {
+      return const ListTile(
+        leading: Icon(Icons.translate),
+        title: Text('On-device translation unavailable'),
+        subtitle: Text('This 32-bit Android 5.1 build has no translation runtime.'),
+      );
+    }
     final settings = settingsService.settings;
     final translationEnabled = settings.translationEnabled;
     final scheme = Theme.of(context).colorScheme;
@@ -1547,7 +1555,7 @@ class AppSettingsScreen extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: DropdownButtonFormField<String>(
-            initialValue: settings.translationSelectedModelId,
+            value: settings.translationSelectedModelId,
             isExpanded: true,
             decoration: InputDecoration(
               labelText: context.l10n.translation_downloadedModelLabel,
@@ -1570,7 +1578,7 @@ class AppSettingsScreen extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: DropdownButtonFormField<String>(
-            initialValue: null,
+            value: null,
             isExpanded: true,
             decoration: InputDecoration(
               labelText: context.l10n.translation_presetModelLabel,
@@ -1740,7 +1748,7 @@ class AppSettingsScreen extends StatelessWidget {
       children: [
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          initialValue: settingsService.settings.selectedCyr2latProfileId,
+          value: settingsService.settings.selectedCyr2latProfileId,
           decoration: InputDecoration(
             labelText: context.l10n.channels_cyr2latSettingsSubheading,
             border: const OutlineInputBorder(),

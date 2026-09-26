@@ -842,7 +842,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               DropdownButtonFormField<int>(
-                initialValue: selectedMode,
+                value: selectedMode,
                 decoration: InputDecoration(
                   labelText: l10n.repeater_pathHashMode,
                   border: const OutlineInputBorder(),
@@ -1390,7 +1390,7 @@ void _privacySettings(BuildContext context, MeshCoreConnector connector) {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<int>(
-                initialValue: telemetryMode,
+                value: telemetryMode,
                 decoration: InputDecoration(
                   labelText: l10n.settings_telemetryBaseMode,
                   border: const OutlineInputBorder(),
@@ -1404,7 +1404,7 @@ void _privacySettings(BuildContext context, MeshCoreConnector connector) {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<int>(
-                initialValue: telemetryLocMode,
+                value: telemetryLocMode,
                 decoration: InputDecoration(
                   labelText: l10n.settings_telemetryLocationMode,
                   border: const OutlineInputBorder(),
@@ -1418,7 +1418,7 @@ void _privacySettings(BuildContext context, MeshCoreConnector connector) {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<int>(
-                initialValue: telemetryEnvMode,
+                value: telemetryEnvMode,
                 decoration: InputDecoration(
                   labelText: l10n.settings_telemetryEnvironmentMode,
                   border: const OutlineInputBorder(),
@@ -1987,7 +1987,7 @@ class _RadioSettingsDialogState extends State<_RadioSettingsDialog> {
           children: [
             DropdownButtonFormField<int>(
               key: ValueKey<int?>(_selectedPresetIndex),
-              initialValue: _selectedPresetIndex,
+              value: _selectedPresetIndex,
               decoration: InputDecoration(
                 labelText: l10n.settings_presets,
                 border: const OutlineInputBorder(),
@@ -2021,7 +2021,7 @@ class _RadioSettingsDialogState extends State<_RadioSettingsDialog> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<LoRaBandwidth>(
-              initialValue: _bandwidth,
+              value: _bandwidth,
               decoration: InputDecoration(
                 labelText: l10n.settings_bandwidth,
                 border: const OutlineInputBorder(),
@@ -2043,7 +2043,7 @@ class _RadioSettingsDialogState extends State<_RadioSettingsDialog> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<LoRaSpreadingFactor>(
-              initialValue: _spreadingFactor,
+              value: _spreadingFactor,
               decoration: InputDecoration(
                 labelText: l10n.settings_spreadingFactor,
                 border: const OutlineInputBorder(),
@@ -2067,7 +2067,7 @@ class _RadioSettingsDialogState extends State<_RadioSettingsDialog> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<LoRaCodingRate>(
-              initialValue: _codingRate,
+              value: _codingRate,
               decoration: InputDecoration(
                 labelText: l10n.settings_codingRate,
                 border: const OutlineInputBorder(),

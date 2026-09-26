@@ -15,7 +15,7 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.meshcore.meshcore_open"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = "29.0.14206865"
 
     compileOptions {
@@ -33,7 +33,7 @@ android {
         applicationId = "com.meshcore.meshcore_open"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 21
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -43,21 +43,11 @@ android {
         //         arguments += listOf("-DANDROID_STL=c++_shared")
         //     }
         // }
-        // arm64-v8a only, deliberately.
-        //
-        //  * ONNX Runtime (flutter_onnxruntime, used by the AEIC-SE image codec)
-        //    ships a per-ABI .so. arm64-v8a alone costs ~18 MB of APK; a
-        //    universal APK carrying armeabi-v7a and x86_64 as well costs ~56 MB.
-        //  * llamadart only declares android-arm64 and android-x64 backends in
-        //    pubspec.yaml's `hooks.user_defines`, so an armeabi-v7a build already
-        //    has no translation backend at all.
-        //  * The image codec needs ~2.7 GiB peak resident, which no 32-bit
-        //    address space can provide regardless of ABI.
-        //
-        // Consequence: this APK will not install on 32-bit-only ARM devices or on
-        // x86_64 emulators. For emulator work, temporarily add "x86_64" here.
+        // Android 5.1.1 phone is 32-bit ARM. AI runtimes are disabled in this
+        // build: the image codec needs ~2.7 GiB and translation has no ARM32
+        // backend.
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters += listOf("armeabi-v7a")
         }
     }
 

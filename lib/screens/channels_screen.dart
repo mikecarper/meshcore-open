@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide RadioListTile;
 import 'package:flutter/services.dart';
 import 'package:meshcore_open/storage/channel_message_store.dart';
 import 'package:meshcore_open/utils/keys.dart';
@@ -26,6 +26,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/mesh_ui.dart';
 import '../widgets/qr_code_display.dart';
 import '../widgets/quick_switch_bar.dart';
+import '../widgets/legacy_radio.dart';
 import '../widgets/sync_progress_overlay.dart';
 import '../widgets/unread_badge.dart';
 import '../helpers/gif_helper.dart';
@@ -1156,7 +1157,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
                           vertical: 8,
                         ),
                         child: DropdownButtonFormField<Community>(
-                          initialValue: selectedCommunity,
+                          value: selectedCommunity,
                           items: _communities
                               .map(
                                 (c) => DropdownMenuItem(
@@ -1623,7 +1624,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
                       Padding(
                         padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
                         child: DropdownButtonFormField<String>(
-                          initialValue: selectedCyr2LatProfileId,
+                          value: selectedCyr2LatProfileId,
                           decoration: InputDecoration(
                             labelText: sheetContext
                                 .l10n

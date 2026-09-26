@@ -31,6 +31,8 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 pubspec.lock
+# Keep dependency resolutions reproducible for the API 22 branch.
+!pubspec.lock
 /build/
 /coverage/
 # fvm project files
@@ -72,6 +74,7 @@ macos/Flutter/GeneratedPluginRegistrant.swift
 # Android
 .gradle/
 **/android/.gradle/
+android/.kotlin/
 **/android/captures/
 **/android/local.properties
 **/android/.externalNativeBuild/
