@@ -5158,9 +5158,9 @@ class AppLocalizationsHu extends AppLocalizations {
 
   @override
   String get dialog_disconnectedMessage =>
-      'A kapcsolat megszakadt a kísérővel.';
+      'A kapcsolat megszakadt a k\u00eds\u00e9r\u0151vel.';
 
   @override
   String get dialog_connectCompanion =>
-      'Csatlakozz egy kísérőhöz az ismétlő- és szobaszerver-funkciók eléréséhez.';
+      'Csatlakozz egy k\u00eds\u00e9r\u0151h\u00f6z az ism\u00e9tl\u0151- \u00e9s szobaszerver-funkci\u00f3k el\u00e9r\u00e9s\u00e9hez.';
 }

@@ -5181,13 +5181,13 @@ class AppLocalizationsUk extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => 'Від’єднано';
+  String get dialog_disconnectedTitle => '\u0412\u0456\u0434\u2019\u0454\u0434\u043d\u0430\u043d\u043e';
 
   @override
   String get dialog_disconnectedMessage =>
-      'Вас від’єднано від вашого супутника.';
+      '\u0412\u0430\u0441 \u0432\u0456\u0434\u2019\u0454\u0434\u043d\u0430\u043d\u043e \u0432\u0456\u0434 \u0432\u0430\u0448\u043e\u0433\u043e \u0441\u0443\u043f\u0443\u0442\u043d\u0438\u043a\u0430.';
 
   @override
   String get dialog_connectCompanion =>
-      'Підключіться до супутнього пристрою, щоб отримати доступ до функцій ретранслятора та сервера кімнат.';
+      '\u041f\u0456\u0434\u043a\u043b\u044e\u0447\u0456\u0442\u044c\u0441\u044f \u0434\u043e \u0441\u0443\u043f\u0443\u0442\u043d\u044c\u043e\u0433\u043e \u043f\u0440\u0438\u0441\u0442\u0440\u043e\u044e, \u0449\u043e\u0431 \u043e\u0442\u0440\u0438\u043c\u0430\u0442\u0438 \u0434\u043e\u0441\u0442\u0443\u043f \u0434\u043e \u0444\u0443\u043d\u043a\u0446\u0456\u0439 \u0440\u0435\u0442\u0440\u0430\u043d\u0441\u043b\u044f\u0442\u043e\u0440\u0430 \u0442\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u043a\u0456\u043c\u043d\u0430\u0442.';
 }

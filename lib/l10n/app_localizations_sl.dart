@@ -5147,9 +5147,9 @@ class AppLocalizationsSl extends AppLocalizations {
 
   @override
   String get dialog_disconnectedMessage =>
-      'Prekinjena povezava s vašim spre伴ovalcem.';
+      'Prekinjena povezava s va\u0161im spre\u4f34ovalcem.';
 
   @override
   String get dialog_connectCompanion =>
-      'Povežite se s spremljevalnikom za dostop do funkcij ponavljalnika in strežnika sob.';
+      'Pove\u017eite se s spremljevalnikom za dostop do funkcij ponavljalnika in stre\u017enika sob.';
 }

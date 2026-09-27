@@ -5178,5 +5178,5 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get dialog_connectCompanion =>
-      'Connettiti a un dispositivo companion per accedere alle funzionalità di ripetitore e server stanza.';
+      'Connettiti a un dispositivo companion per accedere alle funzionalit\u00e0 di ripetitore e server stanza.';
 }

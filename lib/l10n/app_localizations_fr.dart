@@ -5187,13 +5187,13 @@ class AppLocalizationsFr extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => 'Déconnecté';
+  String get dialog_disconnectedTitle => 'D\u00e9connect\u00e9';
 
   @override
   String get dialog_disconnectedMessage =>
-      'Vous avez été déconnecté de votre compagnon.';
+      'Vous avez \u00e9t\u00e9 d\u00e9connect\u00e9 de votre compagnon.';
 
   @override
   String get dialog_connectCompanion =>
-      'Connectez-vous à un compagnon pour accéder aux fonctionnalités de répéteur et de serveur de salle.';
+      'Connectez-vous \u00e0 un compagnon pour acc\u00e9der aux fonctionnalit\u00e9s de r\u00e9p\u00e9teur et de serveur de salle.';
 }

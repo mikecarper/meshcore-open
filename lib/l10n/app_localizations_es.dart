@@ -5168,9 +5168,9 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get dialog_disconnectedMessage =>
-      'Te has desconectado de tu compañero.';
+      'Te has desconectado de tu compa\u00f1ero.';
 
   @override
   String get dialog_connectCompanion =>
-      'Conéctate a un compañero para acceder a las funciones de repetidor y servidor de sala.';
+      'Con\u00e9ctate a un compa\u00f1ero para acceder a las funciones de repetidor y servidor de sala.';
 }

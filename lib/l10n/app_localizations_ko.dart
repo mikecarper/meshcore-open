@@ -4916,11 +4916,11 @@ class AppLocalizationsKo extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => '연결 끊김';
+  String get dialog_disconnectedTitle => '\uc5f0\uacb0 \ub04a\uae40';
 
   @override
-  String get dialog_disconnectedMessage => '컴패니언과의 연결이 끊어졌습니다.';
+  String get dialog_disconnectedMessage => '\ucef4\ud328\ub2c8\uc5b8\uacfc\uc758 \uc5f0\uacb0\uc774 \ub04a\uc5b4\uc84c\uc2b5\ub2c8\ub2e4.';
 
   @override
-  String get dialog_connectCompanion => '리피터 및 룸 서버 기능에 액세스하려면 컴패니언에 연결하세요.';
+  String get dialog_connectCompanion => '\ub9ac\ud53c\ud130 \ubc0f \ub8f8 \uc11c\ubc84 \uae30\ub2a5\uc5d0 \uc561\uc138\uc2a4\ud558\ub824\uba74 \ucef4\ud328\ub2c8\uc5b8\uc5d0 \uc5f0\uacb0\ud558\uc138\uc694.';
 }

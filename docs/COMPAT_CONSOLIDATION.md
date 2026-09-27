@@ -31,7 +31,7 @@ Other branch pointers and the separate MeshCore firmware repository are unchange
 - `flutter test --dart-define=LEGACY_ARM32=true`: 773 passed, 2 skipped.
 - `python3 -m unittest discover -s tools -p test_translate.py -v`: 4 passed.
 - Full analyzer: no errors; 11 existing warnings/info in unchanged files.
-- Release validation uses:
+- Release APK built successfully (19.2 MB) using:
   `flutter build apk --release --target-platform android-arm --dart-define=LEGACY_ARM32=true`.
 
 The new regression tests cover GPS permissions, sampling, file retention,

@@ -5157,13 +5157,13 @@ class AppLocalizationsBg extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => 'Прекъснато';
+  String get dialog_disconnectedTitle => '\u041f\u0440\u0435\u043a\u044a\u0441\u043d\u0430\u0442\u043e';
 
   @override
   String get dialog_disconnectedMessage =>
-      'Свързването ви с вашия спътник е прекъснато.';
+      '\u0421\u0432\u044a\u0440\u0437\u0432\u0430\u043d\u0435\u0442\u043e \u0432\u0438 \u0441 \u0432\u0430\u0448\u0438\u044f \u0441\u043f\u044a\u0442\u043d\u0438\u043a \u0435 \u043f\u0440\u0435\u043a\u044a\u0441\u043d\u0430\u0442\u043e.';
 
   @override
   String get dialog_connectCompanion =>
-      'Свържете се с придружител, за да получите достъп до функциите на ретранслатора и сървъра за стаи.';
+      '\u0421\u0432\u044a\u0440\u0436\u0435\u0442\u0435 \u0441\u0435 \u0441 \u043f\u0440\u0438\u0434\u0440\u0443\u0436\u0438\u0442\u0435\u043b, \u0437\u0430 \u0434\u0430 \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u0435 \u0434\u043e\u0441\u0442\u044a\u043f \u0434\u043e \u0444\u0443\u043d\u043a\u0446\u0438\u0438\u0442\u0435 \u043d\u0430 \u0440\u0435\u0442\u0440\u0430\u043d\u0441\u043b\u0430\u0442\u043e\u0440\u0430 \u0438 \u0441\u044a\u0440\u0432\u044a\u0440\u0430 \u0437\u0430 \u0441\u0442\u0430\u0438.';
 }

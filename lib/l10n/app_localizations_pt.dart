@@ -5163,7 +5163,7 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get dialog_disconnectedMessage =>
-      'Você foi desconectado do seu companheiro.';
+      'Voc\u00ea foi desconectado do seu companheiro.';
 
   @override
   String get dialog_connectCompanion =>

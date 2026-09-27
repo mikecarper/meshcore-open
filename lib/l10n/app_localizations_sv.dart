@@ -5119,9 +5119,9 @@ class AppLocalizationsSv extends AppLocalizations {
 
   @override
   String get dialog_disconnectedMessage =>
-      'Du har kopplats från din companion.';
+      'Du har kopplats fr\u00e5n din companion.';
 
   @override
   String get dialog_connectCompanion =>
-      'Anslut till en sällskapstjänst för att komma åt upprepning och rumsserverfunktioner.';
+      'Anslut till en s\u00e4llskapstj\u00e4nst f\u00f6r att komma \u00e5t upprepning och rumsserverfunktioner.';
 }

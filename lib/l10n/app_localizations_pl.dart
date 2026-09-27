@@ -5188,13 +5188,13 @@ class AppLocalizationsPl extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => 'Rozłączono';
+  String get dialog_disconnectedTitle => 'Roz\u0142\u0105czono';
 
   @override
   String get dialog_disconnectedMessage =>
-      'Zostałeś rozłączony ze swoim towarzyszem.';
+      'Zosta\u0142e\u015b roz\u0142\u0105czony ze swoim towarzyszem.';
 
   @override
   String get dialog_connectCompanion =>
-      'Połącz się z towarzyszem, aby uzyskać dostęp do funkcji powtarzacza i serwera pokoi.';
+      'Po\u0142\u0105cz si\u0119 z towarzyszem, aby uzyska\u0107 dost\u0119p do funkcji powtarzacza i serwera pokoi.';
 }

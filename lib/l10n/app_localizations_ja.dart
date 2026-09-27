@@ -4908,11 +4908,11 @@ class AppLocalizationsJa extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => '切断済み';
+  String get dialog_disconnectedTitle => '\u5207\u65ad\u6e08\u307f';
 
   @override
-  String get dialog_disconnectedMessage => 'コンパニオンとの接続が切れました。';
+  String get dialog_disconnectedMessage => '\u30b3\u30f3\u30d1\u30cb\u30aa\u30f3\u3068\u306e\u63a5\u7d9a\u304c\u5207\u308c\u307e\u3057\u305f\u3002';
 
   @override
-  String get dialog_connectCompanion => 'コネクトしてリピーターとルームサーバー機能にアクセス';
+  String get dialog_connectCompanion => '\u30b3\u30cd\u30af\u30c8\u3057\u3066\u30ea\u30d4\u30fc\u30bf\u30fc\u3068\u30eb\u30fc\u30e0\u30b5\u30fc\u30d0\u30fc\u6a5f\u80fd\u306b\u30a2\u30af\u30bb\u30b9';
 }
