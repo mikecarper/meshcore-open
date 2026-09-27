@@ -185,7 +185,7 @@ class _SNRIndicatorState extends State<SNRIndicator> {
                 snrUi.text,
                 style: TextStyle(fontSize: 12, color: snrUi.color),
               ),
-              if (directRepeater != null)
+              if (directRepeater != null && !widget.compact)
                 Text(
                   '${directRepeaters.length}: ${directRepeater.pubkeyPrefixHex}: ${_formatLastUpdated(directRepeater.lastUpdated)}',
                   style: TextStyle(

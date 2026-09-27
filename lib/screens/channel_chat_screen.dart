@@ -299,6 +299,7 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        titleSpacing: 0,
         title: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => openRegionSelectDialog(widget.channel),
@@ -335,8 +336,11 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
                         final regionText = region.isNotEmpty
                             ? ' • ${context.l10n.channels_regionSetTo(region)}'
                             : '';
+                        final compact = MediaQuery.sizeOf(context).width <= 360;
                         return Text(
-                          '$privacy • ${context.l10n.chat_unread(unreadCount)}$regionText',
+                          compact
+                              ? context.l10n.chat_unread(unreadCount)
+                              : '$privacy • ${context.l10n.chat_unread(unreadCount)}$regionText',
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 12),
                         );
@@ -356,7 +360,9 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
             icon: const Icon(Icons.landscape),
             onPressed: () => openRegionSelectDialog(widget.channel),
           ),
-          const RadioStatsIconButton(),
+          RadioStatsIconButton(
+            compact: MediaQuery.sizeOf(context).width <= 360,
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {

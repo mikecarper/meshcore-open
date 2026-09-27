@@ -14,6 +14,7 @@ import '../services/notification_service.dart';
 import '../utils/contact_search.dart';
 import '../utils/platform_info.dart';
 import '../widgets/list_filter_widget.dart';
+import '../widgets/adaptive_app_bar_title.dart';
 import '../widgets/mesh_ui.dart';
 import '../helpers/snack_bar_builder.dart';
 import '../helpers/contact_proximity.dart';
@@ -106,13 +107,9 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          l10n.discoveredContacts_Title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 20),
-        ),
-        centerTitle: true,
+        titleSpacing: 0,
+        title: AdaptiveAppBarTitle(l10n.discoveredContacts_Title),
+        centerTitle: false,
         actions: [
           PopupMenuButton(
             itemBuilder: (context) => [

@@ -54,6 +54,7 @@ void main() {
     await tester.pump();
     expect(find.text('4.14V'), findsOneWidget);
     expect(find.text('12.0 dB'), findsOneWidget);
+    expect(find.textContaining('node'), findsNothing);
     final title = tester.renderObject<RenderParagraph>(find.text('Channels'));
     expect(
       title.didExceedMaxLines,

@@ -176,18 +176,25 @@ class AppSettingsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               SegmentedButton<String>(
+                showSelectedIcon: false,
                 segments: [
                   ButtonSegment(
                     value: 'system',
-                    label: Text(context.l10n.appSettings_themeSystem),
+                    label: _themeSegmentLabel(
+                      context.l10n.appSettings_themeSystem,
+                    ),
                   ),
                   ButtonSegment(
                     value: 'light',
-                    label: Text(context.l10n.appSettings_themeLight),
+                    label: _themeSegmentLabel(
+                      context.l10n.appSettings_themeLight,
+                    ),
                   ),
                   ButtonSegment(
                     value: 'dark',
-                    label: Text(context.l10n.appSettings_themeDark),
+                    label: _themeSegmentLabel(
+                      context.l10n.appSettings_themeDark,
+                    ),
                   ),
                 ],
                 selected: {settingsService.settings.themeMode},
@@ -246,6 +253,11 @@ class AppSettingsScreen extends StatelessWidget {
       ],
     );
   }
+
+  Widget _themeSegmentLabel(String label) => FittedBox(
+    fit: BoxFit.scaleDown,
+    child: Text(label, maxLines: 1, softWrap: false),
+  );
 
   Widget _buildNotificationsContent(
     BuildContext context,

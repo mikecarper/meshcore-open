@@ -68,6 +68,16 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    final title = tester.renderObject<RenderParagraph>(
+      find.text('Discovered Contacts'),
+    );
+    expect(
+      title.didExceedMaxLines,
+      isFalse,
+      reason:
+          'title=${title.size}, intrinsic=${title.getMaxIntrinsicWidth(double.infinity)}',
+    );
+    expect(tester.getSize(find.byType(AppBar)).height, kToolbarHeight);
     final name = tester.renderObject<RenderParagraph>(
       find.text('North Mercer Repeater'),
     );
