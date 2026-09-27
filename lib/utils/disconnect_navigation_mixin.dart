@@ -7,7 +7,7 @@ mixin DisconnectNavigationMixin<T extends StatefulWidget> on State<T> {
   /// Call this in your Widget build method to enable auto-navigation.
   /// Returns true if still connected, false if navigation was triggered.
   bool checkConnectionAndNavigate(MeshCoreConnector connector) {
-    if (!connector.isConnected) {
+    if (!connector.isConnected && !connector.preserveUpdateScreenOnDisconnect) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           Navigator.popUntil(context, (route) => route.isFirst);

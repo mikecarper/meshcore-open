@@ -22,6 +22,7 @@ import 'ble_debug_log_screen.dart';
 import '../widgets/radio_stats_entry.dart';
 import '../widgets/sync_progress_overlay.dart';
 import 'region_management_screen.dart';
+import 'companion_update_screen.dart';
 
 /// Convert device coding-rate value (1-4 on some firmware, 5-8 on others)
 /// to the UI enum range (always 5-8).
@@ -98,6 +99,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 MeshCard(
                   padding: EdgeInsets.zero,
                   child: _buildIdentityCardContent(context, connector),
+                ),
+                MeshCard(
+                  onTap: connector.isConnected
+                      ? () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const CompanionUpdateScreen(),
+                          ),
+                        )
+                      : null,
+                  child: _buildNavTileContent(
+                    context,
+                    icon: Icons.system_update_alt,
+                    title: 'Update Companion',
+                    subtitle: 'Firmware over Bluetooth or Wi-Fi',
+                  ),
                 ),
 
                 // NODE section

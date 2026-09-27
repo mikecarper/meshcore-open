@@ -9,7 +9,7 @@ at the engine level, so changing `minSdk` alone is insufficient. The app's
 
 ```sh
 flutter pub get
-flutter test --dart-define=LEGACY_ARM32=true test/legacy_android_compat_test.dart
+flutter test --dart-define=LEGACY_ARM32=true
 flutter build apk --release --target-platform android-arm \
   --dart-define=LEGACY_ARM32=true
 ```
@@ -27,3 +27,22 @@ The local `legacy_shims/` packages keep Dart source compatible with this SDK:
 The older mobile scanner plugin retains QR scanning. `legacy_radio.dart` adapts
 the newer `RadioGroup` API to the older Material `RadioListTile` API. The build
 also uses the older `DropdownButtonFormField.value` spelling.
+
+## Phone update workflow
+
+The scanner has one persistent Scan/Stop action. Connect to the Companion,
+then open Settings > Update Companion to find board-matched GitHub releases
+or select a Nordic DFU ZIP / ESP32 application image from phone Downloads.
+Long confirmations scroll, and show the last battery voltage when available.
+Firmware updates still require the correct board image and stable radio power.
+
+Remote management includes phone-generated LoRa differential packages,
+Bluetooth DFU, Wi-Fi updates, and an explicit two-step partition migration
+for supported exact-board migration bundles. Unsupported layouts are not
+automatically repartitioned.
+
+Admin identity backups require Companion firmware advertising
+`ephemeral-routed-v1`. Replies bypass chat and debug logs, and the phone
+encrypts the backup with a user passphrase before saving it. Keep the
+encrypted backup and passphrase separately. No network credentials or private
+identity keys belong in this repository.

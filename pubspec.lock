@@ -26,7 +26,7 @@ packages:
     source: hosted
     version: "7.7.1"
   archive:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: archive
       sha256: "6c5bcd986e06b94e3c40244af471750840a3d2341d1f9763a1100a14add517b4"
@@ -891,6 +891,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.2"
+  nordic_dfu:
+    dependency: "direct main"
+    description:
+      name: nordic_dfu
+      sha256: "8c0820421382455de65b5b2f6711f5202e3ea3ab4727d43240f82c9fd97023ac"
+      url: "https://pub.dev"
+    source: hosted
+    version: "8.0.1"
   octo_image:
     dependency: transitive
     description:

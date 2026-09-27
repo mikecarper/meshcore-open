@@ -220,7 +220,7 @@ void main() {
 
     final context = tester.element(find.byType(ScannerScreen));
     final l10n = AppLocalizations.of(context);
-    expect(find.text(l10n.scanner_scan), findsWidgets);
+    expect(find.text(l10n.scanner_scan), findsOneWidget);
 
     if (PlatformInfo.supportsUsbSerial) {
       expect(find.byTooltip(l10n.connectionChoiceUsbLabel), findsOneWidget);

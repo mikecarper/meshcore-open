@@ -17,6 +17,44 @@ import 'package:provider/provider.dart';
 import '../support/mota_test_data.dart';
 
 void main() {
+  testWidgets('restores saved path when both preflight routes time out', (
+    tester,
+  ) async {
+    final target = Contact(
+      publicKey: Uint8List.fromList(
+        List<int>.generate(pubKeySize, (index) => index + 16),
+      ),
+      name: 'Unreachable repeater',
+      type: advTypeRepeater,
+      pathLength: 1,
+      path: Uint8List.fromList(<int>[0x77]),
+      lastSeen: DateTime(2026, 9, 26),
+    );
+    final connector = _FakeMotaConnector(target, null);
+    final commands = _FakeRepeaterCommandService(
+      connector,
+      unreachableProbeContact: target.name,
+    );
+    await tester.pumpWidget(
+      ChangeNotifierProvider<MeshCoreConnector>.value(
+        value: connector,
+        child: MaterialApp(
+          home: LoRaOtaScreen(repeater: target, commandService: commands),
+        ),
+      ),
+    );
+    final button = find.text('Find updates on GitHub');
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pump();
+    await tester.pump();
+    expect(commands.calls[0].path, <int>[0x77]);
+    expect(commands.calls[1].path, <int>[]);
+    expect(connector.preparedPaths.last, <int>[0x77]);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await connector.closeFake();
+  });
+
   testWidgets('runs phone OTA workflow and renders both progress measures', (
     tester,
   ) async {
@@ -44,7 +82,14 @@ void main() {
       path: Uint8List.fromList(<int>[0xA1, 0xB2]),
       lastSeen: DateTime(2026, 8, 26),
     );
-    final connector = _FakeMotaConnector(target, catalog);
+    final connector = _FakeMotaConnector(
+      target,
+      catalog,
+      radioFrequencyHz: 910525000,
+      radioBandwidthHz: 62500,
+      radioSf: 7,
+      radioCr: 5,
+    );
     final commands = _FakeRepeaterCommandService(connector);
 
     await tester.pumpWidget(
@@ -60,19 +105,24 @@ void main() {
     );
 
     expect(find.text('Encrypted mOTA channel: Ready'), findsOneWidget);
-    expect(find.textContaining('Passive hops need no entry'), findsOneWidget);
     final pageScroll = find
         .descendant(
           of: find.byType(ListView),
           matching: find.byType(Scrollable),
         )
         .first;
+    await tester.scrollUntilVisible(
+      find.textContaining('Passive hops need no entry'),
+      300,
+      scrollable: pageScroll,
+    );
+    expect(find.textContaining('Passive hops need no entry'), findsOneWidget);
 
     final start = find.text('Test radios and start source');
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     final startButton = find.ancestor(
       of: start,
-      matching: find.byType(FilledButton),
+      matching: find.byWidgetPredicate((widget) => widget is FilledButton),
     );
     final startCallback = tester.widget<FilledButton>(startButton).onPressed;
     expect(startCallback, isNotNull);
@@ -82,21 +132,26 @@ void main() {
     }
 
     expect(connector.localCommands.take(3), <String>[
-      'tempradio 909.950,250,5,5,3',
+      'tempradio 910.525,62.5,7,5,3',
       'tempradio',
-      'tempradio 909.950,250,5,5,120',
+      'tempradio 910.525,62.5,7,5,120',
     ]);
     expect(commands.calls.take(4).map((call) => call.command), <String>[
-      'tempradio 909.950,250,5,5,3',
+      'tempradio 910.525,62.5,7,5,3',
       'ota status',
-      'tempradio 909.950,250,5,5,120',
+      'tempradio 910.525,62.5,7,5,120',
       'ota ls',
+    ]);
+    expect(commands.calls.take(4).map((call) => call.minimumTimeoutMs), <int>[
+      15000,
+      20000,
+      15000,
+      20000,
     ]);
     expect(connector.sourceStarts, 1);
 
-    await tester.drag(pageScroll, const Offset(0, 2000));
-    await tester.pump();
     final pull = find.text('Pull');
+    await tester.scrollUntilVisible(pull, -300, scrollable: pageScroll);
     expect(pull, findsOneWidget);
     await tester.tap(pull);
     await tester.pump();
@@ -108,9 +163,10 @@ void main() {
     await tester.runAsync(() => file.read(file.payloadOffset, 1024));
     await tester.pump(const Duration(seconds: 2));
 
-    await tester.drag(pageScroll, const Offset(0, -2400));
-    await tester.pump();
     final check = find.text('Check download');
+    await tester.scrollUntilVisible(check, 300, scrollable: pageScroll);
+    await tester.ensureVisible(check);
+    await tester.pump();
     expect(check, findsOneWidget);
     await tester.tap(check);
     await tester.pump();
@@ -127,7 +183,7 @@ void main() {
     await tester.scrollUntilVisible(stop, 300, scrollable: pageScroll);
     final stopButton = find.ancestor(
       of: stop,
-      matching: find.byType(OutlinedButton),
+      matching: find.byWidgetPredicate((widget) => widget is OutlinedButton),
     );
     final stopCallback = tester.widget<OutlinedButton>(stopButton).onPressed;
     expect(stopCallback, isNotNull);
@@ -135,6 +191,19 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(connector.bleMotaCatalog, isNull);
+
+    final remove = find.byTooltip(
+      'Remove TEST_BOARD-full-v1.17.1.2.mota from catalog',
+    );
+    await tester.scrollUntilVisible(remove, -300, scrollable: pageScroll);
+    await tester.tap(remove);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('No packages selected'),
+      -300,
+      scrollable: pageScroll,
+    );
+    expect(find.text('No packages selected'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await connector.closeFake();
@@ -208,7 +277,12 @@ void main() {
       await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
       tester
           .widget<FilledButton>(
-            find.ancestor(of: start, matching: find.byType(FilledButton)),
+            find.ancestor(
+              of: start,
+              matching: find.byWidgetPredicate(
+                (widget) => widget is FilledButton,
+              ),
+            ),
           )
           .onPressed!();
       await tester.pumpAndSettle();
@@ -226,7 +300,7 @@ void main() {
     await connector.closeFake();
   });
 
-  testWidgets('uses explicit staged confirmation for a bootloader install', (
+  testWidgets('restores radios when bootloader install reply times out', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(430, 932);
@@ -258,6 +332,7 @@ void main() {
     final commands = _FakeRepeaterCommandService(
       connector,
       readyToInstall: true,
+      installReplyTimesOut: true,
       bootloaderStatus:
           'BL board=239A0029 target=D50D2D44 name=GAT562_DFU '
           'crc=12345678 abi=3 caps=0A | staged:ready '
@@ -286,24 +361,31 @@ void main() {
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     tester
         .widget<FilledButton>(
-          find.ancestor(of: start, matching: find.byType(FilledButton)),
+          find.ancestor(
+            of: start,
+            matching: find.byWidgetPredicate(
+              (widget) => widget is FilledButton,
+            ),
+          ),
         )
         .onPressed!();
     for (var tick = 0; tick < 40; tick++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
 
-    await tester.drag(pageScroll, const Offset(0, 2000));
-    await tester.pump();
-    await tester.tap(find.text('Pull'));
+    final pull = find.text('Pull');
+    await tester.scrollUntilVisible(pull, -300, scrollable: pageScroll);
+    await tester.tap(pull);
     await tester.pump();
     await tester.tap(find.text('Start download'));
     await tester.pump();
     await tester.pump();
 
-    await tester.drag(pageScroll, const Offset(0, -2400));
+    final check = find.text('Check download');
+    await tester.scrollUntilVisible(check, 300, scrollable: pageScroll);
+    await tester.ensureVisible(check);
     await tester.pump();
-    await tester.tap(find.text('Check download'));
+    await tester.tap(check);
     await tester.pump();
     await tester.pump();
     expect(find.text('READY TO INSTALL'), findsOneWidget);
@@ -325,6 +407,11 @@ void main() {
       ),
     );
     expect(commands.commands, isNot(contains('ota install')));
+    expect(connector.localCommands, contains('normalradio'));
+    expect(connector.sourceStops, greaterThan(0));
+    expect(commands.commands, isNot(contains('normalradio')));
+    expect(find.textContaining('Installing firmware failed'), findsNothing);
+    expect(find.text('Verify installed update'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await connector.closeFake();
@@ -385,7 +472,12 @@ void main() {
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     tester
         .widget<FilledButton>(
-          find.ancestor(of: start, matching: find.byType(FilledButton)),
+          find.ancestor(
+            of: start,
+            matching: find.byWidgetPredicate(
+              (widget) => widget is FilledButton,
+            ),
+          ),
         )
         .onPressed!();
     for (var tick = 0; tick < 40; tick++) {
@@ -471,7 +563,7 @@ void main() {
         )
         .first;
     final add = find.text('Add controlled intermediate');
-    await tester.ensureVisible(add);
+    await tester.scrollUntilVisible(add, 300, scrollable: pageScroll);
     await tester.pumpAndSettle();
     await tester.tap(add);
     await tester.pumpAndSettle();
@@ -482,7 +574,12 @@ void main() {
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     tester
         .widget<FilledButton>(
-          find.ancestor(of: start, matching: find.byType(FilledButton)),
+          find.ancestor(
+            of: start,
+            matching: find.byWidgetPredicate(
+              (widget) => widget is FilledButton,
+            ),
+          ),
         )
         .onPressed!();
     for (var tick = 0; tick < 40; tick++) {
@@ -571,14 +668,14 @@ void main() {
         )
         .first;
     final add = find.text('Add controlled intermediate');
-    await tester.ensureVisible(add);
+    await tester.scrollUntilVisible(add, 300, scrollable: pageScroll);
     await tester.pumpAndSettle();
     await tester.tap(add);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Far relay'));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(add);
+    await tester.scrollUntilVisible(add, -300, scrollable: pageScroll);
     await tester.pumpAndSettle();
     await tester.tap(add);
     await tester.pumpAndSettle();
@@ -589,7 +686,7 @@ void main() {
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     final startButton = find.ancestor(
       of: start,
-      matching: find.byType(FilledButton),
+      matching: find.byWidgetPredicate((widget) => widget is FilledButton),
     );
     final startCallback = tester.widget<FilledButton>(startButton).onPressed;
     expect(startCallback, isNotNull);
@@ -621,7 +718,7 @@ void main() {
     await tester.scrollUntilVisible(stop, 300, scrollable: pageScroll);
     final stopButton = find.ancestor(
       of: stop,
-      matching: find.byType(OutlinedButton),
+      matching: find.byWidgetPredicate((widget) => widget is OutlinedButton),
     );
     final stopCallback = tester.widget<OutlinedButton>(stopButton).onPressed;
     expect(stopCallback, isNotNull);
@@ -691,7 +788,7 @@ void main() {
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     final startButton = find.ancestor(
       of: start,
-      matching: find.byType(FilledButton),
+      matching: find.byWidgetPredicate((widget) => widget is FilledButton),
     );
     tester.widget<FilledButton>(startButton).onPressed!();
     for (var tick = 0; tick < 40; tick++) {
@@ -733,6 +830,10 @@ void main() {
 class _FakeMotaConnector extends MeshCoreConnector {
   final Contact target;
   final List<Contact> additionalContacts;
+  final int? radioFrequencyHz;
+  final int? radioBandwidthHz;
+  final int? radioSf;
+  final int? radioCr;
   final StreamController<Uint8List> _frames =
       StreamController<Uint8List>.broadcast();
   BleMotaCatalog? _catalog;
@@ -740,13 +841,31 @@ class _FakeMotaConnector extends MeshCoreConnector {
   bool _channelReady = true;
   MeshCoreConnectionState _fakeState = MeshCoreConnectionState.connected;
   int sourceStarts = 0;
+  int sourceStops = 0;
+  final List<List<int>> preparedPaths = <List<int>>[];
   final List<String> localCommands = <String>[];
 
   _FakeMotaConnector(
     this.target,
     this._catalog, {
     this.additionalContacts = const <Contact>[],
+    this.radioFrequencyHz,
+    this.radioBandwidthHz,
+    this.radioSf,
+    this.radioCr,
   });
+
+  @override
+  int? get currentFreqHz => radioFrequencyHz;
+
+  @override
+  int? get currentBwHz => radioBandwidthHz;
+
+  @override
+  int? get currentSf => radioSf;
+
+  @override
+  int? get currentCr => radioCr;
 
   @override
   List<Contact> get contacts => <Contact>[target, ...additionalContacts];
@@ -805,7 +924,10 @@ class _FakeMotaConnector extends MeshCoreConnector {
       sourceStarts++;
       _attached = true;
     }
-    if (action == bleMotaActionStop) _attached = false;
+    if (action == bleMotaActionStop) {
+      sourceStops++;
+      _attached = false;
+    }
     return BleMotaSourceStatus(
       action: action,
       flags: bleMotaFlagChannelReady | (_attached ? bleMotaFlagAttached : 0),
@@ -840,6 +962,9 @@ class _FakeMotaConnector extends MeshCoreConnector {
     Contact contact, {
     PathSelection? explicitSelection,
   }) async {
+    preparedPaths.add(
+      List<int>.from(explicitSelection?.pathBytes ?? contact.path),
+    );
     return explicitSelection ??
         PathSelection(
           pathBytes: contact.path,
@@ -871,15 +996,22 @@ class _FakeMotaConnector extends MeshCoreConnector {
 class _FakeRepeaterCommandService extends RepeaterCommandService {
   final String? unreachableProbeContact;
   final bool readyToInstall;
+  final bool installReplyTimesOut;
   final String? bootloaderStatus;
   final List<String> commands = <String>[];
-  final List<({String contact, String command, List<int> path})> calls =
-      <({String contact, String command, List<int> path})>[];
+  final List<
+    ({String contact, String command, List<int> path, int minimumTimeoutMs})
+  >
+  calls =
+      <
+        ({String contact, String command, List<int> path, int minimumTimeoutMs})
+      >[];
 
   _FakeRepeaterCommandService(
     super.connector, {
     this.unreachableProbeContact,
     this.readyToInstall = false,
+    this.installReplyTimesOut = false,
     this.bootloaderStatus,
   });
 
@@ -892,6 +1024,7 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
     void Function()? onPacketSent,
     PathSelection? pathSelection,
     int retries = RepeaterCommandService.maxRetries,
+    int minimumTimeoutMs = 0,
     bool raw = false,
   }) async {
     commands.add(command);
@@ -899,9 +1032,15 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
       contact: repeater.name,
       command: command,
       path: List<int>.from(pathSelection?.pathBytes ?? const <int>[]),
+      minimumTimeoutMs: minimumTimeoutMs,
     ));
     onAttempt?.call(1);
     onPacketSent?.call();
+    if (installReplyTimesOut &&
+        (command == 'ota install' ||
+            command.startsWith('ota bootloader install '))) {
+      throw StateError('Command timeout after 20 seconds');
+    }
     if (repeater.name == unreachableProbeContact &&
         (command == 'ota status' || command == 'ver')) {
       throw TimeoutException('${repeater.name} did not answer on TempRadio');
@@ -910,8 +1049,11 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
       'ota ls' => '44332211  TEST_BOARD full 1.17.1.2',
       'ota status' =>
         readyToInstall
-            ? 'download: 40/40 (100%) ready to install'
+            ? 'OTA | target:11223344 env:TEST_BOARD_repeat | '
+                  'download: 40/40 (100%) ready to install'
             : 'download: 1/3 (33%)',
+      'ota self' => 'self base_hash=0000000000000000',
+      'ota key' => 'no trusted signer keys yet',
       String value when value.startsWith('ota pull ') => 'OK download started',
       'ota bootloader' => bootloaderStatus ?? 'staged:none mid=- hash=-',
       String value when value.startsWith('ota bootloader install ') =>

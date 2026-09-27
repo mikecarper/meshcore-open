@@ -54,6 +54,8 @@ void main() {
       expect(file.hardwareId, 'GAT562_DFU');
       expect(file.manifestId, hasLength(8));
       expect(file.imageHashPrefix, hasLength(16));
+      expect(file.bootloaderStorageCaps, 0x0A);
+      expect(file.signerPublicKeyHex, hasLength(64));
     });
 
     test(

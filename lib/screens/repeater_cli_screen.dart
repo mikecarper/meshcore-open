@@ -119,6 +119,19 @@ class _RepeaterCliScreenState extends State<RepeaterCliScreen> {
     }
     final command = _commandController.text.trim();
     if (command.isEmpty) return;
+    if (RegExp(
+      r'^(?:[0-9a-f]{2}\|)?backup +prv\.key\b',
+      caseSensitive: false,
+    ).hasMatch(command)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Use Back up private identity so the key is not stored in CLI history.',
+          ),
+        ),
+      );
+      return;
+    }
     final startsRegionLoad = _regionLoadPattern.hasMatch(command.toLowerCase());
 
     setState(() {

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -11,10 +12,16 @@ import '../connector/meshcore_protocol.dart';
 import '../models/contact.dart';
 import '../models/path_selection.dart';
 import '../services/ble_mota_catalog.dart';
+import '../services/github_mota_release_service.dart';
 import '../services/lora_ota_bootloader_install.dart';
 import '../services/lora_ota_route_planner.dart';
+import '../services/lora_ota_target_info.dart';
+import '../services/local_mota_downloads.dart';
+import '../services/local_mota_builder.dart';
+import '../services/phone_mota_signing_key.dart';
 import '../services/repeater_command_service.dart';
 import '../services/storage_service.dart';
+import '../services/update_battery_note.dart';
 import '../theme/mesh_theme.dart';
 import '../widgets/mesh_ui.dart';
 import '../widgets/path_editor_sheet.dart';
@@ -53,6 +60,7 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
   );
   final List<String> _events = <String>[];
   final StorageService _storage = StorageService();
+  final GitHubMotaReleaseService _githubReleases = GitHubMotaReleaseService();
   final List<_ControlledHopPlan> _controlledHops = <_ControlledHopPlan>[];
   final Set<String> _switchedControlledKeys = <String>{};
 
@@ -84,6 +92,14 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
   int? _confirmedBlocks;
   int? _confirmedTotalBlocks;
   String? _validationStatus;
+  String? _releaseStatus;
+  GitHubMotaDiscovery? _releaseDiscovery;
+  LoraOtaTargetInfo? _releaseTarget;
+  String? _preflightBaseHash;
+  BleMotaFile? _pendingInstallVerification;
+  String? _preInstallBootloaderCrc;
+  String? _installVerificationStatus;
+  bool _installVerified = false;
 
   @override
   void initState() {
@@ -94,11 +110,46 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
     _ownsCommandService = widget.commandService == null;
     _commandService =
         widget.commandService ?? RepeaterCommandService(_connector);
+    _preferCurrentRadioProfile();
     _catalog = _connector.bleMotaCatalog;
     final current = _currentRepeater();
     _normalTargetPath = _bestKnownPath(current);
     _temporaryTargetPath = Uint8List.fromList(_normalTargetPath);
     _frameSubscription = _connector.receivedFrames.listen(_handleFrame);
+  }
+
+  void _preferCurrentRadioProfile() {
+    // Start from a profile the connected Companion is already using. This is
+    // the safest reachability-test default for older nodes, and avoids
+    // hard-coding a frequency that may not be legal in the user's region.
+    final frequencyHz = _connector.currentFreqHz;
+    final bandwidthHz = _connector.currentBwHz;
+    final sf = _connector.currentSf;
+    final cr = _connector.currentCr;
+    if (frequencyHz == null ||
+        bandwidthHz == null ||
+        sf == null ||
+        cr == null) {
+      return;
+    }
+    final frequency = frequencyHz / 1000000;
+    final bandwidth = bandwidthHz / 1000;
+    if (frequency < 150 ||
+        frequency > 2500 ||
+        sf < 5 ||
+        sf > 12 ||
+        cr < 5 ||
+        cr > 8) {
+      return;
+    }
+    final supportedBandwidths = _bandwidths.where(
+      (candidate) => (candidate - bandwidth).abs() <= 0.01,
+    );
+    if (supportedBandwidths.isEmpty) return;
+    _frequencyController.text = frequency.toStringAsFixed(3);
+    _bandwidth = supportedBandwidths.first;
+    _spreadingFactor = sf;
+    _codingRate = cr;
   }
 
   @override
@@ -114,6 +165,7 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
     }
     _frequencyController.dispose();
     _minutesController.dispose();
+    _githubReleases.dispose();
     super.dispose();
   }
 
@@ -317,6 +369,434 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
     }
   }
 
+  Future<void> _loadDownloads() async {
+    await _runBusy('Importing Downloads', () async {
+      if (_sessionActive) {
+        throw StateError(
+          'Stop the current OTA session before importing files.',
+        );
+      }
+      final sources = await LocalMotaDownloads.scan();
+      if (mounted) {
+        setState(
+          () => _validationStatus = 'Validating ${sources.length} file(s)',
+        );
+      }
+      final catalog = await BleMotaCatalog.load(sources);
+      if (!mounted) return;
+      setState(() {
+        _catalog = catalog;
+        _validationStatus = '${catalog.files.length} verified file(s)';
+      });
+      _addEvent(
+        'Imported ${catalog.files.length} verified .mota file(s) from Downloads.',
+      );
+    });
+  }
+
+  Future<void> _buildLocalUpdate({
+    bool useGitHubImage = false,
+    bool fullWithoutBase = false,
+  }) async {
+    await _runBusy('Building update on phone', () async {
+      if (_sessionActive) {
+        throw StateError('Stop the OTA session before changing its catalog.');
+      }
+      final target = await _readTargetInfo();
+      if (fullWithoutBase && target.receiverStorage == 'internal_flash') {
+        throw StateError(
+          'This radio has internal-only staging and needs an exact-base delta.',
+        );
+      }
+      const firmwareType = XTypeGroup(
+        label: 'MeshCore firmware image',
+        extensions: <String>['bin'],
+        mimeTypes: <String>['application/octet-stream'],
+        uniformTypeIdentifiers: <String>['public.data'],
+        webWildCards: <String>['.bin'],
+      );
+      XFile? installedFile;
+      if (!fullWithoutBase) {
+        installedFile = await openFile(
+          acceptedTypeGroups: const <XTypeGroup>[firmwareType],
+          confirmButtonText: 'Use installed image',
+        );
+        if (installedFile == null || !mounted) return;
+      }
+      XFile? updatedFile;
+      if (!useGitHubImage) {
+        updatedFile = await openFile(
+          acceptedTypeGroups: const <XTypeGroup>[firmwareType],
+          confirmButtonText: 'Use new image',
+        );
+        if (updatedFile == null || !mounted) return;
+      }
+      if ((installedFile != null && await installedFile.length() > 0x100000) ||
+          (updatedFile != null && await updatedFile.length() > 0x100000)) {
+        throw const FormatException('Selected firmware image is too large.');
+      }
+      final installed = await installedFile?.readAsBytes();
+      final updated = updatedFile == null
+          ? await _githubReleases.downloadApplicationImage(
+              _releaseDiscovery ??
+                  (throw StateError('Check GitHub releases first.')),
+              targetId: target.applicationTargetId,
+            )
+          : await updatedFile.readAsBytes();
+      if (installed != null &&
+          FirmwareImageIdentity.read(installed).bodyHashHex !=
+              target.baseHashPrefix) {
+        throw StateError(
+          'The selected installed image does not match this radio. '
+          'Find the exact build whose hash is ${target.baseHashPrefix}.',
+        );
+      }
+      if (FirmwareImageIdentity.read(updated).targetId !=
+          target.applicationTargetId) {
+        throw StateError('The new image targets a different radio.');
+      }
+      final seed = await _chooseSigningSeed(target);
+      if (seed == null) return;
+      try {
+        final builder = LocalMotaBuilder();
+        final package = installed == null
+            ? await builder.buildFullForTarget(
+                updatedImage: updated,
+                signingSeed: seed,
+                targetId: target.applicationTargetId,
+              )
+            : await builder.buildForTarget(
+                installedImage: installed,
+                updatedImage: updated,
+                signingSeed: seed,
+                targetId: target.applicationTargetId,
+                targetBaseHash: target.baseHashPrefix,
+                // A conservative window understood by older nRF52 bootloaders.
+                // A larger image uses a full package only on external storage.
+                inplaceMemory: 0x98000,
+                allowFull: target.receiverStorage != 'internal_flash',
+              );
+        target.validatePackage(package);
+        final catalog = await BleMotaCatalog.load(<XFile>[
+          ...?_catalog?.files.map((file) => file.source),
+          package.source,
+        ]);
+        if (!mounted) return;
+        setState(() {
+          _catalog = catalog;
+          _releaseTarget = target;
+          _validationStatus = '${catalog.files.length} verified file(s)';
+        });
+        _addEvent(
+          'Built ${package.isFull ? 'full' : 'in-place delta'} package '
+          '${package.name} on this phone${useGitHubImage ? ' using the GitHub image' : ''}. '
+          'The signing key was not saved.',
+        );
+      } finally {
+        seed.fillRange(0, seed.length, 0);
+      }
+    });
+  }
+
+  Future<Uint8List?> _chooseSigningSeed(LoraOtaTargetInfo target) async {
+    final generate = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Sign this update'),
+        content: const Text(
+          'Use an existing Ed25519 key file, or generate a one-update key '
+          'on this phone and trust its public key on the repeater. A generated '
+          'private key is not saved and uses one of the radio\'s four trust slots.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Use key file'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Generate on phone'),
+          ),
+        ],
+      ),
+    );
+    if (generate == null || !mounted) return null;
+    if (!generate) {
+      const keyType = XTypeGroup(
+        label: 'Ed25519 signing key',
+        extensions: <String>['key', 'txt', 'bin'],
+        mimeTypes: <String>['application/octet-stream', 'text/plain'],
+        uniformTypeIdentifiers: <String>['public.data'],
+        webWildCards: <String>['.key', '.txt', '.bin'],
+      );
+      final keyFile = await openFile(
+        acceptedTypeGroups: const <XTypeGroup>[keyType],
+        confirmButtonText: 'Use signing key',
+      );
+      if (keyFile == null || !mounted) return null;
+      if (await keyFile.length() > 128) {
+        throw const FormatException('Signing key file is too large.');
+      }
+      final contents = await keyFile.readAsBytes();
+      try {
+        return LocalMotaBuilder.parseSigningSeed(contents);
+      } finally {
+        contents.fillRange(0, contents.length, 0);
+      }
+    }
+
+    if (target.trustedSignerFingerprints.length >= 4) {
+      throw StateError(
+        'The radio already trusts four signers. Use an existing key file '
+        'or remove an unused signer first.',
+      );
+    }
+    final key = await PhoneMotaSigningKey.generate();
+    try {
+      final reply = await _commandService.sendCommand(
+        _currentRepeater(),
+        'ota key add ${key.publicKeyHex}',
+        retries: 2,
+        minimumTimeoutMs: 15000,
+        pathSelection: _normalTargetSelection,
+      );
+      if (!reply.startsWith('OK key added')) {
+        throw StateError('The radio did not accept the new public key: $reply');
+      }
+      final list = await _commandService.sendCommand(
+        _currentRepeater(),
+        'ota key',
+        retries: 2,
+        minimumTimeoutMs: 15000,
+        pathSelection: _normalTargetSelection,
+      );
+      if (!PhoneMotaSigningKey.isListed(list, key.fingerprint)) {
+        throw StateError('The radio did not confirm the new trusted signer.');
+      }
+      _addEvent(
+        'Generated an update key on the phone and confirmed signer '
+        '${key.fingerprint} on ${widget.repeater.name}. The private key '
+        'will be cleared after this build.',
+      );
+      return key.seed;
+    } catch (_) {
+      key.clear();
+      rethrow;
+    }
+  }
+
+  Future<void> _removeFirmware(BleMotaFile file) async {
+    await _runBusy('Removing package', () async {
+      if (_sessionActive) {
+        throw StateError('Stop the OTA session before changing its catalog.');
+      }
+      final sources =
+          _catalog?.files
+              .where((candidate) => !identical(candidate, file))
+              .map((candidate) => candidate.source)
+              .toList() ??
+          <XFile>[];
+      final updated = sources.isEmpty
+          ? null
+          : await BleMotaCatalog.load(sources);
+      if (!mounted) return;
+      setState(() {
+        _catalog = updated;
+        if (identical(_selectedFile, file)) _selectedFile = null;
+        _validationStatus = updated == null
+            ? 'No packages selected'
+            : '${updated.files.length} verified file(s)';
+      });
+      _addEvent('Removed ${file.name} from this session catalog.');
+    });
+  }
+
+  Future<LoraOtaTargetInfo> _readTargetInfo() async {
+    final target = _currentRepeater();
+    var path = _normalTargetSelection;
+    Future<String> read(String command) async {
+      try {
+        return await _commandService.sendCommand(
+          target,
+          command,
+          retries: 2,
+          minimumTimeoutMs: 12000,
+          pathSelection: path,
+        );
+      } catch (error) {
+        if (path.hopCount == 0) {
+          throw StateError('$command did not answer: $error');
+        }
+        _addEvent('$command did not answer on the saved path; trying direct.');
+        final direct = _pathSelection(Uint8List(0));
+        late final String reply;
+        try {
+          reply = await _commandService.sendCommand(
+            target,
+            command,
+            retries: 2,
+            minimumTimeoutMs: 12000,
+            pathSelection: direct,
+          );
+        } catch (directError) {
+          // Sending on the alternate path changes the Companion's cached
+          // contact route even when no reply arrives. Do not strand the user
+          // on an unproven direct route after a failed diagnostic.
+          try {
+            await _connector.preparePathForContactSend(
+              target,
+              explicitSelection: path,
+            );
+          } catch (restoreError) {
+            _addEvent(
+              'Could not restore the saved contact route: $restoreError',
+            );
+          }
+          throw StateError(
+            '$command did not answer on either saved or direct path: '
+            '$directError',
+          );
+        }
+        if (mounted) {
+          setState(() {
+            if (listEquals(_temporaryTargetPath, path.pathBytes)) {
+              _temporaryTargetPath = Uint8List(0);
+            }
+            if (listEquals(_normalTargetPath, path.pathBytes)) {
+              _normalTargetPath = Uint8List(0);
+            }
+          });
+          _addEvent('Direct path works; using it for this OTA session.');
+        }
+        path = direct;
+        return reply;
+      }
+    }
+
+    final status = await read('ota status');
+    final self = await read('ota self');
+    final bootloader = await read('ota bootloader');
+    final keys = await read('ota key');
+    return LoraOtaTargetInfo.parse(
+      status: status,
+      self: self,
+      bootloader: bootloader,
+      keys: keys,
+    );
+  }
+
+  Future<void> _findGitHubUpdates() async {
+    await _runBusy('Checking GitHub releases', () async {
+      if (_sessionActive) {
+        throw StateError(
+          'Stop the current OTA session before checking releases.',
+        );
+      }
+      final target = await _readTargetInfo();
+      final discovery = await _githubReleases.findForTarget(
+        targetEnvironment: target.environment,
+        receiverStorage: target.receiverStorage,
+      );
+      if (!mounted) return;
+      setState(() {
+        _releaseTarget = target;
+        _releaseDiscovery = discovery;
+        _releaseStatus = discovery.firmwareName == null
+            ? 'No matching LoRa firmware release was found.'
+            : discovery.hasApplicationPackage
+            ? 'Matching signed LoRa package found.'
+            : discovery.hasApplicationImage
+            ? 'Matching firmware image found. Build a signed update on this phone.'
+            : 'Matching release found, but it has no usable phone update image.';
+      });
+      _addEvent(
+        'Target build profile: ${target.environment}; storage: ${target.receiverStorage}.',
+      );
+      _addEvent('GitHub release check: $_releaseStatus');
+    });
+  }
+
+  Future<void> _loadGitHubPackage({required bool bootloader}) async {
+    await _runBusy('Loading GitHub update', () async {
+      final discovery = _releaseDiscovery;
+      final target = _releaseTarget;
+      if (discovery == null || target == null) {
+        throw StateError('Check GitHub releases first.');
+      }
+      final file = bootloader
+          ? await _githubReleases.downloadBootloader(
+              discovery,
+              targetId: target.bootloaderTargetId,
+              storageCaps: target.bootloaderStorageCaps,
+            )
+          : await _githubReleases.downloadApplication(
+              discovery,
+              targetId: target.applicationTargetId,
+            );
+      target.validatePackage(file);
+      final sources = <XFile>[
+        ...?_catalog?.files.map((existing) => existing.source),
+        file.source,
+      ];
+      final catalog = await BleMotaCatalog.load(sources);
+      if (!mounted) return;
+      setState(() {
+        _catalog = catalog;
+        _validationStatus = '${catalog.files.length} verified file(s)';
+      });
+      _addEvent('Loaded ${file.name} from a SHA-256-checked GitHub release.');
+    });
+  }
+
+  Future<void> _preflightCatalog(BleMotaCatalog catalog) async {
+    final target = await _readTargetInfo();
+    _preflightBaseHash = target.baseHashPrefix;
+    for (final file in catalog.files) {
+      target.validatePackage(file);
+    }
+    for (final key in target.missingSigners(catalog.files)) {
+      if (!mounted) throw StateError('Update screen was closed');
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Trust firmware signer?'),
+          content: Text(
+            '${widget.repeater.name} does not trust the signer for the '
+            'selected firmware. Trust this public key only if you know '
+            'where the package came from.\n\n$key',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Trust signer'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) {
+        throw StateError('Firmware signer was not trusted');
+      }
+      final reply = await _sendRemoteCommand(
+        _currentRepeater(),
+        'ota key add $key',
+        _normalTargetSelection,
+      );
+      if (!reply.trimLeft().toLowerCase().startsWith('ok')) {
+        throw StateError('Target did not accept the signer: $reply');
+      }
+      _addEvent('Trusted firmware signer ${key.substring(0, 16)}.');
+    }
+    _addEvent('Exact target, storage, and firmware-base checks passed.');
+  }
+
   String _tempRadioCommand({int? minutesOverride}) {
     final frequencyText = _frequencyController.text.trim();
     final frequency = double.tryParse(frequencyText);
@@ -348,6 +828,7 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
       contact,
       command,
       retries: 1,
+      minimumTimeoutMs: _remoteCommandTimeoutMs(command),
       pathSelection: path,
       onPacketSent: () {
         if (!dispatched.isCompleted) dispatched.complete();
@@ -377,8 +858,16 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
       contact,
       command,
       retries: 1,
+      minimumTimeoutMs: _remoteCommandTimeoutMs(command),
       pathSelection: path,
     );
+  }
+
+  int _remoteCommandTimeoutMs(String command) {
+    // Older repeaters may defer a reply while their RX power-saving window
+    // closes or a radio tuple is being applied. A five-second direct-path
+    // estimate is too short even when the handoff eventually succeeds.
+    return command.startsWith('ota ') ? 20000 : 15000;
   }
 
   PathSelection _pathSelection(Uint8List bytes) {
@@ -798,6 +1287,9 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
         minutesOverride: _reachabilityWindowMinutes,
       );
       _validateRoutePlan();
+      if (catalog.files.any((file) => file.isSigned || !file.isFull)) {
+        await _preflightCatalog(catalog);
+      }
       await _loginControlledHops();
       catalog.resetTransferMetrics();
       _connector.setBleMotaCatalog(catalog);
@@ -1064,6 +1556,13 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
       _showError(StateError('No downloaded firmware file is selected.'));
       return;
     }
+    final battery = _connector.getRepeaterBatterySnapshot(
+      widget.repeater.publicKeyHex,
+    );
+    final batteryNote = updateBatteryNote(
+      millivolts: battery?.millivolts,
+      reportedAt: battery?.updatedAt,
+    );
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -1078,8 +1577,10 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                     'reboot. The app will first require an exact staged MID '
                     '${selectedFile.manifestId} and hash '
                     '${selectedFile.imageHashPrefix}. Do not remove power.'
+                    '$batteryNote'
               : '${widget.repeater.name} will verify the package, approve it, '
-                    'and reboot. Do not remove power during the update.',
+                    'and reboot. Do not remove power during the update.'
+                    '$batteryNote',
         ),
         actions: [
           TextButton(
@@ -1101,8 +1602,12 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
         throw StateError('The download is not reported ready to install.');
       }
       var installCommand = 'ota install';
+      String? bootloaderCrc;
       if (selectedFile.isBootloader) {
         final bootloaderStatus = await _sendTargetCommand('ota bootloader');
+        bootloaderCrc = RegExp(
+          r'\bcrc=([0-9A-Fa-f]{8})',
+        ).firstMatch(bootloaderStatus)?.group(1)?.toUpperCase();
         _addEvent('${widget.repeater.name}: $bootloaderStatus');
         installCommand = confirmedBootloaderInstallCommand(
           status: bootloaderStatus,
@@ -1118,25 +1623,109 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
         installCommand,
         _temporaryTargetSelection,
       );
-      await operation.dispatched.timeout(const Duration(seconds: 30));
-      _addEvent('Install command left the Companion.');
+      var dispatched = false;
+      String? rejectedReply;
       try {
-        final response = await operation.response.timeout(
-          const Duration(seconds: 20),
-        );
-        _addEvent('${widget.repeater.name}: $response');
-        if (response.toLowerCase().startsWith('err')) {
-          throw StateError(response);
+        await operation.dispatched.timeout(const Duration(seconds: 30));
+        dispatched = true;
+        _addEvent('Install command left the Companion.');
+        try {
+          final response = await operation.response.timeout(
+            const Duration(seconds: 20),
+          );
+          _addEvent('${widget.repeater.name}: $response');
+          if (response.toLowerCase().startsWith('err')) {
+            rejectedReply = response;
+          }
+        } catch (error) {
+          // The target may stop answering as soon as installation starts.
+          // RepeaterCommandService also reports its own timeout as StateError,
+          // so the exception type cannot distinguish reboot from rejection.
+          _addEvent(
+            'No install reply ($error). The install may have succeeded; '
+            'verify the running version before trying again.',
+          );
         }
-      } on StateError {
-        rethrow;
-      } catch (error) {
-        _addEvent(
-          'The repeater stopped replying ($error), which is expected during reboot.',
+      } finally {
+        if (dispatched && rejectedReply == null) {
+          await Future<void>.delayed(const Duration(seconds: 2));
+        }
+        await _restoreSessionState(
+          restoreTarget: !dispatched || rejectedReply != null,
         );
       }
-      await Future<void>.delayed(const Duration(seconds: 2));
-      await _restoreSessionState(restoreTarget: false);
+      if (rejectedReply != null) {
+        throw StateError('Target rejected install: $rejectedReply');
+      }
+      if (mounted) {
+        setState(() {
+          _pendingInstallVerification = selectedFile;
+          _preInstallBootloaderCrc = bootloaderCrc;
+          _installVerificationStatus =
+              'Wait for the target to reboot, then '
+              'tap Verify installed update. Do not repeat the install just '
+              'because its reply was lost.';
+          _installVerified = false;
+        });
+      }
+      _addEvent(
+        'Install sent. Check the running firmware or bootloader version '
+        'after reboot before starting another update.',
+      );
+    });
+  }
+
+  Future<void> _verifyInstalledUpdate() async {
+    await _runBusy('Verifying installed update', () async {
+      final file = _pendingInstallVerification;
+      if (file == null || _sessionActive) {
+        throw StateError('No completed install is waiting for verification.');
+      }
+      final target = _currentRepeater();
+      final command = file.isBootloader ? 'ota bootloader' : 'ota self';
+      final reply = await _commandService.sendCommand(
+        target,
+        command,
+        retries: 2,
+        minimumTimeoutMs: 20000,
+        pathSelection: _normalTargetSelection,
+      );
+      late final String result;
+      var verified = false;
+      if (file.isBootloader) {
+        final current = RegExp(
+          r'\bcrc=([0-9A-Fa-f]{8})',
+        ).firstMatch(reply)?.group(1)?.toUpperCase();
+        final before = _preInstallBootloaderCrc;
+        result = current == null || before == null
+            ? 'The radio answered after reboot, but its bootloader CRC '
+                  'could not be compared: $reply'
+            : current == before
+            ? 'Bootloader CRC is still $current; the update is not verified.'
+            : 'Bootloader CRC changed from $before to $current after reboot. '
+                  'The bootloader changed; keep this result with the package.';
+        verified = current != null && before != null && current != before;
+      } else {
+        final current = RegExp(
+          r'\bbase_hash=([0-9A-Fa-f]{16})',
+        ).firstMatch(reply)?.group(1)?.toUpperCase();
+        final before = _preflightBaseHash;
+        result = current == null || before == null
+            ? 'The radio answered after reboot, but its firmware hash '
+                  'could not be compared: $reply'
+            : current == before
+            ? 'Firmware hash is still $current; the update is not verified.'
+            : 'Running firmware hash changed from $before to $current '
+                  'after reboot.';
+        verified = current != null && before != null && current != before;
+      }
+      if (mounted) {
+        setState(() {
+          _installVerificationStatus = result;
+          _installVerified = verified;
+        });
+      }
+      _addEvent('${widget.repeater.name}: $result');
     });
   }
 
@@ -1434,6 +2023,93 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                       icon: const Icon(Icons.folder_open),
                       label: const Text('Choose .mota files'),
                     ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: _busy || _sessionActive
+                          ? null
+                          : _loadDownloads,
+                      icon: const Icon(Icons.download_for_offline),
+                      label: const Text('Import .mota from Downloads'),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: _busy || _sessionActive
+                          ? null
+                          : _findGitHubUpdates,
+                      icon: const Icon(Icons.system_update),
+                      label: const Text('Find updates on GitHub'),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: _busy || _sessionActive
+                          ? null
+                          : _buildLocalUpdate,
+                      icon: const Icon(Icons.auto_fix_high),
+                      label: const Text('Build signed update on this phone'),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Choose the exact installed .bin and the newer .bin. '
+                      'Import a signing key or generate one on this phone. '
+                      'The app checks this radio\'s '
+                      'firmware hash and chooses a smaller delta when safe. '
+                      'A generated private key is used for this build only.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if (_releaseStatus != null) ...[
+                      const SizedBox(height: 8),
+                      Text(_releaseStatus!),
+                    ],
+                    if (_releaseDiscovery?.firmwareName != null) ...[
+                      const SizedBox(height: 4),
+                      Text('Firmware: ${_releaseDiscovery!.firmwareName}'),
+                    ],
+                    if (_releaseDiscovery?.hasApplicationPackage == true)
+                      TextButton(
+                        onPressed: _busy || _sessionActive
+                            ? null
+                            : () => _loadGitHubPackage(bootloader: false),
+                        child: const Text('Load matching firmware package'),
+                      ),
+                    if (_releaseDiscovery?.hasApplicationImage == true) ...[
+                      TextButton(
+                        onPressed: _busy || _sessionActive
+                            ? null
+                            : () => _buildLocalUpdate(useGitHubImage: true),
+                        child: const Text('Build smaller update from GitHub'),
+                      ),
+                      if (_releaseTarget?.receiverStorage != 'internal_flash')
+                        TextButton(
+                          onPressed: _busy || _sessionActive
+                              ? null
+                              : () => _buildLocalUpdate(
+                                  useGitHubImage: true,
+                                  fullWithoutBase: true,
+                                ),
+                          child: const Text('Build full update from GitHub'),
+                        ),
+                      Text(
+                        'Smaller needs the exact installed .bin. Full needs '
+                        'only your signing key, but takes more LoRa airtime.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    if (_releaseDiscovery?.bootloaderName != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Published bootloader: '
+                        '${_releaseDiscovery!.bootloaderName}',
+                      ),
+                    ],
+                    if (_releaseDiscovery?.hasBootloaderBundle == true)
+                      TextButton(
+                        onPressed: _busy || _sessionActive
+                            ? null
+                            : () => _loadGitHubPackage(bootloader: true),
+                        child: const Text(
+                          'Load exact-board bootloader package',
+                        ),
+                      ),
                     if (_validationStatus != null) ...[
                       const SizedBox(height: 8),
                       Text(_validationStatus!),
@@ -1647,7 +2323,12 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                     const SizedBox(height: 12),
                     if (!_sessionActive)
                       FilledButton.icon(
-                        onPressed: _busy || !channelReady || catalog == null
+                        onPressed:
+                            _busy ||
+                                !channelReady ||
+                                catalog == null ||
+                                (_pendingInstallVerification != null &&
+                                    !_installVerified)
                             ? null
                             : _startSession,
                         icon: const Icon(Icons.wifi_tethering),
@@ -1696,6 +2377,17 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                         label: const Text('Stop and restore controlled radios'),
                       ),
                     ],
+                    if (!_sessionActive &&
+                        _pendingInstallVerification != null) ...[
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : _verifyInstalledUpdate,
+                        icon: const Icon(Icons.verified_outlined),
+                        label: const Text('Verify installed update'),
+                      ),
+                      if (_installVerificationStatus != null)
+                        Text(_installVerificationStatus!),
+                    ],
                     TextButton(
                       onPressed: _busy ? null : _readSourceStatus,
                       child: const Text('Read source status'),
@@ -1742,7 +2434,11 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
               onPressed: _busy ? null : () => _pull(file),
               child: const Text('Pull'),
             )
-          : null,
+          : IconButton(
+              tooltip: 'Remove ${file.name} from catalog',
+              onPressed: _busy ? null : () => _removeFirmware(file),
+              icon: const Icon(Icons.close),
+            ),
     );
   }
 

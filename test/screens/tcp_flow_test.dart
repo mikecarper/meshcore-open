@@ -129,7 +129,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(TcpScreen), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Bluetooth'));
+    await tester.tap(find.text(scannerL10n.connectionChoiceBluetoothLabel));
     await tester.pumpAndSettle();
 
     expect(find.byType(TcpScreen), findsNothing);

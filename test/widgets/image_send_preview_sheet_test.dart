@@ -91,7 +91,9 @@ void main() {
     expect(find.byType(ImageSendPreviewSheet), findsOneWidget);
     expect(find.byType(Image), findsOneWidget);
     // The send action is enabled once the encode has settled.
-    final send = tester.widget<FilledButton>(find.byType(FilledButton));
+    final send = tester.widget<FilledButton>(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
     expect(send.onPressed, isNotNull);
   });
 
@@ -260,7 +262,9 @@ void main() {
 
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(FilledButton));
+    await tester.tap(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
     await tester.pumpAndSettle();
 
     expect(result, isNotNull);
@@ -290,7 +294,9 @@ void main() {
 
     final l10n = await AppLocalizations.delegate.load(const Locale('en'));
     expect(_texts(tester), contains(l10n.imageSend_codecDownloading));
-    final send = tester.widget<FilledButton>(find.byType(FilledButton));
+    final send = tester.widget<FilledButton>(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
     expect(send.onPressed, isNull);
   });
 
@@ -318,7 +324,9 @@ void main() {
       isNot(contains(l10n.imageSend_codecUnavailable)),
       reason: 'the concrete reason must REPLACE the generic sentence',
     );
-    final send = tester.widget<FilledButton>(find.byType(FilledButton));
+    final send = tester.widget<FilledButton>(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
     expect(send.onPressed, isNull);
   });
 

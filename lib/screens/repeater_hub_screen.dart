@@ -15,6 +15,9 @@ import 'repeater_settings_screen.dart';
 import 'telemetry_screen.dart';
 import 'neighbors_screen.dart';
 import 'lora_ota_screen.dart';
+import 'esp32_wifi_ota_screen.dart';
+import 'nrf_bluetooth_dfu_screen.dart';
+import 'remote_key_backup_screen.dart';
 
 class RepeaterHubScreen extends StatelessWidget {
   final Contact repeater;
@@ -34,6 +37,9 @@ class RepeaterHubScreen extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final settingsService = context.watch<AppSettingsService>();
     final connector = context.watch<MeshCoreConnector>();
+    final repeater =
+        connector.getContactByPubKeyHex(this.repeater.publicKeyHex) ??
+        this.repeater;
     final chemistry = settingsService.batteryChemistryForRepeater(
       repeater.publicKeyHex,
     );
@@ -243,6 +249,23 @@ class RepeaterHubScreen extends StatelessWidget {
             if (isAdmin) ...[
               _HubActionTile(
                 index: 3,
+                icon: Icons.key,
+                title: 'Back up private identity',
+                subtitle: 'Encrypted file for this remote target (admin only)',
+                accentColor: MeshPalette.warn,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          RemoteKeyBackupScreen(target: repeater),
+                    ),
+                  );
+                },
+              ),
+              _HubActionTile(
+                index: 4,
                 icon: Icons.system_update_alt,
                 title: 'LoRa OTA',
                 subtitle: 'Update this repeater from .mota files on your phone',
@@ -259,6 +282,41 @@ class RepeaterHubScreen extends StatelessWidget {
               ),
               _HubActionTile(
                 index: 4,
+                icon: Icons.wifi,
+                title: 'ESP32 Wi-Fi update',
+                subtitle:
+                    'Upload a board-matched .bin directly from this phone',
+                accentColor: MeshPalette.blue,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          Esp32WifiOtaScreen(repeater: repeater),
+                    ),
+                  );
+                },
+              ),
+              _HubActionTile(
+                index: 5,
+                icon: Icons.bluetooth,
+                title: 'nRF52 Bluetooth update',
+                subtitle: 'Send a board-matched Nordic DFU ZIP from this phone',
+                accentColor: MeshPalette.blue,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          NrfBluetoothDfuScreen(repeater: repeater),
+                    ),
+                  );
+                },
+              ),
+              _HubActionTile(
+                index: 6,
                 icon: Icons.terminal,
                 title: l10n.repeater_cli,
                 subtitle: l10n.repeater_cliSubtitle,

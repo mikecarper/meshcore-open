@@ -162,43 +162,44 @@ class _ScannerScreenState extends State<ScannerScreen> {
           },
         ),
       ),
-      floatingActionButton: Consumer<MeshCoreConnector>(
+      bottomNavigationBar: Consumer<MeshCoreConnector>(
         builder: (context, connector, child) {
           final isScanning =
               connector.state == MeshCoreConnectionState.scanning;
           final isBluetoothOff = _bluetoothState == BluetoothAdapterState.off;
+          final isConnecting =
+              connector.state == MeshCoreConnectionState.connecting;
+          final isDisconnecting =
+              connector.state == MeshCoreConnectionState.disconnecting;
 
-          return FloatingActionButton.extended(
-            heroTag: 'scanner_ble_action',
-            onPressed: isBluetoothOff
-                ? null
-                : () {
-                    HapticFeedback.lightImpact();
-                    _toggleScan(connector);
-                  },
-            icon: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              transitionBuilder: (child, anim) =>
-                  ScaleTransition(scale: anim, child: child),
-              child: isScanning
-                  ? SizedBox(
-                      key: const ValueKey('scanning'),
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                    )
-                  : const Icon(
-                      Icons.bluetooth_searching,
-                      key: ValueKey('idle'),
-                    ),
-            ),
-            label: Text(
-              isScanning
-                  ? context.l10n.scanner_stop
-                  : context.l10n.scanner_scan,
+          return SafeArea(
+            top: false,
+            minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: FilledButton.icon(
+              key: const ValueKey('scanner_scan_action'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 14,
+                ),
+              ),
+              onPressed: isBluetoothOff || isConnecting || isDisconnecting
+                  ? null
+                  : () {
+                      HapticFeedback.lightImpact();
+                      _toggleScan(connector);
+                    },
+              icon: Icon(isScanning ? Icons.stop : Icons.bluetooth_searching),
+              label: Text(
+                isConnecting
+                    ? context.l10n.scanner_connecting
+                    : isDisconnecting
+                    ? context.l10n.scanner_disconnecting
+                    : isScanning
+                    ? context.l10n.scanner_stop
+                    : context.l10n.scanner_scan,
+              ),
             ),
           );
         },
@@ -222,6 +223,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
       unawaited(
         connector.startScan().catchError((e) {
           appLogger.warn('startScan error: $e', tag: 'ScannerScreen');
+          if (mounted) {
+            showDismissibleSnackBar(context, content: Text('$e'));
+          }
         }),
       );
     }
@@ -241,22 +245,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
         subtitle: isBluetoothOff
             ? context.l10n.scanner_bluetoothOffMessage
             : null,
-        action: (isBluetoothOff || isScanning)
-            ? null
-            : FilledButton.icon(
-                onPressed: () {
-                  HapticFeedback.lightImpact();
-                  _toggleScan(connector);
-                },
-                icon: const Icon(Icons.bluetooth_searching),
-                label: Text(context.l10n.scanner_scan),
-              ),
       );
     }
 
     final isConnecting = connector.state == MeshCoreConnectionState.connecting;
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: connector.scanResults.length,
       itemBuilder: (context, index) {
         final result = connector.scanResults[index];
@@ -453,16 +447,14 @@ class _BluetoothOffBanner extends StatelessWidget {
                     fontSize: 12,
                   ),
                 ),
+                if (onEnable != null)
+                  TextButton(
+                    onPressed: onEnable,
+                    child: Text(context.l10n.scanner_enableBluetooth),
+                  ),
               ],
             ),
           ),
-          if (onEnable != null) ...[
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: onEnable,
-              child: Text(context.l10n.scanner_enableBluetooth),
-            ),
-          ],
         ],
       ),
     );

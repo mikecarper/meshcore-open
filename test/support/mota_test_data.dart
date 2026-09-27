@@ -51,10 +51,19 @@ Uint8List buildTestFullMotaContainer() {
   return result.toBytes();
 }
 
-Future<Uint8List> buildTestBootloaderMotaContainer() async {
+Future<Uint8List> buildTestBootloaderMotaContainer({
+  int storageCaps = 0x0A,
+}) async {
   final payload = Uint8List.fromList(
     List<int>.generate(0xA000, (index) => (index * 29 + 7) & 0xFF),
   );
+  payload.setRange(0, 16, <int>[
+    ...'MOTABLDR'.codeUnits,
+    3, 0, // ABI 3
+    5, 0, // full and in-place codecs
+    storageCaps,
+    0, 0, 0,
+  ]);
   const blockSize = 1024;
   final leaves = <Uint8List>[];
   for (var offset = 0; offset < payload.length; offset += blockSize) {

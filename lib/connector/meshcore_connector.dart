@@ -37,6 +37,7 @@ import '../services/image_chunk_transport.dart'
 import '../services/image_codec_service.dart';
 import '../services/message_retry_service.dart';
 import '../services/path_history_service.dart';
+import '../services/remote_private_key_backup.dart';
 import '../services/app_settings_service.dart';
 import '../services/background_service.dart';
 import '../services/timeout_prediction_service.dart';
@@ -192,6 +193,7 @@ class MeshCoreConnector extends ChangeNotifier {
   String? _lastDeviceId;
   String? _lastDeviceDisplayName;
   bool _manualDisconnect = false;
+  bool _preserveUpdateScreenOnDisconnect = false;
   final MeshCoreUsbManager _usbManager = MeshCoreUsbManager();
   final LinuxBlePairingService _linuxBlePairingService =
       LinuxBlePairingService();
@@ -247,6 +249,9 @@ class MeshCoreConnector extends ChangeNotifier {
 
   final StreamController<Uint8List> _receivedFramesController =
       StreamController<Uint8List>.broadcast();
+  Completer<Uint8List>? _pendingPrivateKeyBackup;
+  String? _privateKeyBackupNonce;
+  Uint8List? _privateKeyBackupSenderPrefix;
 
   Uint8List? _selfPublicKey;
   String? _selfName;
@@ -504,6 +509,15 @@ class MeshCoreConnector extends ChangeNotifier {
 
   List<Channel> get channels => List.unmodifiable(_channels);
   bool get isConnected => _state == MeshCoreConnectionState.connected;
+  bool get preserveUpdateScreenOnDisconnect =>
+      _preserveUpdateScreenOnDisconnect;
+
+  /// A local Nordic DFU intentionally drops the Companion connection while
+  /// the phone's DFU service takes over. Keep its progress page on screen.
+  void setPreserveUpdateScreenOnDisconnect(bool value) {
+    _preserveUpdateScreenOnDisconnect = value;
+  }
+
   bool get isBleMotaChannelReady =>
       isConnected &&
       _activeTransport == MeshCoreTransportType.bluetooth &&
@@ -3269,6 +3283,65 @@ class MeshCoreConnector extends ChangeNotifier {
     }
   }
 
+  /// Ask an authenticated remote admin target for its 64-byte expanded identity
+  /// bypasses the generic CLI/message path so the secret never enters chat
+  /// persistence or the raw BLE frame log. Callers must encrypt it immediately.
+  Future<Uint8List> requestRemotePrivateKeyBackup(Contact target) async {
+    if (!isConnected) throw StateError('Connect to a Companion first.');
+    final handling = await executeLocalCliCommand('get key.backup.transport');
+    if (handling.trim() != 'ephemeral-routed-v1') {
+      throw UnsupportedError(
+        'The connected Companion needs firmware with private-key reply protection before remote backup is safe.',
+      );
+    }
+    if (_pendingPrivateKeyBackup != null) {
+      throw StateError('A private-key backup is already in progress.');
+    }
+    if (target.publicKey.length != 32) {
+      throw const FormatException('Target public key is invalid.');
+    }
+    final nonce = generatePrivateKeyBackupNonce();
+    final pending = Completer<Uint8List>();
+    _pendingPrivateKeyBackup = pending;
+    _privateKeyBackupNonce = nonce;
+    _privateKeyBackupSenderPrefix = Uint8List.fromList(
+      target.publicKey.sublist(0, 6),
+    );
+    try {
+      // The backup page may outlive a routing change made in another screen.
+      // Use the live contact so a newly confirmed direct route is not silently
+      // replaced by the route captured when the management page opened.
+      final currentTarget = _contacts.firstWhere(
+        (contact) => contact.publicKeyHex == target.publicKeyHex,
+        orElse: () => target,
+      );
+      final selection = await preparePathForContactSend(currentTarget);
+      final command = 'backup prv.key $nonce';
+      final timestampSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      trackRepeaterAck(
+        contact: currentTarget,
+        selection: selection,
+        text: command,
+        timestampSeconds: timestampSeconds,
+        attempt: 0,
+      );
+      await sendFrame(
+        buildSendCliCommandFrame(
+          target.publicKey,
+          command,
+          timestampSeconds: timestampSeconds,
+        ),
+      );
+      return await pending.future.timeout(const Duration(minutes: 2));
+    } finally {
+      if (identical(_pendingPrivateKeyBackup, pending)) {
+        _pendingPrivateKeyBackup = null;
+        _privateKeyBackupNonce = null;
+        _privateKeyBackupSenderPrefix = null;
+      }
+    }
+  }
+
   Future<BleMotaSourceStatus> controlBleMotaSource(int action) async {
     if (_activeTransport != MeshCoreTransportType.bluetooth) {
       throw StateError(
@@ -4808,6 +4881,25 @@ class MeshCoreConnector extends ChangeNotifier {
     _lastRxTime = DateTime.now();
 
     final frame = Uint8List.fromList(data);
+    // A key-backup response is a CLI message, but must never be delivered to
+    // the normal frame stream, chat store, notifications, or raw debug log.
+    final sensitiveText = parseContactMessageText(frame);
+    if (sensitiveText != null &&
+        looksLikePrivateKeyBackupReply(sensitiveText.text)) {
+      final reply = parsePrivateKeyBackupReply(sensitiveText.text);
+      final pending = _pendingPrivateKeyBackup;
+      if (reply != null &&
+          pending != null &&
+          !pending.isCompleted &&
+          reply.nonce == _privateKeyBackupNonce &&
+          listEquals(
+            sensitiveText.senderPrefix,
+            _privateKeyBackupSenderPrefix,
+          )) {
+        pending.complete(reply.key);
+      }
+      return;
+    }
     _receivedFramesController.add(frame);
     _bleDebugLogService?.logFrame(frame, outgoing: false);
 

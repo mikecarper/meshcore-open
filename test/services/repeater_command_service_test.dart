@@ -79,6 +79,21 @@ void main() {
     await expectLater(result, completion('OK accepted'));
   });
 
+  test('uses the current contact after a management route changes', () async {
+    final connector = _CommandConnector();
+    final service = RepeaterCommandService(connector);
+    addTearDown(service.dispose);
+    final stale = _contact('Old route', 0x17);
+    final current = _contact('Current route', 0x17);
+    connector.currentContact = current;
+
+    final result = service.sendCommand(stale, 'ver');
+    final prefix = _commandPrefix(await connector.nextFrame());
+    expect(connector.lastPreparedContact, same(current));
+    service.handleResponse(current, '${prefix}v1.17.1.8');
+    await expectLater(result, completion('v1.17.1.8'));
+  });
+
   test('an attacker cannot cancel the victim pending command', () async {
     final connector = _CommandConnector();
     final service = RepeaterCommandService(connector);
@@ -96,6 +111,25 @@ void main() {
 
     service.handleResponse(victim, '${prefix}download: 3/40 (7%)');
     await expectLater(result, completion('download: 3/40 (7%)'));
+  });
+
+  test('OTA timeout floor allows a slow but valid radio reply', () async {
+    final connector = _CommandConnector(timeoutMs: 20);
+    final service = RepeaterCommandService(connector);
+    addTearDown(service.dispose);
+    final target = _contact('Slow repeater', 0x29);
+
+    final result = service.sendCommand(
+      target,
+      'ota self',
+      retries: 1,
+      minimumTimeoutMs: 150,
+    );
+    final prefix = _commandPrefix(await connector.nextFrame());
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    service.handleResponse(target, '${prefix}self base_hash=ABCDEF0123456789');
+
+    await expectLater(result, completion('self base_hash=ABCDEF0123456789'));
   });
 
   test(
@@ -295,11 +329,17 @@ Future<void> _flushMicrotasks() async {
 
 class _CommandConnector extends MeshCoreConnector {
   final int timeoutMs;
+  Contact? currentContact;
+  Contact? lastPreparedContact;
   final Queue<Uint8List> _sentFrames = Queue<Uint8List>();
   final Queue<Completer<Uint8List>> _frameWaiters =
       Queue<Completer<Uint8List>>();
 
   _CommandConnector({this.timeoutMs = 60000});
+
+  @override
+  Contact? getContactByPubKeyHex(String contactPubKeyHex) =>
+      currentContact?.publicKeyHex == contactPubKeyHex ? currentContact : null;
 
   int get queuedFrameCount => _sentFrames.length;
 
@@ -317,6 +357,7 @@ class _CommandConnector extends MeshCoreConnector {
     Contact contact, {
     PathSelection? explicitSelection,
   }) async {
+    lastPreparedContact = contact;
     return explicitSelection ??
         PathSelection(pathBytes: Uint8List(0), hopCount: 0, useFlood: false);
   }

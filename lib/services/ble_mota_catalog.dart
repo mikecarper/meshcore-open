@@ -53,6 +53,9 @@ class BleMotaFile {
   final int leavesOffset;
   final int payloadOffset;
   final String hardwareId;
+  final String signerPublicKeyHex;
+  final String baseHashPrefix;
+  final int? bootloaderStorageCaps;
   final Uint8List _imageHash;
   final Uint8List _descriptor;
   final List<List<_ByteRange>> _payloadCoverage;
@@ -81,6 +84,9 @@ class BleMotaFile {
     required this.leavesOffset,
     required this.payloadOffset,
     required this.hardwareId,
+    required this.signerPublicKeyHex,
+    required this.baseHashPrefix,
+    required this.bootloaderStorageCaps,
     required Uint8List imageHash,
     required Uint8List descriptor,
   }) : _imageHash = Uint8List.fromList(imageHash),
@@ -257,6 +263,44 @@ class BleMotaFile {
       );
     }
 
+    int? bootloaderStorageCaps;
+    if (isBootloader) {
+      final image = await _readExact(source, payloadOffset, payloadSize);
+      for (var offset = 0; offset <= image.length - 16; offset += 4) {
+        if (!_bytesEqual(image.sublist(offset, offset + 8), <int>[
+          0x4D,
+          0x4F,
+          0x54,
+          0x41,
+          0x42,
+          0x4C,
+          0x44,
+          0x52,
+        ])) {
+          continue;
+        }
+        final marker = ByteData.sublistView(image, offset, offset + 16);
+        final abi = marker.getUint16(8, Endian.little);
+        final codecs = marker.getUint16(10, Endian.little);
+        final storage = image[offset + 12];
+        if (abi < 3 ||
+            abi == 0xFFFF ||
+            codecs & 0x05 != 0x05 ||
+            storage & ~0x0F != 0 ||
+            storage & 0x08 == 0 ||
+            !_allBytes(image.sublist(offset + 13, offset + 16), 0)) {
+          continue;
+        }
+        if (bootloaderStorageCaps != null ||
+            !<int>{0x09, 0x0A, 0x0E}.contains(storage)) {
+          throw const BleMotaFormatException(
+            'Bootloader storage capability is ambiguous',
+          );
+        }
+        bootloaderStorageCaps = storage;
+      }
+    }
+
     if (isSigned) {
       final publicKey = SimplePublicKey(
         manifest.sublist(97, 129),
@@ -342,6 +386,9 @@ class BleMotaFile {
       leavesOffset: leavesOffset,
       payloadOffset: payloadOffset,
       hardwareId: _readHardwareId(manifest.sublist(57, 89)),
+      signerPublicKeyHex: isSigned ? _hex(manifest.sublist(97, 129)) : '',
+      baseHashPrefix: _hex(baseHash),
+      bootloaderStorageCaps: bootloaderStorageCaps,
       imageHash: manifest.sublist(24, 56),
       descriptor: descriptor,
     );

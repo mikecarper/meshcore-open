@@ -38,12 +38,18 @@ class RepeaterCommandService {
     void Function()? onPacketSent,
     PathSelection? pathSelection,
     int retries = maxRetries,
+    int minimumTimeoutMs = 0,
     bool raw = false,
   }) async {
     if (!raw) command = normalizeRepeaterClockSyncCommand(command);
     final attemptCount = retries < 1 ? 1 : retries;
+    // A management page may hold a Contact from before the user changed its
+    // route. Resolve the live contact so a stale page cannot silently reset a
+    // manually selected direct path on the Companion.
+    final currentRepeater =
+        _connector.getContactByPubKeyHex(repeater.publicKeyHex) ?? repeater;
     final selection = await _connector.preparePathForContactSend(
-      repeater,
+      currentRepeater,
       explicitSelection: pathSelection,
     );
 
@@ -51,12 +57,13 @@ class RepeaterCommandService {
       onAttempt?.call(attempt + 1);
       try {
         final response = await _sendCommandAttempt(
-          repeater,
+          currentRepeater,
           command,
           selection,
           attempt,
           onPacketSent,
           raw,
+          minimumTimeoutMs,
         );
         onResponse?.call(response);
         return response;
@@ -75,6 +82,7 @@ class RepeaterCommandService {
     int attempt,
     void Function()? onPacketSent,
     bool raw,
+    int minimumTimeoutMs,
   ) async {
     final repeaterKey = repeater.publicKeyHex;
     final prefix = _nextPrefixToken();
@@ -105,10 +113,13 @@ class RepeaterCommandService {
       final responseBytes = frame.length > maxFrameSize
           ? frame.length
           : maxFrameSize;
-      final timeoutMs = _connector.calculateTimeout(
+      final estimatedTimeoutMs = _connector.calculateTimeout(
         pathLength: pathLengthValue,
         messageBytes: responseBytes,
       );
+      final timeoutMs = estimatedTimeoutMs > minimumTimeoutMs
+          ? estimatedTimeoutMs
+          : minimumTimeoutMs;
       final timeoutSeconds = (timeoutMs / 1000).ceil();
       await _connector.sendFrame(frame);
       _commandTimeouts[commandId]?.cancel();
