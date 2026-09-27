@@ -1003,9 +1003,23 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
             ? (have * 100 ~/ total)
             : null);
     final lower = response.toLowerCase();
-    final ready = lower.contains('ready to install');
+    final manifestId = RegExp(
+      r'\bid=([0-9A-Fa-f]{8})\b',
+    ).firstMatch(response)?.group(1)?.toUpperCase();
+    BleMotaFile? stagedFile;
+    if (manifestId != null) {
+      for (final file in _catalog?.files ?? <BleMotaFile>[]) {
+        if (file.manifestId.toUpperCase() == manifestId) {
+          stagedFile = file;
+          break;
+        }
+      }
+    }
+    final ready = lower.contains('ready to install') && stagedFile != null;
     if (!mounted) return;
     setState(() {
+      // Recover from a lost pull reply without accepting an unrelated update.
+      if (manifestId != null) _selectedFile = stagedFile;
       if (percent != null) _downloadPercent = percent.clamp(0, 100);
       if (have != null) _confirmedBlocks = have;
       if (total != null && total > 0) _confirmedTotalBlocks = total;
@@ -1014,6 +1028,8 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
     if (ready || lower.contains('download: failed')) {
       _statusTimer?.cancel();
       _statusTimer = null;
+    } else if (stagedFile != null && _downloadPercent != null) {
+      _startStatusTimer();
     }
   }
 
@@ -1667,7 +1683,10 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                             child: const Text('Check download'),
                           ),
                           FilledButton(
-                            onPressed: _busy || !_readyToInstall
+                            onPressed:
+                                _busy ||
+                                    !_readyToInstall ||
+                                    _selectedFile == null
                                 ? null
                                 : _install,
                             child: const Text('Install and reboot'),

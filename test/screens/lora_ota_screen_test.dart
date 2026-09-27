@@ -226,7 +226,7 @@ void main() {
     await connector.closeFake();
   });
 
-  testWidgets('uses explicit staged confirmation for a bootloader install', (
+  testWidgets('recovers lost pull reply before bootloader install', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(430, 932);
@@ -258,6 +258,8 @@ void main() {
     final commands = _FakeRepeaterCommandService(
       connector,
       readyToInstall: true,
+      statusManifestId: file.manifestId,
+      pullReplyTimesOut: true,
       bootloaderStatus:
           'BL board=239A0029 target=D50D2D44 name=GAT562_DFU '
           'crc=12345678 abi=3 caps=0A | staged:ready '
@@ -311,7 +313,7 @@ void main() {
     await tester.tap(find.text('Install and reboot'));
     await tester.pump();
     expect(find.text('Install staged bootloader?'), findsOneWidget);
-    expect(find.textContaining(file.manifestId), findsOneWidget);
+    expect(find.textContaining(file.manifestId), findsWidgets);
     expect(find.textContaining(file.imageHashPrefix), findsOneWidget);
     await tester.tap(find.text('Install and reboot').last);
     await tester.pump();
@@ -871,6 +873,8 @@ class _FakeMotaConnector extends MeshCoreConnector {
 class _FakeRepeaterCommandService extends RepeaterCommandService {
   final String? unreachableProbeContact;
   final bool readyToInstall;
+  final String? statusManifestId;
+  final bool pullReplyTimesOut;
   final String? bootloaderStatus;
   final List<String> commands = <String>[];
   final List<({String contact, String command, List<int> path})> calls =
@@ -880,6 +884,8 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
     super.connector, {
     this.unreachableProbeContact,
     this.readyToInstall = false,
+    this.statusManifestId,
+    this.pullReplyTimesOut = false,
     this.bootloaderStatus,
   });
 
@@ -902,6 +908,9 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
     ));
     onAttempt?.call(1);
     onPacketSent?.call();
+    if (pullReplyTimesOut && command.startsWith('ota pull ')) {
+      throw StateError('Command timeout after 20 seconds');
+    }
     if (repeater.name == unreachableProbeContact &&
         (command == 'ota status' || command == 'ver')) {
       throw TimeoutException('${repeater.name} did not answer on TempRadio');
@@ -910,7 +919,8 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
       'ota ls' => '44332211  TEST_BOARD full 1.17.1.2',
       'ota status' =>
         readyToInstall
-            ? 'download: 40/40 (100%) ready to install'
+            ? 'download: 40/40 (100%) ready to install '
+                  'id=$statusManifestId'
             : 'download: 1/3 (33%)',
       String value when value.startsWith('ota pull ') => 'OK download started',
       'ota bootloader' => bootloaderStatus ?? 'staged:none mid=- hash=-',

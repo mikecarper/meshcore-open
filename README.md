@@ -57,7 +57,8 @@ MeshCore Open is a cross-platform mobile application for communicating with Mesh
 - **Device Settings**: Configure radio parameters, power settings, and network options
 - **Battery Monitoring**: Real-time battery status with chemistry-specific voltage curves
 - **Repeater Firmware Updates**: Serve verified `.mota` files from a phone over
-  encrypted BLE, then pull and install them on a remote LoRa OTA repeater
+  encrypted BLE, then pull and install them on a remote LoRa OTA repeater.
+  See the [screenshot walkthrough](docs/LORA_OTA_REPEATER_TUTORIAL.md).
 
 ### Repeater Hub
 
