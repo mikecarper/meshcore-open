@@ -52,6 +52,7 @@ import '../widgets/translated_message_content.dart';
 import '../widgets/unread_divider.dart';
 import '../theme/mesh_theme.dart';
 import '../widgets/mesh_ui.dart';
+import '../widgets/message_age_picker.dart';
 import 'app_settings_screen.dart';
 import 'channel_message_path_screen.dart';
 import 'map_screen.dart';
@@ -361,9 +362,23 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
             onSelected: (value) {
               if (value == 'clearChat') {
                 _confirmClearChat();
+              } else if (value == 'messageAge') {
+                _changeMessageAge();
               }
             },
             itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'messageAge',
+                child: Row(
+                  children: [
+                    const Icon(Icons.schedule, size: 20),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Message age: ${AppSettingsService.messageAgeLabel(context.read<AppSettingsService>().settings.messageAgeHoursForChannel(widget.channel))}',
+                    ),
+                  ],
+                ),
+              ),
               PopupMenuItem(
                 value: 'clearChat',
                 child: Row(
@@ -2268,6 +2283,17 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
     }
   }
 
+  Future<void> _changeMessageAge() async {
+    final settings = context.read<AppSettingsService>();
+    final current = settings.settings.messageAgeHoursForChannel(widget.channel);
+    final selected = await showMessageAgePicker(context, current);
+    if (selected == null || !mounted) return;
+    await settings.setMessageAgeForChannel(widget.channel, selected);
+    if (!mounted) return;
+    context.read<MeshCoreConnector>().pruneChannelMessages(widget.channel);
+    setState(() {});
+  }
+
   Future<void> _deleteMessage(ChannelMessage message) async {
     await context.read<MeshCoreConnector>().deleteChannelMessage(message);
     if (!mounted) return;
@@ -2300,21 +2326,21 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
     // no post-dialog setState needed.
     await showDialog(
       context: context,
-      builder: (BuildContext context) => _RegionSelectDialog(channel: channel),
+      builder: (BuildContext context) => RegionSelectDialog(channel: channel),
     );
   }
 }
 
-class _RegionSelectDialog extends StatefulWidget {
+class RegionSelectDialog extends StatefulWidget {
   final Channel channel;
 
-  const _RegionSelectDialog({required this.channel});
+  const RegionSelectDialog({super.key, required this.channel});
 
   @override
-  State<_RegionSelectDialog> createState() => _RegionSelectDialogState();
+  State<RegionSelectDialog> createState() => _RegionSelectDialogState();
 }
 
-class _RegionSelectDialogState extends State<_RegionSelectDialog> {
+class _RegionSelectDialogState extends State<RegionSelectDialog> {
   final RegionStore regionStore = RegionStore();
 
   List<Region> regions = [];
@@ -2339,17 +2365,21 @@ class _RegionSelectDialogState extends State<_RegionSelectDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       child: Padding(
-        padding: const EdgeInsets.all(8.0),
+        padding: const EdgeInsets.all(12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            AppBar(
-              backgroundColor: Colors.transparent,
-              title: Text(context.l10n.channels_regionSelect_Title),
-              centerTitle: true,
-              actions: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    context.l10n.channels_regionSelect_Title,
+                    maxLines: 2,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
                 IconButton(
                   tooltip: context.l10n.channels_clearRegion,
                   icon: const Icon(Icons.backspace_outlined),
@@ -2372,34 +2402,69 @@ class _RegionSelectDialogState extends State<_RegionSelectDialog> {
                 ),
               ],
             ),
-            const SizedBox(height: 15),
-            Expanded(
-              child: ListView.builder(
-                itemCount: regions.length,
-                itemBuilder: (context, index) {
-                  final selected = selectedIndex == index;
-                  return ListTile(
-                    leading: Icon(
-                      Icons.landscape,
-                      color: selected ? MeshPalette.blue : null,
+            const Divider(height: 16),
+            if (regions.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Column(
+                  children: [
+                    const Icon(Icons.landscape_outlined, size: 36),
+                    const SizedBox(height: 8),
+                    const Text('No saved regions yet.'),
+                    TextButton.icon(
+                      onPressed: () async {
+                        await pushRegionManagementScreen(context);
+                        if (mounted) loadRegions();
+                      },
+                      icon: const Icon(Icons.add),
+                      label: Text(context.l10n.settings_regionAddRegion),
                     ),
-                    title: Text(regions[index]),
-                    trailing: selected
-                        ? const Icon(Icons.check, color: MeshPalette.blue)
-                        : null,
-                    tileColor: selected ? MeshPalette.blueBg : null,
-                    onTap: () {
-                      // Tapping the already-selected region clears it.
-                      context.read<MeshCoreConnector>().setChannelRegion(
-                        widget.channel.index,
-                        selected ? '' : regions[index],
-                      );
-                      Navigator.pop(context);
-                    },
-                  );
-                },
+                    TextButton.icon(
+                      onPressed: () async {
+                        await pushRegionManagementScreen(
+                          context,
+                          findRegions: true,
+                        );
+                        if (mounted) loadRegions();
+                      },
+                      icon: const Icon(Icons.travel_explore),
+                      label: Text(context.l10n.settings_regionFetchRegions),
+                    ),
+                  ],
+                ),
+              )
+            else
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.65,
+                ),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: regions.length,
+                  itemBuilder: (context, index) {
+                    final selected = selectedIndex == index;
+                    return ListTile(
+                      leading: Icon(
+                        Icons.landscape,
+                        color: selected ? MeshPalette.blue : null,
+                      ),
+                      title: Text(regions[index]),
+                      trailing: selected
+                          ? const Icon(Icons.check, color: MeshPalette.blue)
+                          : null,
+                      tileColor: selected ? MeshPalette.blueBg : null,
+                      onTap: () {
+                        // Tapping the already-selected region clears it.
+                        context.read<MeshCoreConnector>().setChannelRegion(
+                          widget.channel.index,
+                          selected ? '' : regions[index],
+                        );
+                        Navigator.pop(context);
+                      },
+                    );
+                  },
+                ),
               ),
-            ),
           ],
         ),
       ),

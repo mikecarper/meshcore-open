@@ -19,6 +19,7 @@ import '../models/path_selection.dart';
 import '../models/translation_support.dart';
 import '../helpers/reaction_helper.dart';
 import '../helpers/cyr2lat.dart';
+import '../helpers/message_age_policy.dart';
 import '../helpers/smaz.dart';
 import '../services/app_debug_log_service.dart';
 import '../services/ble_debug_log_service.dart';
@@ -684,7 +685,35 @@ class MeshCoreConnector extends ChangeNotifier {
     if (!_loadedConversationKeys.contains(contact.publicKeyHex)) {
       unawaited(_loadMessagesForContact(contact.publicKeyHex));
     }
+    pruneContactMessages(contact.publicKeyHex);
     return _conversations[contact.publicKeyHex] ?? [];
+  }
+
+  void pruneContactMessages(String contactKeyHex) {
+    final messages = _conversations[contactKeyHex];
+    if (messages == null) return;
+    final hours =
+        _appSettingsService?.settings.messageAgeHoursForContact(
+          contactKeyHex,
+        ) ??
+        0;
+    final kept = MessageAgePolicy.keep(messages, (m) => m.timestamp, hours);
+    if (kept.length == messages.length) return;
+    _conversations[contactKeyHex] = kept;
+    unawaited(_messageStore.saveMessages(contactKeyHex, kept));
+    notifyListeners();
+  }
+
+  void pruneChannelMessages(Channel channel) {
+    final messages = _channelMessages[channel.index];
+    if (messages == null) return;
+    final hours =
+        _appSettingsService?.settings.messageAgeHoursForChannel(channel) ?? 0;
+    final kept = MessageAgePolicy.keep(messages, (m) => m.timestamp, hours);
+    if (kept.length == messages.length) return;
+    _channelMessages[channel.index] = kept;
+    unawaited(_channelMessageStore.saveChannelMessages(channel.index, kept));
+    notifyListeners();
   }
 
   Future<void> deleteMessage(Message message) async {
@@ -713,7 +742,16 @@ class MeshCoreConnector extends ChangeNotifier {
     if (_loadedConversationKeys.contains(contactKeyHex)) return;
     _loadedConversationKeys.add(contactKeyHex);
 
-    final allMessages = await _messageStore.loadMessages(contactKeyHex);
+    final storedMessages = await _messageStore.loadMessages(contactKeyHex);
+    final allMessages = MessageAgePolicy.keep(
+      storedMessages,
+      (m) => m.timestamp,
+      _appSettingsService?.settings.messageAgeHoursForContact(contactKeyHex) ??
+          0,
+    );
+    if (allMessages.length != storedMessages.length) {
+      await _messageStore.saveMessages(contactKeyHex, allMessages);
+    }
     if (allMessages.isNotEmpty) {
       // Keep only the most recent N messages in memory to bound memory usage
       final windowedMessages = allMessages.length > _messageWindowSize
@@ -769,7 +807,16 @@ class MeshCoreConnector extends ChangeNotifier {
     String contactKeyHex, {
     int count = 50,
   }) async {
-    final allMessages = await _messageStore.loadMessages(contactKeyHex);
+    final storedMessages = await _messageStore.loadMessages(contactKeyHex);
+    final allMessages = MessageAgePolicy.keep(
+      storedMessages,
+      (m) => m.timestamp,
+      _appSettingsService?.settings.messageAgeHoursForContact(contactKeyHex) ??
+          0,
+    );
+    if (allMessages.length != storedMessages.length) {
+      await _messageStore.saveMessages(contactKeyHex, allMessages);
+    }
     final currentMessages = _conversations[contactKeyHex] ?? [];
 
     if (allMessages.length <= currentMessages.length) {
@@ -790,6 +837,7 @@ class MeshCoreConnector extends ChangeNotifier {
   }
 
   List<ChannelMessage> getChannelMessages(Channel channel) {
+    pruneChannelMessages(channel);
     return _channelMessages[channel.index] ?? [];
   }
 
@@ -1083,9 +1131,21 @@ class MeshCoreConnector extends ChangeNotifier {
 
   /// Load persisted channel messages for a specific channel
   Future<void> _loadChannelMessages(int channelIndex) async {
-    final allMessages = await _channelMessageStore.loadChannelMessages(
+    final storedMessages = await _channelMessageStore.loadChannelMessages(
       channelIndex,
     );
+    final channel = _findChannelByIndex(channelIndex);
+    final allMessages = channel == null
+        ? storedMessages
+        : MessageAgePolicy.keep(
+            storedMessages,
+            (m) => m.timestamp,
+            _appSettingsService?.settings.messageAgeHoursForChannel(channel) ??
+                0,
+          );
+    if (allMessages.length != storedMessages.length) {
+      await _channelMessageStore.saveChannelMessages(channelIndex, allMessages);
+    }
     if (allMessages.isNotEmpty) {
       // Keep only the most recent N messages in memory to bound memory usage
       final windowedMessages = allMessages.length > _messageWindowSize
@@ -1102,9 +1162,21 @@ class MeshCoreConnector extends ChangeNotifier {
     int channelIndex, {
     int count = 50,
   }) async {
-    final allMessages = await _channelMessageStore.loadChannelMessages(
+    final storedMessages = await _channelMessageStore.loadChannelMessages(
       channelIndex,
     );
+    final channel = _findChannelByIndex(channelIndex);
+    final allMessages = channel == null
+        ? storedMessages
+        : MessageAgePolicy.keep(
+            storedMessages,
+            (m) => m.timestamp,
+            _appSettingsService?.settings.messageAgeHoursForChannel(channel) ??
+                0,
+          );
+    if (allMessages.length != storedMessages.length) {
+      await _channelMessageStore.saveChannelMessages(channelIndex, allMessages);
+    }
     final currentMessages = _channelMessages[channelIndex] ?? [];
 
     if (allMessages.length <= currentMessages.length) {
@@ -6507,13 +6579,15 @@ class MeshCoreConnector extends ChangeNotifier {
     final channelIndex = message.channelIndex;
     if (channelIndex == null) return;
 
-    final settings = _appSettingsService!.settings;
-    if (!settings.notificationsEnabled || !settings.notifyOnNewChannelMessage) {
-      return;
-    }
-
+    final channel = _findChannelByIndex(channelIndex);
+    if (channel == null) return;
+    final type = channel.isPublicChannel
+        ? ChannelType.public
+        : channel.isHashtagChannel
+        ? ChannelType.hashtag
+        : ChannelType.private;
+    if (!_appSettingsService!.shouldNotifyChannel(channel, type)) return;
     final label = channelName ?? _channelDisplayName(channelIndex);
-    if (_appSettingsService!.isChannelMuted(label)) return;
 
     // Reuse translation result only if completed and non-empty; else use original text
     final resolvedText =
@@ -7088,6 +7162,12 @@ class MeshCoreConnector extends ChangeNotifier {
   }
 
   void _addMessage(String pubKeyHex, Message message) {
+    if (MessageAgePolicy.isExpired(
+      message.timestamp,
+      _appSettingsService?.settings.messageAgeHoursForContact(pubKeyHex) ?? 0,
+    )) {
+      return;
+    }
     _conversations.putIfAbsent(pubKeyHex, () => []);
     final messages = _conversations[pubKeyHex]!;
 
@@ -7353,6 +7433,14 @@ class MeshCoreConnector extends ChangeNotifier {
   }
 
   bool _addChannelMessage(int channelIndex, ChannelMessage message) {
+    final channel = _findChannelByIndex(channelIndex);
+    if (channel != null &&
+        MessageAgePolicy.isExpired(
+          message.timestamp,
+          _appSettingsService?.settings.messageAgeHoursForChannel(channel) ?? 0,
+        )) {
+      return false;
+    }
     _channelMessages.putIfAbsent(channelIndex, () => []);
     final messages = _channelMessages[channelIndex]!;
 

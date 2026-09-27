@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../models/app_settings.dart';
+import '../models/channel.dart';
 import '../models/image_codec_support.dart';
 import '../models/translation_support.dart';
 import '../storage/prefs_manager.dart';
@@ -9,10 +10,54 @@ import '../helpers/cyr2lat.dart';
 
 class AppSettingsService extends ChangeNotifier {
   static const String _settingsKey = 'app_settings';
+  static const List<int> messageAgeOptionsHours = [
+    1,
+    3,
+    6,
+    12,
+    24,
+    48,
+    72,
+    168,
+    720,
+    0,
+  ];
+
+  static String messageAgeLabel(int hours) => switch (hours) {
+    0 => 'Never',
+    1 => '1 hour',
+    3 => '3 hours',
+    6 => '6 hours',
+    12 => '12 hours',
+    24 => '1 day',
+    48 => '2 days',
+    72 => '3 days',
+    168 => '7 days',
+    720 => '30 days',
+    _ => '$hours hours',
+  };
 
   AppSettings _settings = AppSettings();
 
   AppSettings get settings => _settings;
+
+  Future<void> setMessageAgeForContact(String publicKeyHex, int hours) async {
+    if (!messageAgeOptionsHours.contains(hours)) {
+      throw ArgumentError.value(hours, 'hours');
+    }
+    final updated = Map<String, int>.of(_settings.messageAgeHoursByContact);
+    updated[publicKeyHex] = hours;
+    await updateSettings(_settings.copyWith(messageAgeHoursByContact: updated));
+  }
+
+  Future<void> setMessageAgeForChannel(Channel channel, int hours) async {
+    if (!messageAgeOptionsHours.contains(hours)) {
+      throw ArgumentError.value(hours, 'hours');
+    }
+    final updated = Map<String, int>.of(_settings.messageAgeHoursByChannel);
+    updated[channel.pskHex] = hours;
+    await updateSettings(_settings.copyWith(messageAgeHoursByChannel: updated));
+  }
 
   int resolvedGpsIntervalSeconds(Map<String, String>? deviceCustomVars) {
     final deviceValue = int.tryParse(deviceCustomVars?['gps_interval'] ?? '');
@@ -41,7 +86,18 @@ class AppSettingsService extends ChangeNotifier {
     if (jsonStr != null) {
       try {
         final json = jsonDecode(jsonStr) as Map<String, dynamic>;
+        final migrateNotificationDefaults =
+            json['notification_policy_v2'] != true;
+        if (migrateNotificationDefaults) {
+          json['notify_on_new_advert'] = false;
+        }
         _settings = AppSettings.fromJson(json);
+        if (migrateNotificationDefaults) {
+          await prefs.setString(
+            _settingsKey,
+            jsonEncode({..._settings.toJson(), 'notification_policy_v2': true}),
+          );
+        }
         Cyr2Lat.setCharMap(_settings.cyr2latCharMap);
         notifyListeners();
       } catch (e) {
@@ -61,7 +117,10 @@ class AppSettingsService extends ChangeNotifier {
     notifyListeners();
 
     final prefs = PrefsManager.instance;
-    final jsonStr = jsonEncode(_settings.toJson());
+    final jsonStr = jsonEncode({
+      ..._settings.toJson(),
+      'notification_policy_v2': true,
+    });
     await prefs.setString(_settingsKey, jsonStr);
   }
 
@@ -254,19 +313,54 @@ class AppSettingsService extends ChangeNotifier {
     await updateSettings(_settings.copyWith(unitSystem: value));
   }
 
-  bool isChannelMuted(String channelName) {
-    return _settings.mutedChannels.contains(channelName);
+  bool isChannelMuted(String channelName, {bool isPublicChannel = false}) {
+    return _settings.mutedChannels.contains(channelName) ||
+        (isPublicChannel && !_settings.notifyOnPublicChannelMessages);
   }
 
-  Future<void> muteChannel(String channelName) async {
-    final updated = Set<String>.from(_settings.mutedChannels)..add(channelName);
-    await updateSettings(_settings.copyWith(mutedChannels: updated));
+  /// The app-wide channel switch covers only private channels. Public needs
+  /// a separate per-channel opt-in; hashtags and community broadcasts do not
+  /// generate message notifications.
+  bool shouldNotifyChannel(Channel channel, ChannelType type) {
+    if (!_settings.notificationsEnabled ||
+        _settings.mutedChannels.contains(channel.name)) {
+      return false;
+    }
+    return switch (type) {
+      ChannelType.private => _settings.notifyOnNewChannelMessage,
+      ChannelType.public => _settings.notifyOnPublicChannelMessages,
+      ChannelType.hashtag ||
+      ChannelType.communityPublic ||
+      ChannelType.communityHashtag => false,
+    };
   }
 
-  Future<void> unmuteChannel(String channelName) async {
+  Future<void> muteChannel(
+    String channelName, {
+    bool isPublicChannel = false,
+  }) async {
+    final updated = Set<String>.from(_settings.mutedChannels);
+    if (!isPublicChannel) updated.add(channelName);
+    await updateSettings(
+      _settings.copyWith(
+        mutedChannels: updated,
+        notifyOnPublicChannelMessages: isPublicChannel ? false : null,
+      ),
+    );
+  }
+
+  Future<void> unmuteChannel(
+    String channelName, {
+    bool isPublicChannel = false,
+  }) async {
     final updated = Set<String>.from(_settings.mutedChannels)
       ..remove(channelName);
-    await updateSettings(_settings.copyWith(mutedChannels: updated));
+    await updateSettings(
+      _settings.copyWith(
+        mutedChannels: updated,
+        notifyOnPublicChannelMessages: isPublicChannel ? true : null,
+      ),
+    );
   }
 
   Future<void> setTcpServerAddress(String value) async {

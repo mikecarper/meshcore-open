@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
+import 'companion_firmware_inspector.dart';
+
 enum Esp32WifiOtaProtocol { lightweight, elegant }
 
 enum Esp32MigrationBridgeState { waiting, ready }
@@ -85,19 +87,17 @@ class Esp32WifiOtaService {
 
   static void validateImage(String name, Uint8List image) {
     final lower = name.toLowerCase();
-    if (!lower.endsWith('.bin') || lower.contains('merged')) {
-      throw const FormatException(
-        'Choose a non-merged ESP32 application .bin.',
-      );
+    if (!lower.endsWith('.bin')) {
+      throw const FormatException('Choose an ESP32 application .bin.');
     }
-    if (image.length < 1024 || image.length > 0x1000000) {
+    if (CompanionFirmwareInspector.inspectEsp32(image) ==
+            Esp32FirmwareLayout.fullFlash ||
+        lower.contains('merged') ||
+        lower.contains('cleaninstall') ||
+        lower.contains('factory')) {
       throw const FormatException(
-        'ESP32 image size is outside the supported range.',
-      );
-    }
-    if (image[0] != 0xE9 || image[1] == 0 || image[1] > 16) {
-      throw const FormatException(
-        'This file has no ESP32 application image header.',
+        'This is a full/erase ESP32 image, not a Wi-Fi OTA application. '
+        'Use an exact-board wired installer.',
       );
     }
   }

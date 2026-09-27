@@ -110,7 +110,11 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
       canPop: allowBack,
       child: Scaffold(
         appBar: AppBar(
-          title: AppBarTitle(context.l10n.channels_title),
+          titleSpacing: 0,
+          title: AppBarTitle(
+            context.l10n.channels_title,
+            shrinkTitleOnCompact: true,
+          ),
           centerTitle: true,
           automaticallyImplyLeading: false,
           bottom: const SyncProgressAppBarBottom(),
@@ -375,6 +379,7 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
     final unreadCount = connector.getUnreadCountForChannel(channel);
     final isMuted = context.watch<AppSettingsService>().isChannelMuted(
       channel.name,
+      isPublicChannel: channel.isPublicChannel,
     );
     final scheme = Theme.of(context).colorScheme;
 
@@ -626,7 +631,10 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
   ) {
     final parentContext = context;
     final settingsService = context.read<AppSettingsService>();
-    final isMuted = settingsService.isChannelMuted(channel.name);
+    final isMuted = settingsService.isChannelMuted(
+      channel.name,
+      isPublicChannel: channel.isPublicChannel,
+    );
 
     showModalBottomSheet(
       context: parentContext,
@@ -645,26 +653,36 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                 }
               },
             ),
-            ListTile(
-              leading: Icon(
-                isMuted
-                    ? Icons.notifications_outlined
-                    : Icons.notifications_off_outlined,
+            if (Channel.getChannelType(channel, _communityIndex) ==
+                    ChannelType.private ||
+                Channel.getChannelType(channel, _communityIndex) ==
+                    ChannelType.public)
+              ListTile(
+                leading: Icon(
+                  isMuted
+                      ? Icons.notifications_outlined
+                      : Icons.notifications_off_outlined,
+                ),
+                title: Text(
+                  isMuted
+                      ? sheetContext.l10n.channels_unmuteChannel
+                      : sheetContext.l10n.channels_muteChannel,
+                ),
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  if (isMuted) {
+                    await settingsService.unmuteChannel(
+                      channel.name,
+                      isPublicChannel: channel.isPublicChannel,
+                    );
+                  } else {
+                    await settingsService.muteChannel(
+                      channel.name,
+                      isPublicChannel: channel.isPublicChannel,
+                    );
+                  }
+                },
               ),
-              title: Text(
-                isMuted
-                    ? sheetContext.l10n.channels_unmuteChannel
-                    : sheetContext.l10n.channels_muteChannel,
-              ),
-              onTap: () async {
-                Navigator.pop(sheetContext);
-                if (isMuted) {
-                  await settingsService.unmuteChannel(channel.name);
-                } else {
-                  await settingsService.muteChannel(channel.name);
-                }
-              },
-            ),
             ListTile(
               leading: Icon(
                 Icons.delete_outline,

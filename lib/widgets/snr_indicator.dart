@@ -128,8 +128,13 @@ SNRUi snrUiFromSNR(double? snr, int? spreadingFactor) {
 
 class SNRIndicator extends StatefulWidget {
   final MeshCoreConnector connector;
+  final bool compact;
 
-  const SNRIndicator({super.key, required this.connector});
+  const SNRIndicator({
+    super.key,
+    required this.connector,
+    this.compact = false,
+  });
 
   @override
   State<SNRIndicator> createState() => _SNRIndicatorState();
@@ -160,7 +165,11 @@ class _SNRIndicatorState extends State<SNRIndicator> {
     );
 
     return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+      constraints: BoxConstraints(
+        minWidth: 40,
+        minHeight: 40,
+        maxWidth: widget.compact ? 56 : double.infinity,
+      ),
       child: InkWell(
         onTap: directRepeater != null
             ? () => _showFullPathDialog(context, directBestRepeaters)

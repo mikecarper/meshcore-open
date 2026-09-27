@@ -279,7 +279,10 @@ class GitHubMotaReleaseService {
 
   /// Exact-board Companion BLE release assets from the upstream release feed.
   /// USB variants and merged ESP32 images are not suitable for phone OTA.
-  Future<List<GitHubReleaseAsset>> findCompanionAssets(String board) async {
+  Future<List<GitHubReleaseAsset>> findCompanionAssets(
+    String board, {
+    String? extension,
+  }) async {
     final reportedBoard = board.toLowerCase().replaceAll(
       RegExp(r'[^a-z0-9]'),
       '',
@@ -302,7 +305,8 @@ class GitHubMotaReleaseService {
         final marker = name.indexOf('_companion_radio_ble-');
         if (marker <= 0 ||
             name.contains('-merged.bin') ||
-            !(name.endsWith('.zip') || name.endsWith('.bin'))) {
+            !(name.endsWith('.zip') || name.endsWith('.bin')) ||
+            (extension != null && !name.endsWith('.$extension'))) {
           return false;
         }
         final assetBoard = name

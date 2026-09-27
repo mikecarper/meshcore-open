@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meshcore_open/connector/meshcore_connector.dart';
@@ -7,9 +10,10 @@ import 'package:meshcore_open/widgets/update_status_card.dart';
 import 'package:provider/provider.dart';
 
 class _CompanionConnector extends MeshCoreConnector {
-  _CompanionConnector({this.connected = true});
+  _CompanionConnector({this.connected = true, this.board = 'Heltec V4.3 OLED'});
 
   final bool connected;
+  final String board;
 
   @override
   bool get isConnected => connected;
@@ -19,7 +23,7 @@ class _CompanionConnector extends MeshCoreConnector {
     String command, {
     Duration timeout = const Duration(seconds: 8),
   }) async => command == 'board'
-      ? 'Heltec T096'
+      ? board
       : 'v1.17.1.8-halo-keymind-cascade-dev-d4b3bb56';
 }
 
@@ -49,6 +53,7 @@ void main() {
           findsOneWidget,
         );
         expect(find.text('Use a firmware file').hitTestable(), findsOneWidget);
+        expect(find.textContaining('ESP32 application .bin'), findsWidgets);
         expect(find.byType(UpdateStatusCard), findsOneWidget);
         expect(find.byType(LinearProgressIndicator), findsNothing);
         await tester.tap(find.text('Use a firmware file'));
@@ -95,6 +100,55 @@ void main() {
       0.42,
     );
     expect(find.text('42%'), findsOneWidget);
+  });
+
+  testWidgets('Nordic board asks for a DFU ZIP', (tester) async {
+    final connector = _CompanionConnector(board: 'RAK4631');
+    addTearDown(connector.dispose);
+    await tester.pumpWidget(
+      ChangeNotifierProvider<MeshCoreConnector>.value(
+        value: connector,
+        child: const MaterialApp(home: CompanionUpdateScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Nordic DFU .zip'), findsWidgets);
+    expect(find.textContaining('ESP32 application .bin'), findsNothing);
+  });
+
+  testWidgets('full ESP32 image cannot start a phone OTA update', (
+    tester,
+  ) async {
+    final connector = _CompanionConnector();
+    addTearDown(connector.dispose);
+    final image = Uint8List(0x21000);
+    image[0] = 0xE9;
+    image[1] = 1;
+    image[2] = 2;
+    image[0x8000] = 0xAA;
+    image[0x8001] = 0x50;
+    final picked = XFile.fromData(image, path: 'ordinary-name.bin');
+    await tester.pumpWidget(
+      ChangeNotifierProvider<MeshCoreConnector>.value(
+        value: connector,
+        child: MaterialApp(
+          home: CompanionUpdateScreen(pickFirmware: () async => picked),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Use a firmware file'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Browse files'));
+    await tester.tap(find.text('Browse files'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<UpdateStatusCard>(find.byType(UpdateStatusCard)).message,
+      contains('full/erase ESP32 image'),
+    );
+    expect(find.text('Start Wi-Fi updater'), findsNothing);
   });
 
   testWidgets(

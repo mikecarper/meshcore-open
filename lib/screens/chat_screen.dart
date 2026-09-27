@@ -47,6 +47,7 @@ import '../helpers/snack_bar_builder.dart';
 import '../widgets/unread_divider.dart';
 import '../theme/mesh_theme.dart';
 import '../widgets/mesh_ui.dart';
+import '../widgets/message_age_picker.dart';
 import 'telemetry_screen.dart';
 
 // Image messages are deliberately absent from this screen, and there is no
@@ -254,6 +255,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       );
                     case 'clearChat':
                       _confirmClearChat(context, connector);
+                    case 'messageAge':
+                      _changeMessageAge(connector);
                   }
                 },
                 itemBuilder: (context) => [
@@ -294,6 +297,18 @@ class _ChatScreenState extends State<ChatScreen> {
                         const Icon(Icons.settings, size: 20),
                         const SizedBox(width: 12),
                         Text(context.l10n.contact_settings),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'messageAge',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.schedule, size: 20),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Message age: ${AppSettingsService.messageAgeLabel(context.read<AppSettingsService>().settings.messageAgeHoursForContact(contact.publicKeyHex))}',
+                        ),
                       ],
                     ),
                   ),
@@ -782,6 +797,17 @@ class _ChatScreenState extends State<ChatScreen> {
     if (confirmed == true) {
       connector.clearMessagesForContact(widget.contact);
     }
+  }
+
+  Future<void> _changeMessageAge(MeshCoreConnector connector) async {
+    final settings = context.read<AppSettingsService>();
+    final contactKey = widget.contact.publicKeyHex;
+    final current = settings.settings.messageAgeHoursForContact(contactKey);
+    final selected = await showMessageAgePicker(context, current);
+    if (selected == null || !mounted) return;
+    await settings.setMessageAgeForContact(contactKey, selected);
+    connector.pruneContactMessages(contactKey);
+    if (mounted) setState(() {});
   }
 
   int _resolveContactIndex = -1;

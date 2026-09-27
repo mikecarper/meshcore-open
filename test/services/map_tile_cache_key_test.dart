@@ -1,7 +1,26 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meshcore_open/services/map_tile_cache_service.dart';
+import 'package:meshcore_open/services/app_settings_service.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+
+class _NoopCacheManager extends Fake implements BaseCacheManager {}
 
 void main() {
+  test('live tile requests identify the app, matching offline downloads', () {
+    final settings = AppSettingsService();
+    final service = MapTileCacheService(
+      appSettingsService: settings,
+      cacheManager: _NoopCacheManager(),
+    );
+    final provider = service.tileProvider as CachedNetworkTileProvider;
+    expect(
+      provider.headers['User-Agent'],
+      service.defaultHeaders['User-Agent'],
+    );
+    expect(provider.headers['User-Agent'], contains('com.meshcore.open'));
+    service.dispose();
+    settings.dispose();
+  });
   test('tile cache key drops api_key and keeps everything else', () {
     expect(
       MapTileCacheService.tileCacheKey(

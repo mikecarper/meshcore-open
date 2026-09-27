@@ -13,10 +13,11 @@ import '../theme/mesh_theme.dart';
 import '../services/notification_service.dart';
 import '../utils/contact_search.dart';
 import '../utils/platform_info.dart';
-import '../widgets/app_bar.dart';
 import '../widgets/list_filter_widget.dart';
 import '../widgets/mesh_ui.dart';
 import '../helpers/snack_bar_builder.dart';
+import '../helpers/contact_proximity.dart';
+import '../services/app_settings_service.dart';
 
 enum DiscoverySortOption { lastSeen, name, type }
 
@@ -105,10 +106,11 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: AppBarTitle(
+        title: Text(
           l10n.discoveredContacts_Title,
-          indicators: false,
-          subtitle: false,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 20),
         ),
         centerTitle: true,
         actions: [
@@ -180,6 +182,15 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
   ) {
     final scheme = Theme.of(context).colorScheme;
     final isChat = contact.type == advTypeChat;
+    final proximity = contact.hasLocation
+        ? ContactProximity.between(
+            connector.selfLatitude,
+            connector.selfLongitude,
+            contact.latitude,
+            contact.longitude,
+          )
+        : null;
+    final units = context.read<AppSettingsService>().settings.unitSystem;
 
     return ListEntrance(
       index: index,
@@ -230,85 +241,67 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Name + type chip
-                  Row(
+                  Text(
+                    contact.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      Expanded(
-                        child: Text(
-                          contact.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w500,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
                       StatusChip(
                         label: contact.typeLabel(context.l10n).toUpperCase(),
                         color: _avatarColor(contact.type),
                         icon: _avatarIcon(contact.type),
                       ),
+                      Text(
+                        _formatLastSeen(context, _resolveLastSeen(contact)),
+                        style: MeshTheme.mono(
+                          fontSize: 11,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 3),
-                  // Short pub key
-                  Row(
+                  const SizedBox(height: 5),
+                  Wrap(
+                    spacing: 9,
+                    runSpacing: 3,
                     children: [
-                      Expanded(
-                        child: Text(
-                          contact.shortPubKeyHex,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      Text(
+                        contact.shortPubKeyHex,
+                        style: MeshTheme.mono(
+                          fontSize: 11,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      Text(
+                        contact.pathLength < 0
+                            ? 'Hops unknown'
+                            : '${contact.pathLength} hop${contact.pathLength == 1 ? '' : 's'}',
+                        style: MeshTheme.mono(
+                          fontSize: 11,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      if (proximity != null)
+                        Text(
+                          proximity.format(units),
                           style: MeshTheme.mono(
                             fontSize: 11,
                             color: scheme.onSurfaceVariant,
                           ),
                         ),
-                      ),
-                      if (contact.hasLocation) ...[
-                        const SizedBox(width: 6),
-                        Icon(
-                          Icons.location_on,
-                          size: 13,
-                          color: scheme.onSurfaceVariant.withValues(
-                            alpha: 0.55,
-                          ),
-                        ),
-                      ],
-                      if (contact.rawPacket != null) ...[
-                        const SizedBox(width: 4),
-                        Icon(
-                          Icons.cell_tower,
-                          size: 13,
-                          color: scheme.onSurfaceVariant.withValues(
-                            alpha: 0.55,
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            // Last seen time
-            MediaQuery(
-              data: MediaQuery.of(context).copyWith(
-                textScaler: TextScaler.linear(
-                  MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.3),
-                ),
-              ),
-              child: Text(
-                _formatLastSeen(context, _resolveLastSeen(contact)),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.right,
-                style: MeshTheme.mono(
-                  fontSize: 11,
-                  color: scheme.onSurfaceVariant,
-                ),
               ),
             ),
           ],

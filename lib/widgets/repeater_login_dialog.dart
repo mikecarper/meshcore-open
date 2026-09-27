@@ -289,8 +289,9 @@ class _RepeaterLoginDialogState extends State<RepeaterLoginDialog> {
     // Android 5's keyboard can leave an AlertDialog with zero room for its
     // content. Scroll the whole dialog (including actions) instead.
     return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -366,9 +367,34 @@ class _RepeaterLoginDialogState extends State<RepeaterLoginDialog> {
                         ),
                         const SizedBox(height: 12),
                       ],
+                      Row(
+                        children: [
+                          Text(l10n.login_password),
+                          const Spacer(),
+                          IconButton(
+                            tooltip: _obscurePassword
+                                ? 'Show password'
+                                : 'Hide password',
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                            ),
+                            onPressed: () => setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            }),
+                          ),
+                        ],
+                      ),
                       TextField(
                         controller: _passwordController,
                         obscureText: _obscurePassword,
+                        style: TextStyle(
+                          fontSize:
+                              MediaQuery.textScalerOf(context).scale(1) > 1.1
+                              ? 12
+                              : 14,
+                        ),
                         // Firmware stores at most 15 bytes (CommonCLI.h password[16]).
                         inputFormatters: const [
                           Utf8LengthLimitingTextInputFormatter(15),
@@ -376,18 +402,9 @@ class _RepeaterLoginDialogState extends State<RepeaterLoginDialog> {
                         decoration: InputDecoration(
                           labelText: l10n.login_password,
                           hintText: l10n.login_enterPassword,
-                          prefixIcon: const Icon(Icons.lock),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _obscurePassword = !_obscurePassword;
-                              });
-                            },
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 16,
                           ),
                         ),
                         onChanged: (_) {

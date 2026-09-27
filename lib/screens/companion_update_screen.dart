@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../connector/meshcore_connector.dart';
+import '../services/companion_firmware_inspector.dart';
 import '../services/esp32_partition_catalog.dart';
 import '../services/esp32_wifi_ota_service.dart';
 import '../services/github_mota_release_service.dart';
@@ -47,6 +48,15 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
   int? _progress;
   bool _isError = false;
   String? _errorDetails;
+
+  String? get _expectedExtension =>
+      CompanionFirmwareInspector.updateExtensionForBoard(_board);
+
+  String get _firmwareHint => switch (_expectedExtension) {
+    'zip' => 'Nordic DFU .zip - Bluetooth update',
+    'bin' => 'ESP32 application .bin - Wi-Fi update; full/erase needs USB',
+    _ => 'Nordic DFU .zip or ESP32 application .bin',
+  };
 
   @override
   void initState() {
@@ -127,24 +137,39 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
       version = connector.firmwareVersionString ?? 'Unknown firmware';
     }
     if (!mounted) return;
+    final previous = _dfuPath;
     setState(() {
       _board = board;
       _version = version;
       _partition = null;
+      _filename = null;
+      _dfuPath = null;
+      _dfuAddress = null;
+      _dfu = null;
+      _espImage = null;
+      _imageIdentity = null;
       _updateUri = null;
       _probe = null;
-      _status = 'Choose firmware built for this exact board.';
+      _status = 'Choose firmware built for this exact board. $_firmwareHint.';
     });
+    if (previous != null) {
+      try {
+        await File(previous).delete();
+      } catch (_) {
+        /* cache cleanup */
+      }
+    }
   });
 
   Future<void> _chooseFirmware() => _run(() async {
+    final extension = _expectedExtension;
     final file = widget.pickFirmware != null
         ? await widget.pickFirmware!()
         : await openFile(
-            acceptedTypeGroups: const [
+            acceptedTypeGroups: [
               XTypeGroup(
                 label: 'Companion firmware',
-                extensions: ['zip', 'bin'],
+                extensions: extension == null ? ['zip', 'bin'] : [extension],
               ),
             ],
           );
@@ -156,6 +181,7 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
   });
 
   Future<void> _chooseFromDownloads() => _run(() async {
+    final extension = _expectedExtension;
     final directory = Directory('/sdcard/Download');
     if (!await directory.exists()) {
       throw StateError('Phone Downloads is unavailable.');
@@ -163,13 +189,15 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
     final files = <File>[];
     await for (final entry in directory.list(followLinks: false)) {
       if (entry is File &&
-          (entry.path.toLowerCase().endsWith('.zip') ||
-              entry.path.toLowerCase().endsWith('.bin'))) {
+          (extension == null
+              ? entry.path.toLowerCase().endsWith('.zip') ||
+                    entry.path.toLowerCase().endsWith('.bin')
+              : entry.path.toLowerCase().endsWith('.$extension'))) {
         files.add(entry);
       }
     }
     if (files.isEmpty) {
-      throw StateError('No firmware ZIP or .bin in Downloads.');
+      throw StateError('No matching $_firmwareHint file in Downloads.');
     }
     if (files.length > 40) {
       throw StateError('Too many firmware files in Downloads.');
@@ -204,7 +232,10 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
     setState(() => _status = 'Checking GitHub for board-matched firmware...');
     final board = _board;
     if (board == null) throw StateError('Read the Companion board first.');
-    final assets = await _releases.findCompanionAssets(board);
+    final assets = await _releases.findCompanionAssets(
+      board,
+      extension: _expectedExtension,
+    );
     if (assets.isEmpty) {
       throw StateError(
         'No exact-board Companion BLE update is published in the latest GitHub releases. Choose a local file instead.',
@@ -251,7 +282,17 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
   });
 
   Future<void> _loadFirmware(String name, List<int> bytes) async {
-    if (name.toLowerCase().endsWith('.zip')) {
+    final lower = name.toLowerCase();
+    final extension = lower.endsWith('.zip')
+        ? 'zip'
+        : lower.endsWith('.bin')
+        ? 'bin'
+        : null;
+    if (extension == null ||
+        (_expectedExtension != null && extension != _expectedExtension)) {
+      throw FormatException('This board needs $_firmwareHint.');
+    }
+    if (extension == 'zip') {
       final package = NrfDfuPackage.inspect(Uint8List.fromList(bytes));
       final directory = await getTemporaryDirectory();
       final copy = File(
@@ -285,6 +326,42 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
       }
     } else {
       final image = Uint8List.fromList(bytes);
+      final layout = CompanionFirmwareInspector.inspectEsp32(image);
+      if (layout == Esp32FirmwareLayout.fullFlash) {
+        if (!mounted) return;
+        final previous = _dfuPath;
+        setState(() {
+          _filename = name;
+          _dfuPath = null;
+          _dfu = null;
+          _espImage = null;
+          _imageIdentity = null;
+          _partition = null;
+          _updateUri = null;
+          _probe = null;
+          _isError = true;
+          _status =
+              'This .bin is a full/erase ESP32 image. It may replace '
+              'partitions and device settings. It cannot be sent through '
+              'phone Wi-Fi OTA; use an exact-board wired installer.';
+        });
+        if (previous != null) {
+          try {
+            await File(previous).delete();
+          } catch (_) {
+            /* cache cleanup */
+          }
+        }
+        return;
+      }
+      if (lower.contains('merged') ||
+          lower.contains('cleaninstall') ||
+          lower.contains('factory')) {
+        throw const FormatException(
+          'The filename says full/erase, but the bytes look like an '
+          'application update. Verify this file before installing it.',
+        );
+      }
       Esp32WifiOtaService.validateImage(name, image);
       FirmwareImageIdentity? identity;
       try {
@@ -293,8 +370,10 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
         // Older ESP32 builds have no EndF trailer; the board check remains manual.
       }
       if (!mounted) return;
+      final previous = _dfuPath;
       setState(() {
         _filename = name;
+        _dfuPath = null;
         _espImage = image;
         _imageIdentity = identity;
         _partition = null;
@@ -305,6 +384,13 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
             'ESP32 image selected. '
             'Confirm ${identity?.hardwareId ?? name} matches $_board.';
       });
+      if (previous != null) {
+        try {
+          await File(previous).delete();
+        } catch (_) {
+          /* cache cleanup */
+        }
+      }
     }
   }
 
@@ -685,7 +771,7 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
                       ? 'Use a firmware file'
                       : 'Choose another file',
                 ),
-                subtitle: const Text('Nordic ZIP or ESP32 .bin'),
+                subtitle: Text(_firmwareHint),
                 childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                 children: [
                   SizedBox(

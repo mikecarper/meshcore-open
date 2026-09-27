@@ -772,7 +772,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appSettings_enableNotificationsSubtitle =>
-      'Receive notifications for messages and adverts';
+      'Allow selected message notifications';
 
   @override
   String get appSettings_notificationPermissionDenied =>
@@ -789,15 +789,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appSettings_messageNotificationsSubtitle =>
-      'Show notification when receiving new messages';
+      'Notify for direct messages';
 
   @override
   String get appSettings_channelMessageNotifications =>
-      'Channel Message Notifications';
+      'Private Channel Messages';
 
   @override
   String get appSettings_channelMessageNotificationsSubtitle =>
-      'Show notification when receiving channel messages';
+      'Notify for private channels, not Public or # channels';
 
   @override
   String get appSettings_advertisementNotifications =>

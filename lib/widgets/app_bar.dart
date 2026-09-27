@@ -13,6 +13,7 @@ class AppBarTitle extends StatelessWidget {
   final bool indicators;
   final bool showBatteryIndicator;
   final bool subtitle;
+  final bool shrinkTitleOnCompact;
   const AppBarTitle(
     this.title, {
     this.leading,
@@ -20,6 +21,7 @@ class AppBarTitle extends StatelessWidget {
     this.indicators = true,
     this.showBatteryIndicator = true,
     this.subtitle = true,
+    this.shrinkTitleOnCompact = false,
     super.key,
   });
 
@@ -49,7 +51,16 @@ class AppBarTitle extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        shrinkTitleOnCompact &&
+                            MediaQuery.sizeOf(context).width <= 360
+                        ? const TextStyle(fontSize: 16.5)
+                        : null,
+                  ),
                   if (showSubtitle)
                     Text(
                       selfName,
@@ -60,14 +71,18 @@ class AppBarTitle extends StatelessWidget {
                 ],
               ),
             ),
-            if (showIndicators) const SizedBox(width: 6),
+            if (showIndicators) SizedBox(width: shrinkTitleOnCompact ? 2 : 6),
             if (showIndicators)
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (showBattery) BatteryIndicator(connector: connector),
-                  if (showSnr) SNRIndicator(connector: connector),
+                  if (showSnr)
+                    SNRIndicator(
+                      connector: connector,
+                      compact: shrinkTitleOnCompact,
+                    ),
                   if (connector.supportsCompanionRadioStats)
                     if (connector.isConnected)
                       const RadioStatsIconButton(compact: true),

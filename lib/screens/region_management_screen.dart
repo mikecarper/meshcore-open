@@ -12,17 +12,23 @@ import 'package:meshcore_open/theme/mesh_theme.dart';
 import 'package:meshcore_open/widgets/mesh_ui.dart';
 import 'package:provider/provider.dart';
 
-Future<void> pushRegionManagementScreen(BuildContext context) {
+Future<void> pushRegionManagementScreen(
+  BuildContext context, {
+  bool findRegions = false,
+}) {
   return Navigator.push(
     context,
     MaterialPageRoute<void>(
-      builder: (context) => const RegionManagementScreen(),
+      builder: (context) =>
+          RegionManagementScreen(findRegionsOnOpen: findRegions),
     ),
   );
 }
 
 class RegionManagementScreen extends StatefulWidget {
-  const RegionManagementScreen({super.key});
+  const RegionManagementScreen({super.key, this.findRegionsOnOpen = false});
+
+  final bool findRegionsOnOpen;
 
   @override
   State<RegionManagementScreen> createState() => _RegionManagementScreenState();
@@ -41,6 +47,11 @@ class _RegionManagementScreenState extends State<RegionManagementScreen> {
     final connector = context.read<MeshCoreConnector>();
     _regionStore.setPublicKeyHex = connector.selfPublicKeyHex;
     _loadRegions();
+    if (widget.findRegionsOnOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showFetchRegionsDialog();
+      });
+    }
   }
 
   void _loadRegions() {

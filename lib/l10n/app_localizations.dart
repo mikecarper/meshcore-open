@@ -1549,7 +1549,7 @@ abstract class AppLocalizations {
   /// No description provided for @appSettings_enableNotificationsSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Receive notifications for messages and adverts'**
+  /// **'Allow selected message notifications'**
   String get appSettings_enableNotificationsSubtitle;
 
   /// No description provided for @appSettings_notificationPermissionDenied.
@@ -1579,19 +1579,19 @@ abstract class AppLocalizations {
   /// No description provided for @appSettings_messageNotificationsSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Show notification when receiving new messages'**
+  /// **'Notify for direct messages'**
   String get appSettings_messageNotificationsSubtitle;
 
   /// No description provided for @appSettings_channelMessageNotifications.
   ///
   /// In en, this message translates to:
-  /// **'Channel Message Notifications'**
+  /// **'Private Channel Messages'**
   String get appSettings_channelMessageNotifications;
 
   /// No description provided for @appSettings_channelMessageNotificationsSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Show notification when receiving channel messages'**
+  /// **'Notify for private channels, not Public or # channels'**
   String get appSettings_channelMessageNotificationsSubtitle;
 
   /// No description provided for @appSettings_advertisementNotifications.

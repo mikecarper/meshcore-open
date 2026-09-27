@@ -11,6 +11,7 @@ import '../connector/meshcore_protocol.dart';
 import '../l10n/l10n.dart';
 import '../models/radio_settings.dart';
 import '../services/app_settings_service.dart';
+import '../services/companion_firmware_inspector.dart';
 import '../services/app_debug_log_service.dart';
 import '../theme/mesh_theme.dart';
 import '../widgets/app_bar.dart';
@@ -59,6 +60,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showBatteryVoltage = false;
   bool _deviceInfoExpanded = false;
   String _appVersion = '';
+  MeshCoreConnector? _updateBoardConnector;
+  Future<String?>? _updateBoardFuture;
+
+  Future<String?> _readUpdateBoard(MeshCoreConnector connector) async {
+    try {
+      return await connector.executeLocalCliCommand('board');
+    } catch (_) {
+      return connector.manufacturerName;
+    }
+  }
 
   @override
   void initState() {
@@ -91,6 +102,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         top: false,
         child: Consumer<MeshCoreConnector>(
           builder: (context, connector, child) {
+            if (!connector.isConnected) {
+              _updateBoardConnector = null;
+              _updateBoardFuture = null;
+            } else if (_updateBoardConnector != connector ||
+                _updateBoardFuture == null) {
+              _updateBoardConnector = connector;
+              _updateBoardFuture = _readUpdateBoard(connector);
+            }
             return ListView(
               padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
               children: [
@@ -100,21 +119,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   padding: EdgeInsets.zero,
                   child: _buildIdentityCardContent(context, connector),
                 ),
-                MeshCard(
-                  onTap: connector.isConnected
-                      ? () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const CompanionUpdateScreen(),
-                          ),
-                        )
-                      : null,
-                  child: _buildNavTileContent(
-                    context,
-                    icon: Icons.system_update_alt,
-                    title: 'Update Companion',
-                    subtitle: 'Firmware over Bluetooth or Wi-Fi',
-                  ),
+                FutureBuilder<String?>(
+                  future: _updateBoardFuture,
+                  builder: (context, snapshot) {
+                    final format =
+                        CompanionFirmwareInspector.updateExtensionForBoard(
+                          snapshot.data ?? connector.manufacturerName,
+                        );
+                    final method = switch (format) {
+                      'zip' => 'Bluetooth DFU (.zip)',
+                      'bin' => 'Wi-Fi OTA (.bin)',
+                      _ =>
+                        connector.isConnected
+                            ? snapshot.connectionState == ConnectionState.done
+                                  ? 'Board not identified - check update screen'
+                                  : 'Detecting update method...'
+                            : 'Connect to identify the update method',
+                    };
+                    return MeshCard(
+                      onTap: connector.isConnected
+                          ? () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const CompanionUpdateScreen(),
+                              ),
+                            )
+                          : null,
+                      child: _buildNavTileContent(
+                        context,
+                        icon: Icons.system_update_alt,
+                        title: 'Update Companion',
+                        subtitle: method,
+                      ),
+                    );
+                  },
                 ),
 
                 // NODE section

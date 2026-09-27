@@ -332,7 +332,10 @@ class MapTileCacheService extends ChangeNotifier {
                maxNrOfCacheObjects: 200000,
              ),
            ) {
-    tileProvider = CachedNetworkTileProvider(cacheManager: this.cacheManager);
+    tileProvider = CachedNetworkTileProvider(
+      cacheManager: this.cacheManager,
+      headers: defaultHeaders,
+    );
     appSettingsService.addListener(_handleSettingsChanged);
   }
 
@@ -471,6 +474,9 @@ class MapTileCacheService extends ChangeNotifier {
       urlTemplate: urlTemplate,
       tileProvider: tileProvider,
       tileBuilder: tileBuilder,
+      // On slower phones, first fill the visible map instead of competing
+      // with an off-screen ring of HTTP and image-decode requests.
+      panBuffer: 0,
       userAgentPackageName: userAgentPackageName,
       maxZoom: 19,
     );

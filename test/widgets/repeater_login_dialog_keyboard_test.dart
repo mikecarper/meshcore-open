@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meshcore_open/connector/meshcore_connector.dart';
 import 'package:meshcore_open/connector/meshcore_protocol.dart';
@@ -64,6 +65,71 @@ class _ImmediateLoginConnector extends MeshCoreConnector {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('a 15-byte password fits when revealed on a 5.1.1 phone', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(480, 854);
+    tester.view.devicePixelRatio = 1.5;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    SharedPreferences.setMockInitialValues({});
+    PrefsManager.reset();
+    await PrefsManager.initialize();
+    final repeater = Contact(
+      publicKey: Uint8List.fromList(List<int>.generate(pubKeySize, (i) => i)),
+      name: 'Test repeater',
+      type: advTypeRepeater,
+      pathLength: 0,
+      path: Uint8List(0),
+      lastSeen: DateTime(2026, 9, 26),
+    );
+    final connector = MeshCoreConnector();
+    addTearDown(connector.dispose);
+    await tester.pumpWidget(
+      ChangeNotifierProvider<MeshCoreConnector>.value(
+        value: connector,
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => RepeaterLoginDialog(
+                    repeater: repeater,
+                    onLogin: (_, _) {},
+                  ),
+                ),
+                child: const Text('Open login'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open login'));
+    await tester.pumpAndSettle();
+    const password = '1234567890abcde';
+    await tester.enterText(find.byType(TextField), password);
+    await tester.tap(find.byIcon(Icons.visibility));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      password,
+    );
+    final editable = tester.allRenderObjects.whereType<RenderEditable>().single;
+    expect(
+      editable.maxScrollExtent,
+      0,
+      reason:
+          'editable=${editable.size} field=${tester.getSize(find.byType(TextField))}',
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'login fields and actions remain scrollable above API 22 keyboard',

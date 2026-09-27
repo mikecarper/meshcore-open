@@ -1,5 +1,17 @@
 import 'image_codec_support.dart';
 import 'translation_support.dart';
+import 'channel.dart';
+
+Map<String, int> _parseMessageAgeMap(Object? raw) {
+  if (raw is! Map) return const {};
+  final result = <String, int>{};
+  for (final entry in raw.entries) {
+    if (entry.key is String && entry.value is int && entry.value >= 0) {
+      result[entry.key as String] = entry.value as int;
+    }
+  }
+  return result;
+}
 
 enum UnitSystem { metric, imperial }
 
@@ -115,6 +127,30 @@ class AppSettings {
   final Map<String, String> batteryChemistryByRepeaterId;
   final UnitSystem unitSystem;
   final Set<String> mutedChannels;
+  final bool notifyOnPublicChannelMessages;
+  final Map<String, int> messageAgeHoursByContact;
+  final Map<String, int> messageAgeHoursByChannel;
+
+  int messageAgeHoursForContact(String publicKeyHex) =>
+      messageAgeHoursByContact[publicKeyHex] ?? 0;
+
+  int messageAgeHoursForChannel(Channel channel, {ChannelType? type}) {
+    final saved = messageAgeHoursByChannel[channel.pskHex];
+    if (saved != null) return saved;
+    final resolved =
+        type ??
+        (channel.isPublicChannel
+            ? ChannelType.public
+            : channel.isHashtagChannel
+            ? ChannelType.hashtag
+            : ChannelType.private);
+    return switch (resolved) {
+      ChannelType.public => 72,
+      ChannelType.hashtag || ChannelType.communityHashtag => 168,
+      ChannelType.private || ChannelType.communityPublic => 0,
+    };
+  }
+
   final bool mapShowDiscoveryContacts;
   final String tcpServerAddress;
   final int tcpServerPort;
@@ -201,7 +237,7 @@ class AppSettings {
     this.notificationsEnabled = true,
     this.notifyOnNewMessage = true,
     this.notifyOnNewChannelMessage = true,
-    this.notifyOnNewAdvert = true,
+    this.notifyOnNewAdvert = false,
     this.autoSendZeroHopAdvertOnGpsUpdate = false,
     this.gpsIntervalSeconds = 900,
     this.autoRouteRotationEnabled = true,
@@ -217,6 +253,9 @@ class AppSettings {
     Map<String, String>? batteryChemistryByRepeaterId,
     this.unitSystem = UnitSystem.metric,
     Set<String>? mutedChannels,
+    this.notifyOnPublicChannelMessages = false,
+    this.messageAgeHoursByContact = const {},
+    this.messageAgeHoursByChannel = const {},
     this.mapShowDiscoveryContacts = true,
     this.tcpServerAddress = '',
     this.tcpServerPort = 0,
@@ -292,6 +331,9 @@ class AppSettings {
       'battery_chemistry_by_repeater_id': batteryChemistryByRepeaterId,
       'unit_system': unitSystem.value,
       'muted_channels': mutedChannels.toList(),
+      'notify_on_public_channel_messages': notifyOnPublicChannelMessages,
+      'message_age_hours_by_contact': messageAgeHoursByContact,
+      'message_age_hours_by_channel': messageAgeHoursByChannel,
       'map_show_discovery_contacts': mapShowDiscoveryContacts,
       'tcp_server_address': tcpServerAddress,
       'tcp_server_port': tcpServerPort,
@@ -355,7 +397,7 @@ class AppSettings {
       notifyOnNewMessage: json['notify_on_new_message'] as bool? ?? true,
       notifyOnNewChannelMessage:
           json['notify_on_new_channel_message'] as bool? ?? true,
-      notifyOnNewAdvert: json['notify_on_new_advert'] as bool? ?? true,
+      notifyOnNewAdvert: json['notify_on_new_advert'] as bool? ?? false,
       autoSendZeroHopAdvertOnGpsUpdate:
           json['auto_send_zero_hop_advert_on_gps_update'] as bool? ?? false,
       gpsIntervalSeconds:
@@ -389,6 +431,14 @@ class AppSettings {
               ?.map((e) => e.toString())
               .toSet()) ??
           {},
+      notifyOnPublicChannelMessages:
+          json['notify_on_public_channel_messages'] as bool? ?? false,
+      messageAgeHoursByContact: _parseMessageAgeMap(
+        json['message_age_hours_by_contact'],
+      ),
+      messageAgeHoursByChannel: _parseMessageAgeMap(
+        json['message_age_hours_by_channel'],
+      ),
       mapShowDiscoveryContacts:
           json['map_show_discovery_contacts'] as bool? ?? true,
       tcpServerAddress: json['tcp_server_address'] as String? ?? '',
@@ -503,6 +553,9 @@ class AppSettings {
     Map<String, String>? batteryChemistryByRepeaterId,
     UnitSystem? unitSystem,
     Set<String>? mutedChannels,
+    bool? notifyOnPublicChannelMessages,
+    Map<String, int>? messageAgeHoursByContact,
+    Map<String, int>? messageAgeHoursByChannel,
     bool? mapShowDiscoveryContacts,
     String? tcpServerAddress,
     int? tcpServerPort,
@@ -576,6 +629,12 @@ class AppSettings {
           batteryChemistryByRepeaterId ?? this.batteryChemistryByRepeaterId,
       unitSystem: unitSystem ?? this.unitSystem,
       mutedChannels: mutedChannels ?? this.mutedChannels,
+      notifyOnPublicChannelMessages:
+          notifyOnPublicChannelMessages ?? this.notifyOnPublicChannelMessages,
+      messageAgeHoursByContact:
+          messageAgeHoursByContact ?? this.messageAgeHoursByContact,
+      messageAgeHoursByChannel:
+          messageAgeHoursByChannel ?? this.messageAgeHoursByChannel,
       mapShowDiscoveryContacts:
           mapShowDiscoveryContacts ?? this.mapShowDiscoveryContacts,
       tcpServerAddress: tcpServerAddress ?? this.tcpServerAddress,

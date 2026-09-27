@@ -167,6 +167,7 @@ void main() {
                     'https://github.com/meshcore-dev/MeshCore/releases/tag/companion-v1.17.1',
                 'assets': <Object>[
                   asset('RAK_4631_companion_radio_ble-v1.17.1.zip'),
+                  asset('RAK_4631_companion_radio_ble-v1.17.1.bin'),
                   asset('RAK_4631_companion_radio_usb-v1.17.1.zip'),
                   asset('RAK_4631_companion_radio_ble-v1.17.1-merged.bin'),
                   asset('Other_companion_radio_ble-v1.17.1.zip'),
@@ -181,9 +182,17 @@ void main() {
     );
     final assets = await service.findCompanionAssets('RAKwireless RAK4631');
     expect(assets.map((asset) => asset.name), <String>[
+      'RAK_4631_companion_radio_ble-v1.17.1.bin',
       'RAK_4631_companion_radio_ble-v1.17.1.zip',
     ]);
-    expect(await service.downloadCompanionAsset(assets.single), bytes);
+    final nordic = await service.findCompanionAssets(
+      'RAKwireless RAK4631',
+      extension: 'zip',
+    );
+    expect(nordic.map((asset) => asset.name), <String>[
+      'RAK_4631_companion_radio_ble-v1.17.1.zip',
+    ]);
+    expect(await service.downloadCompanionAsset(nordic.single), bytes);
   });
 
   test('does not treat an older upstream Companion as an upgrade', () {
