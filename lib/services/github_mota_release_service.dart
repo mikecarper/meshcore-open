@@ -280,10 +280,18 @@ class GitHubMotaReleaseService {
   /// Exact-board Companion BLE release assets from the upstream release feed.
   /// USB variants and merged ESP32 images are not suitable for phone OTA.
   Future<List<GitHubReleaseAsset>> findCompanionAssets(String board) async {
-    final normalizedBoard = board.toLowerCase().replaceAll(
+    final reportedBoard = board.toLowerCase().replaceAll(
       RegExp(r'[^a-z0-9]'),
       '',
     );
+    // HeltecV4Board detects the V4.3 radio frontend at runtime; upstream
+    // packages both revisions under V4. Keep OLED, TFT and explicit R8 builds
+    // distinct, and do not guess aliases for other hardware revisions.
+    final normalizedBoard = switch (reportedBoard) {
+      'heltecv4oled' || 'heltecv43oled' => 'heltecv4',
+      'heltecv43tft' => 'heltecv4tft',
+      _ => reportedBoard,
+    };
     if (normalizedBoard.length < 5) {
       throw const FormatException('Companion did not report a specific board.');
     }

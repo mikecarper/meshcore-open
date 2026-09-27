@@ -209,6 +209,61 @@ void main() {
       isNull,
     );
   });
+
+  for (final entry in <String, String?>{
+    'Heltec V4 OLED': 'heltec_v4',
+    'Heltec V4.3 OLED': 'heltec_v4',
+    'Heltec V4 TFT': 'heltec_v4_tft',
+    'Heltec V4.3 TFT': 'heltec_v4_tft',
+    'heltec_v4': 'heltec_v4',
+    'heltec_v4_r8': 'heltec_v4_r8',
+    'heltec_v4_r8_tft': 'heltec_v4_r8_tft',
+    'Heltec V4.4 OLED': null,
+    'Heltec V4.3': null,
+    'Heltec V3 OLED': null,
+    'Unknown Heltec V4.3 OLED': null,
+  }.entries) {
+    test('matches only the supported Companion build for ${entry.key}', () async {
+      final service = GitHubMotaReleaseService(
+        client: MockClient((request) async {
+          expect(request.url.path, '/repos/meshcore-dev/MeshCore/releases');
+          return http.Response(
+            jsonEncode(<Object>[
+              <String, Object>{
+                'tag_name': 'companion-v1.17.1',
+                'assets': <Object>[
+                  for (final board in <String>[
+                    'heltec_v4',
+                    'heltec_v4_r8',
+                    'heltec_v4_tft',
+                    'heltec_v4_r8_tft',
+                  ])
+                    for (final suffix in <String>[
+                      'ble-v1.17.1.bin',
+                      'ble-v1.17.1-merged.bin',
+                      'usb-v1.17.1.bin',
+                    ])
+                      <String, Object>{
+                        'name': '${board}_companion_radio_$suffix',
+                        'browser_download_url':
+                            'https://github.com/meshcore-dev/MeshCore/releases/download/companion-v1.17.1/${board}_companion_radio_$suffix',
+                        'size': 3,
+                      },
+                ],
+              },
+            ]),
+            200,
+          );
+        }),
+      );
+      addTearDown(service.dispose);
+      final assets = await service.findCompanionAssets(entry.key);
+      expect(assets.map((asset) => asset.name), <String>[
+        if (entry.value != null)
+          '${entry.value}_companion_radio_ble-v1.17.1.bin',
+      ]);
+    });
+  }
 }
 
 MockClient _client({
