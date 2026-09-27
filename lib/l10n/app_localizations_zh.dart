@@ -4777,4 +4777,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String chat_longMessageRetryNote(int count) {
     return '超过158字节：最多发送 $count 次';
   }
+
+  @override
+  String get map_updateMyLocation => 'Update my location';
+
+  @override
+  String get settings_phoneGpsTracking => 'Phone GPS tracking';
+
+  @override
+  String get settings_phoneGpsTrackingDescription =>
+      'Save a track and update the connected radio. Public location sharing follows your privacy settings.';
+
+  @override
+  String get settings_phoneGpsUnavailable =>
+      'Enable location services and allow location access to use phone GPS.';
 }

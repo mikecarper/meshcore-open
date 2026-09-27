@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:meshcore_open/storage/region_store.dart';
 import 'package:pointycastle/export.dart';
 import 'package:flutter/foundation.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_blue_plus_platform_interface/flutter_blue_plus_platform_interface.dart';
 
@@ -37,6 +38,7 @@ import '../services/image_chunk_transport.dart'
 import '../services/image_codec_service.dart';
 import '../services/message_retry_service.dart';
 import '../services/path_history_service.dart';
+import '../services/sparse_location_logger.dart';
 import '../services/remote_private_key_backup.dart';
 import '../services/app_settings_service.dart';
 import '../services/background_service.dart';
@@ -385,6 +387,8 @@ class MeshCoreConnector extends ChangeNotifier {
   MessageRetryService? _retryService;
   PathHistoryService? _pathHistoryService;
   AppSettingsService? _appSettingsService;
+  SparseLocationLogger? _sparseLocationLogger;
+  SparseLocationLogger? get sparseLocationLogger => _sparseLocationLogger;
 
   double get _initialRouteWeight =>
       _appSettingsService?.settings.initialRouteWeight ?? 1.0;
@@ -1122,6 +1126,7 @@ class MeshCoreConnector extends ChangeNotifier {
     BleDebugLogService? bleDebugLogService,
     AppDebugLogService? appDebugLogService,
     BackgroundService? backgroundService,
+    SparseLocationLogger? sparseLocationLogger,
     TimeoutPredictionService? timeoutPredictionService,
     ImageCodecService? imageCodecService,
     ImageChunkTransport? imageTransport,
@@ -1139,6 +1144,8 @@ class MeshCoreConnector extends ChangeNotifier {
     _bleDebugLogService = bleDebugLogService;
     _appDebugLogService = appDebugLogService;
     _backgroundService = backgroundService;
+    _sparseLocationLogger = sparseLocationLogger;
+    _sparseLocationLogger?.initialize(_updatePhoneLocation);
     _timeoutPredictionService = timeoutPredictionService;
     _usbManager.setDebugLogService(_appDebugLogService);
     _tcpConnector.setDebugLogService(_appDebugLogService);
@@ -4615,6 +4622,17 @@ class MeshCoreConnector extends ChangeNotifier {
     await sendFrame(buildSetAdvertNameFrame(name));
   }
 
+  Future<void> _updatePhoneLocation(Position position) async {
+    if (!isConnected) return;
+    final snapped = _sparseLocationLogger!.snapToGridCenter(position: position);
+    await setNodeLocation(lat: snapped.latitude, lon: snapped.longitude);
+    _selfLatitude = snapped.latitude;
+    _selfLongitude = snapped.longitude;
+    // Never enable public location advertising or change telemetry privacy.
+    if (_advertLocPolicy == 1) await sendSelfAdvert(flood: true);
+    notifyListeners();
+  }
+
   Future<void> setNodeLocation({
     required double lat,
     required double lon,
@@ -7591,6 +7609,7 @@ class MeshCoreConnector extends ChangeNotifier {
 
   @override
   void dispose() {
+    _sparseLocationLogger?.dispose();
     _scanSubscription?.cancel();
     _isScanningSubscription?.cancel();
     _connectionSubscription?.cancel();

@@ -2917,5 +2917,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "map_updateMyLocation": "Update my location",
+  "settings_phoneGpsTracking": "Phone GPS tracking",
+  "settings_phoneGpsTrackingDescription": "Save a track and update the connected radio. Public location sharing follows your privacy settings.",
+  "settings_phoneGpsUnavailable": "Enable location services and allow location access to use phone GPS."
 }

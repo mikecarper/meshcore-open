@@ -928,6 +928,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final latController = TextEditingController();
     final lonController = TextEditingController();
     final intervalController = TextEditingController();
+    bool isLogging = connector.sparseLocationLogger?.isLogging() ?? false;
+    bool trackingBusy = false;
+
     latController.text = connector.selfLatitude?.toStringAsFixed(6) ?? '';
     lonController.text = connector.selfLongitude?.toStringAsFixed(6) ?? '';
 
@@ -948,67 +951,109 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (builderContext, setDialogState) => AlertDialog(
           title: Text(l10n.settings_location),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: latController,
-                decoration: InputDecoration(
-                  labelText: l10n.settings_latitude,
-                  border: const OutlineInputBorder(),
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                  signed: true,
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: lonController,
-                decoration: InputDecoration(
-                  labelText: l10n.settings_longitude,
-                  border: const OutlineInputBorder(),
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                  signed: true,
-                ),
-              ),
-              if (hasGPS) ...[
-                const SizedBox(height: 16),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
                 TextField(
-                  controller: intervalController,
-                  onChanged: (_) {
-                    if (intervalError != null) {
-                      setDialogState(() => intervalError = null);
-                    }
-                  },
+                  controller: latController,
                   decoration: InputDecoration(
-                    labelText: l10n.settings_locationIntervalSec,
+                    labelText: l10n.settings_latitude,
                     border: const OutlineInputBorder(),
-                    errorText: intervalError,
                   ),
                   keyboardType: const TextInputType.numberWithOptions(
-                    decimal: false,
-                    signed: false,
+                    decimal: true,
+                    signed: true,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: lonController,
+                  decoration: InputDecoration(
+                    labelText: l10n.settings_longitude,
+                    border: const OutlineInputBorder(),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
                   ),
                 ),
                 const SizedBox(height: 16),
                 FeatureToggleRow(
-                  title: l10n.settings_locationGPSEnable,
-                  subtitle: l10n.settings_locationGPSEnableSubtitle,
-                  value: isGPSEnabled,
+                  title: l10n.settings_phoneGpsTracking,
+                  subtitle: l10n.settings_phoneGpsTrackingDescription,
+                  value: isLogging,
+                  enabled:
+                      !trackingBusy && connector.sparseLocationLogger != null,
                   onChanged: (value) async {
-                    setDialogState(() => isGPSEnabled = value);
-                    if (value) {
-                      await connector.setCustomVar("gps:1");
-                    } else {
-                      await connector.setCustomVar("gps:0");
+                    final logger = connector.sparseLocationLogger;
+                    if (logger == null) return;
+                    setDialogState(() => trackingBusy = true);
+                    try {
+                      if (value) {
+                        final started = await logger.startLogging();
+                        if (!started && context.mounted) {
+                          showDismissibleSnackBar(
+                            context,
+                            content: Text(l10n.settings_phoneGpsUnavailable),
+                          );
+                        }
+                      } else {
+                        await logger.stopLogging();
+                      }
+                    } catch (error) {
+                      if (context.mounted) {
+                        showDismissibleSnackBar(
+                          context,
+                          content: Text(l10n.settings_error(error.toString())),
+                        );
+                      }
+                    } finally {
+                      if (builderContext.mounted) {
+                        setDialogState(() {
+                          isLogging = logger.isLogging();
+                          trackingBusy = false;
+                        });
+                      }
                     }
                   },
                 ),
+                if (hasGPS) ...[
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: intervalController,
+                    onChanged: (_) {
+                      if (intervalError != null) {
+                        setDialogState(() => intervalError = null);
+                      }
+                    },
+                    decoration: InputDecoration(
+                      labelText: l10n.settings_locationIntervalSec,
+                      border: const OutlineInputBorder(),
+                      errorText: intervalError,
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: false,
+                      signed: false,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  FeatureToggleRow(
+                    title: l10n.settings_locationGPSEnable,
+                    subtitle: l10n.settings_locationGPSEnableSubtitle,
+                    value: isGPSEnabled,
+                    onChanged: (value) async {
+                      setDialogState(() => isGPSEnabled = value);
+                      if (value) {
+                        await connector.setCustomVar("gps:1");
+                      } else {
+                        await connector.setCustomVar("gps:0");
+                      }
+                    },
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
           actions: [
             TextButton(

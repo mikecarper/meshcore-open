@@ -35,6 +35,10 @@
 	<string>This app uses Bluetooth to communicate with MeshCore devices.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>This app uses Bluetooth to communicate with MeshCore devices.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Use your phone location to update your radio or record an optional GPS track.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Location is used only when you request a position or enable phone GPS tracking.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>This app uses the camera to scan QR codes for joining communities.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

@@ -8763,6 +8763,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Over 158 bytes: sent at most {count} times'**
   String chat_longMessageRetryNote(int count);
+
+  /// No description provided for @map_updateMyLocation.
+  ///
+  /// In en, this message translates to:
+  /// **'Update my location'**
+  String get map_updateMyLocation;
+
+  /// No description provided for @settings_phoneGpsTracking.
+  ///
+  /// In en, this message translates to:
+  /// **'Phone GPS tracking'**
+  String get settings_phoneGpsTracking;
+
+  /// No description provided for @settings_phoneGpsTrackingDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Save a track and update the connected radio. Public location sharing follows your privacy settings.'**
+  String get settings_phoneGpsTrackingDescription;
+
+  /// No description provided for @settings_phoneGpsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable location services and allow location access to use phone GPS.'**
+  String get settings_phoneGpsUnavailable;
 }
 
 class _AppLocalizationsDelegate

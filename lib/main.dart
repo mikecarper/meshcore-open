@@ -19,6 +19,7 @@ import 'services/image_codec_settings_store.dart';
 import 'services/received_image_blob_store_factory.dart';
 import 'services/received_image_store.dart';
 import 'services/storage_service.dart';
+import 'services/sparse_location_logger.dart';
 import 'services/message_retry_service.dart';
 import 'services/path_history_service.dart';
 import 'services/app_settings_service.dart';
@@ -145,6 +146,7 @@ void main() async {
     bleDebugLogService: bleDebugLogService,
     appDebugLogService: appDebugLogService,
     backgroundService: backgroundService,
+    sparseLocationLogger: SparseLocationLogger(),
     timeoutPredictionService: timeoutPredictionService,
     imageCodecService: imageCodecService,
     imageTransport: imageTransport,

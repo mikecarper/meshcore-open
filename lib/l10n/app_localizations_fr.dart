@@ -5171,4 +5171,18 @@ class AppLocalizationsFr extends AppLocalizations {
   String chat_longMessageRetryNote(int count) {
     return 'Plus de 158 octets : envoi au maximum $count fois';
   }
+
+  @override
+  String get map_updateMyLocation => 'Update my location';
+
+  @override
+  String get settings_phoneGpsTracking => 'Phone GPS tracking';
+
+  @override
+  String get settings_phoneGpsTrackingDescription =>
+      'Save a track and update the connected radio. Public location sharing follows your privacy settings.';
+
+  @override
+  String get settings_phoneGpsUnavailable =>
+      'Enable location services and allow location access to use phone GPS.';
 }

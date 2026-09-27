@@ -4900,4 +4900,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String chat_longMessageRetryNote(int count) {
     return '158바이트 초과 시: 최대 $count회 전송됩니다';
   }
+
+  @override
+  String get map_updateMyLocation => 'Update my location';
+
+  @override
+  String get settings_phoneGpsTracking => 'Phone GPS tracking';
+
+  @override
+  String get settings_phoneGpsTrackingDescription =>
+      'Save a track and update the connected radio. Public location sharing follows your privacy settings.';
+
+  @override
+  String get settings_phoneGpsUnavailable =>
+      'Enable location services and allow location access to use phone GPS.';
 }

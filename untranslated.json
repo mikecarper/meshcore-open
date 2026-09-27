@@ -1,1 +1,120 @@
-{}
+{
+  "bg": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "de": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "es": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "fr": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "hu": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "it": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "ja": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "ko": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "nl": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "pl": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "pt": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "ru": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "sk": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "sl": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "sv": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "uk": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ],
+
+  "zh": [
+    "map_updateMyLocation",
+    "settings_phoneGpsTracking",
+    "settings_phoneGpsTrackingDescription",
+    "settings_phoneGpsUnavailable"
+  ]
+}

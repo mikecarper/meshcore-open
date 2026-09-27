@@ -60,8 +60,7 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen>
-    with DisconnectNavigationMixin {
+class _MapScreenState extends State<MapScreen> with DisconnectNavigationMixin {
   // Zoom level at which node labels start to appear
   static const double _labelZoomThreshold = 14.0;
   // Below this zoom, nearby nodes collapse into clusters.
@@ -620,6 +619,46 @@ class _MapScreenState extends State<MapScreen>
               actions: [
                 PopupMenuButton(
                   itemBuilder: (context) => [
+                    if (connector.isConnected &&
+                        connector.sparseLocationLogger != null)
+                      PopupMenuItem(
+                        child: Row(
+                          children: [
+                            const Icon(Icons.my_location),
+                            const SizedBox(width: 8),
+                            Text(context.l10n.map_updateMyLocation),
+                          ],
+                        ),
+                        onTap: () async {
+                          try {
+                            final updated = await connector
+                                .sparseLocationLogger!
+                                .updateMyLocation();
+                            if (!mounted) return;
+                            showDismissibleSnackBar(
+                              this.context,
+                              content: Text(
+                                updated
+                                    ? this.context.l10n.settings_locationUpdated
+                                    : this
+                                          .context
+                                          .l10n
+                                          .settings_phoneGpsUnavailable,
+                              ),
+                            );
+                          } catch (error) {
+                            if (!mounted) return;
+                            showDismissibleSnackBar(
+                              this.context,
+                              content: Text(
+                                this.context.l10n.settings_error(
+                                  error.toString(),
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                      ),
                     if (!_isBuildingPathTrace &&
                         connector.selfLatitude != null &&
                         connector.selfLongitude != null)
