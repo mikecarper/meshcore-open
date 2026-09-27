@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../connector/meshcore_connector.dart';
+import '../services/esp32_partition_catalog.dart';
 import '../services/esp32_wifi_ota_service.dart';
 import '../services/github_mota_release_service.dart';
 import '../services/local_mota_builder.dart';
@@ -16,7 +17,9 @@ import '../widgets/mesh_ui.dart';
 import '../widgets/update_status_card.dart';
 
 class CompanionUpdateScreen extends StatefulWidget {
-  const CompanionUpdateScreen({super.key});
+  const CompanionUpdateScreen({super.key, this.pickFirmware});
+
+  final Future<XFile?> Function()? pickFirmware;
 
   @override
   State<CompanionUpdateScreen> createState() => _CompanionUpdateScreenState();
@@ -38,6 +41,7 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
   FirmwareImageIdentity? _imageIdentity;
   Uri? _updateUri;
   Esp32WifiOtaProbe? _probe;
+  Esp32PartitionAssessment? _partition;
   String _status = 'Reading the connected Companion…';
   bool _busy = false;
   int? _progress;
@@ -126,16 +130,24 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
     setState(() {
       _board = board;
       _version = version;
+      _partition = null;
+      _updateUri = null;
+      _probe = null;
       _status = 'Choose firmware built for this exact board.';
     });
   });
 
   Future<void> _chooseFirmware() => _run(() async {
-    final file = await openFile(
-      acceptedTypeGroups: const [
-        XTypeGroup(label: 'Companion firmware', extensions: ['zip', 'bin']),
-      ],
-    );
+    final file = widget.pickFirmware != null
+        ? await widget.pickFirmware!()
+        : await openFile(
+            acceptedTypeGroups: const [
+              XTypeGroup(
+                label: 'Companion firmware',
+                extensions: ['zip', 'bin'],
+              ),
+            ],
+          );
     if (file == null) return;
     if (await file.length() > 16 * 1024 * 1024) {
       throw const FormatException('Firmware file is too large.');
@@ -257,6 +269,9 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
         _dfu = package;
         _espImage = null;
         _imageIdentity = null;
+        _partition = null;
+        _updateUri = null;
+        _probe = null;
         _status =
             'Nordic package: ${package.components.join(', ')}. '
             'Confirm it matches $_board and its bootloader.';
@@ -282,6 +297,7 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
         _filename = name;
         _espImage = image;
         _imageIdentity = identity;
+        _partition = null;
         _dfu = null;
         _updateUri = null;
         _probe = null;
@@ -425,6 +441,27 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
       throw StateError('Choose an ESP32 application first.');
     }
     final connector = context.read<MeshCoreConnector>();
+    setState(() {
+      _updateUri = null;
+      _probe = null;
+      _partition = null;
+      _status = 'Checking Companion partition capacity...';
+    });
+    final partition = await Esp32PartitionCatalog.check(
+      readStorage: () => connector.executeLocalCliCommand('get storage.layout'),
+      board: _board ?? '',
+      version: _version ?? '',
+      role: 'companion_radio',
+      imageBytes: _espImage!.length,
+    );
+    if (!mounted) return;
+    setState(() => _partition = partition);
+    if (partition.blocksUpload) {
+      throw StateError(
+        'This image cannot be installed into the current Companion OTA layout. '
+        'Review the partition details below.',
+      );
+    }
     final reply = await connector.executeLocalCliCommand('start ota ap');
     if (reply.toLowerCase().contains('select wifi transport')) {
       throw StateError(
@@ -459,12 +496,19 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
     final image = _espImage;
     final uri = _updateUri;
     final probe = _probe;
-    if (image == null || uri == null || probe == null) return;
+    if (image == null ||
+        uri == null ||
+        probe == null ||
+        _partition == null ||
+        _partition!.blocksUpload) {
+      return;
+    }
     if (!await _confirm(
       'Update Companion over Wi-Fi?',
       'Upload $_filename (${(image.length / 1024).round()} KB) to '
           '${probe.identity} for $_board. '
           'Image hardware: ${_imageIdentity?.hardwareId ?? 'unmarked / confirm manually'}. '
+          '${_partition!.message}\n\n'
           'The Companion will reboot. Keep it powered.',
     )) {
       return;
@@ -485,6 +529,17 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
         );
       }
     });
+  }
+
+  String get _partitionMessage {
+    if (_partition?.action == Esp32PartitionAction.expand) {
+      return 'This image exceeds the Companion OTA slot '
+          '(${_partition!.slotBytes! ~/ 1024} KB). '
+          'Companion partition migration is not available on this screen. '
+          'Use a smaller exact-board image or cable migration. '
+          '${_partition!.source == Esp32PartitionSource.releaseCatalog ? 'Capacity is a release-version estimate, not a live measurement.' : 'Capacity was read from the radio.'}';
+    }
+    return _partition?.message ?? '';
   }
 
   @override
@@ -545,6 +600,10 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
               isError: _isError,
               details: _errorDetails,
             ),
+            if (_partition != null) ...[
+              const SizedBox(height: 12),
+              Text(_partitionMessage),
+            ],
             if (_filename != null) ...[
               const SizedBox(height: 16),
               MeshCard(
@@ -597,7 +656,9 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
               ],
               if (_probe != null)
                 FilledButton(
-                  onPressed: _busy ? null : _uploadWifi,
+                  onPressed: _busy || (_partition?.blocksUpload ?? true)
+                      ? null
+                      : _uploadWifi,
                   child: const Text('Upload firmware'),
                 ),
             ],

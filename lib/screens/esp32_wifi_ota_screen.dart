@@ -6,7 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../connector/meshcore_connector.dart';
+import '../connector/meshcore_protocol.dart';
 import '../models/contact.dart';
+import '../services/esp32_partition_catalog.dart';
 import '../services/esp32_wifi_ota_service.dart';
 import '../services/esp32_partition_migration_package.dart';
 import '../services/github_mota_release_service.dart';
@@ -16,9 +18,16 @@ import '../services/update_battery_note.dart';
 import '../widgets/update_status_card.dart';
 
 class Esp32WifiOtaScreen extends StatefulWidget {
-  const Esp32WifiOtaScreen({super.key, required this.repeater});
+  const Esp32WifiOtaScreen({
+    super.key,
+    required this.repeater,
+    this.commandService,
+    this.pickApplication,
+  });
 
   final Contact repeater;
+  final RepeaterCommandService? commandService;
+  final Future<XFile?> Function()? pickApplication;
 
   @override
   State<Esp32WifiOtaScreen> createState() => _Esp32WifiOtaScreenState();
@@ -36,6 +45,7 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
   Esp32WifiOtaProbe? _probe;
   String? _reportedBoard;
   String? _versionBefore;
+  Esp32PartitionAssessment? _partition;
   String _status = 'Choose a non-merged ESP32 application image.';
   bool _busy = false;
   bool _uploadConfirmed = false;
@@ -56,7 +66,9 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
   @override
   void initState() {
     super.initState();
-    _commands = RepeaterCommandService(context.read<MeshCoreConnector>());
+    _commands =
+        widget.commandService ??
+        RepeaterCommandService(context.read<MeshCoreConnector>());
   }
 
   @override
@@ -81,7 +93,9 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
 
   Future<void> _chooseImage() => _run(() async {
     const group = XTypeGroup(label: 'ESP32 application', extensions: ['bin']);
-    final file = await openFile(acceptedTypeGroups: [group]);
+    final file = widget.pickApplication == null
+        ? await openFile(acceptedTypeGroups: [group])
+        : await widget.pickApplication!();
     if (file == null) return;
     final bytes = await file.readAsBytes();
     Esp32WifiOtaService.validateImage(file.name, bytes);
@@ -89,6 +103,10 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
     setState(() {
       _image = bytes;
       _filename = file.name;
+      _partition = null;
+      _url = null;
+      _probe = null;
+      _migrationStarted = false;
       _uploadConfirmed = false;
       _status =
           'Selected ${file.name} (${(bytes.length / 1024).round()} KB). '
@@ -257,6 +275,18 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
     } catch (_) {
       // Legacy builds may not implement the read-only mOTA status command.
     }
+    final bridgePartition = await _checkPartitions(
+      board,
+      version,
+      package.bridge.length,
+    );
+    if (bridgePartition.blocksUpload) {
+      throw StateError(
+        'The migration bridge cannot fit the reported old layout. '
+        'Use a smaller exact-board bridge or a cable installation. '
+        '${bridgePartition.message}',
+      );
+    }
     if (!mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -268,6 +298,7 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
           'Reported board: $board\n'
           'Package board: ${package.board} (${package.hardwareId})\n'
           'Current firmware: $version\n'
+          '${bridgePartition.message}\n'
           'Target: ${package.target}$_batteryConfirmationLine\n\n'
           'This bridge changes the partition table and preserves the node '
           'identity; other settings may need to be recreated. Keep stable '
@@ -430,8 +461,31 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
     }
   });
 
+  Future<Esp32PartitionAssessment> _checkPartitions(
+    String board,
+    String version,
+    int imageBytes,
+  ) => Esp32PartitionCatalog.check(
+    readStorage: () => _commands.sendCommand(
+      widget.repeater,
+      'get storage.layout',
+      retries: 1,
+      minimumTimeoutMs: 5000,
+    ),
+    board: board,
+    version: version,
+    role: widget.repeater.type == advTypeRoom ? 'room_server' : 'repeater',
+    imageBytes: imageBytes,
+  );
+
   Future<void> _startUpdater() => _run(() async {
     if (_image == null) throw StateError('Choose firmware first.');
+    setState(() {
+      _url = null;
+      _probe = null;
+      _partition = null;
+      _status = 'Checking radio version and partition capacity...';
+    });
     final board = await _commands.sendCommand(
       widget.repeater,
       'board',
@@ -444,6 +498,20 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
       retries: 2,
       minimumTimeoutMs: 15000,
     );
+    final partition = await _checkPartitions(board, version, _image!.length);
+    if (!mounted) return;
+    setState(() {
+      _partition = partition;
+      _reportedBoard = board;
+      _versionBefore = version;
+    });
+    if (partition.blocksUpload) {
+      setState(
+        () => _status =
+            'Normal update stopped. Review the partition details below.',
+      );
+      return;
+    }
     final reply = await _commands.sendCommand(
       widget.repeater,
       'start ota',
@@ -482,7 +550,12 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
     final filename = _filename;
     final url = _url;
     final probe = _probe;
-    if (image == null || filename == null || url == null || probe == null) {
+    if (image == null ||
+        filename == null ||
+        url == null ||
+        probe == null ||
+        _partition == null ||
+        _partition!.blocksUpload) {
       return;
     }
     final confirmed = await showDialog<bool>(
@@ -494,6 +567,7 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
           'Send $filename to ${probe.identity} at ${url.host}. '
           'The radio reports board $_reportedBoard and currently runs '
           '$_versionBefore. '
+          '${_partition!.message}\n\n'
           'The radio will write its OTA partition and reboot. '
           'Use only an image built for ${widget.repeater.name}; '
           'do not remove power.$_batteryConfirmationLine',
@@ -561,6 +635,10 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
             ),
             const SizedBox(height: 8),
             UpdateStatusCard(message: _status, busy: _busy),
+            if (_partition != null) ...[
+              const SizedBox(height: 12),
+              Text(_partition!.message),
+            ],
             const SizedBox(height: 16),
             const Text(
               'Use an ESP32 application .bin for this exact board, '
@@ -593,7 +671,9 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
             ],
             if (_probe != null && !_migrationStarted)
               FilledButton.icon(
-                onPressed: _busy ? null : _upload,
+                onPressed: _busy || (_partition?.blocksUpload ?? true)
+                    ? null
+                    : _upload,
                 icon: const Icon(Icons.system_update_alt),
                 label: const Text('Upload and reboot'),
               ),
@@ -604,6 +684,9 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
               ),
             const Divider(height: 32),
             ExpansionTile(
+              key: ValueKey(_partition?.action),
+              initiallyExpanded:
+                  _partition?.action == Esp32PartitionAction.expand,
               tilePadding: EdgeInsets.zero,
               title: const Text('Expand old partitions'),
               subtitle: const Text('Two-step migration for supported boards'),

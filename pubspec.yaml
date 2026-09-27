@@ -112,6 +112,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/firmware/esp32_partition_catalog.json
     - assets/certs/github_legacy_roots.pem
     - assets/images/
     - assets/icons/
