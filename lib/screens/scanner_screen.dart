@@ -9,6 +9,7 @@ import '../connector/meshcore_connector.dart';
 import '../l10n/l10n.dart';
 import '../services/linux_ble_error_classifier.dart';
 import '../theme/mesh_theme.dart';
+import '../services/notification_service.dart';
 import '../utils/app_logger.dart';
 import '../widgets/adaptive_app_bar_title.dart';
 import '../widgets/device_tile.dart';
@@ -49,6 +50,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
           isCurrentRoute &&
           !_changedNavigation) {
         _changedNavigation = true;
+        // Prompt for notification permission on first
+        // connect so notifications work out of the box
+        // on Android 13+.
+        NotificationService().requestPermissions();
         if (mounted) {
           Navigator.of(context).push(
             MaterialPageRoute(builder: (context) => const ChannelsScreen()),
@@ -58,6 +63,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
     };
 
     _connector.addListener(_connectionListener);
+
+    // If the app was killed (swipe-away) and relaunched, try to reconnect
+    // to the last known device so the user doesn't have to scan again.
+    if (_connector.state == MeshCoreConnectionState.disconnected) {
+      _connector.tryAutoReconnect();
+    }
 
     _bluetoothStateSubscription = FlutterBluePlus.adapterState.listen(
       (state) {

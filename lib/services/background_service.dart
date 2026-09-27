@@ -4,8 +4,12 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/platform_info.dart';
 
-class BackgroundService {
+class BackgroundService with WidgetsBindingObserver {
   bool _initialized = false;
+  bool _serviceRunning = false;
+  bool get isRunning => _serviceRunning;
+  VoidCallback? onResume;
+  VoidCallback? onPause;
   String? Function()? _languageOverrideProvider;
 
   /// Allows the app to expose its current language override (e.g. from
@@ -16,7 +20,10 @@ class BackgroundService {
   }
 
   Future<void> initialize() async {
-    if (!PlatformInfo.isAndroid || _initialized) return;
+    if (_initialized) return;
+    WidgetsBinding.instance.addObserver(this);
+    _initialized = true;
+    if (!PlatformInfo.isAndroid) return;
     FlutterForegroundTask.init(
       androidNotificationOptions: AndroidNotificationOptions(
         channelId: 'meshcore_background',
@@ -39,18 +46,26 @@ class BackgroundService {
   }
 
   Future<void> start() async {
-    if (!PlatformInfo.isAndroid) return;
+    if (!PlatformInfo.isMobile) return;
     if (!_initialized) {
       await initialize();
     }
+    if (!PlatformInfo.isAndroid) {
+      _serviceRunning = true;
+      return;
+    }
     final running = await FlutterForegroundTask.isRunningService;
-    if (running) return;
+    if (running) {
+      _serviceRunning = true;
+      return;
+    }
     final l10n = await _loadLocalizations();
     await FlutterForegroundTask.startService(
       notificationTitle: l10n.background_serviceTitle,
       notificationText: l10n.background_serviceText,
       callback: startCallback,
     );
+    _serviceRunning = await FlutterForegroundTask.isRunningService;
   }
 
   Future<AppLocalizations> _loadLocalizations() async {
@@ -71,10 +86,27 @@ class BackgroundService {
   }
 
   Future<void> stop() async {
+    _serviceRunning = false;
     if (!PlatformInfo.isAndroid) return;
     final running = await FlutterForegroundTask.isRunningService;
     if (!running) return;
     await FlutterForegroundTask.stopService();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) onResume?.call();
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      onPause?.call();
+    }
+  }
+
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _initialized = false;
+    onResume = null;
+    onPause = null;
   }
 }
 

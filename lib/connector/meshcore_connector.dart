@@ -58,6 +58,7 @@ import '../storage/contact_store.dart';
 import '../storage/message_store.dart';
 import '../storage/prefs_manager.dart';
 import '../storage/unread_store.dart';
+import '../storage/last_device_store.dart';
 import '../utils/app_logger.dart';
 import '../utils/battery_utils.dart';
 import '../utils/platform_info.dart';
@@ -409,6 +410,7 @@ class MeshCoreConnector extends ChangeNotifier {
   final ContactDiscoveryStore _discoveryContactStore = ContactDiscoveryStore();
   final ChannelStore _channelStore = ChannelStore();
   final UnreadStore _unreadStore = UnreadStore();
+  final LastDeviceStore _lastDeviceStore = LastDeviceStore();
   List<Channel> _cachedChannels = [];
   final Map<int, bool> _channelSmazEnabled = {};
   final Map<int, bool> _channelCyr2LatEnabled = {};
@@ -1160,6 +1162,10 @@ class MeshCoreConnector extends ChangeNotifier {
     _sparseLocationLogger = sparseLocationLogger;
     _sparseLocationLogger?.initialize(_updatePhoneLocation);
     _timeoutPredictionService = timeoutPredictionService;
+
+    // When the app resumes from background, check if we need to reconnect.
+    _backgroundService?.onResume = _onAppResumed;
+
     _usbManager.setDebugLogService(_appDebugLogService);
     _tcpConnector.setDebugLogService(_appDebugLogService);
 
@@ -2565,6 +2571,15 @@ class MeshCoreConnector extends ChangeNotifier {
       await _configureBleMotaService(services);
 
       _setState(MeshCoreConnectionState.connected);
+      unawaited(
+        _lastDeviceStore
+            .persistLastDevice(_deviceId!, _deviceDisplayName ?? _deviceId!)
+            .catchError((Object error) {
+              _appDebugLogService?.warn(
+                'Could not remember BLE device: $error',
+              );
+            }),
+      );
       if (_shouldGateInitialChannelSync) {
         _hasReceivedDeviceInfo = false;
         _pendingInitialChannelSync = true;
@@ -3106,6 +3121,63 @@ class MeshCoreConnector extends ChangeNotifier {
     });
   }
 
+  /// Called by [BackgroundService] when the app returns to the foreground.
+  /// If the BLE connection was lost while backgrounded, this kicks off an
+  /// immediate reconnect attempt instead of waiting for the next timer tick.
+  void _onAppResumed() {
+    if (_manualDisconnect ||
+        _preserveUpdateScreenOnDisconnect ||
+        _state != MeshCoreConnectionState.disconnected) {
+      return;
+    }
+    if (_shouldAutoReconnect &&
+        _state != MeshCoreConnectionState.connected &&
+        _state != MeshCoreConnectionState.connecting) {
+      _appDebugLogService?.info(
+        'App resumed - triggering reconnect check',
+        tag: 'Lifecycle',
+      );
+      _cancelReconnectTimer();
+      _scheduleReconnect();
+    } else if (_state == MeshCoreConnectionState.disconnected &&
+        _lastDeviceId == null) {
+      // App was fully restarted (swiped away).  Try to restore from prefs.
+      tryAutoReconnect();
+    }
+  }
+
+  /// Attempt to reconnect to the last persisted BLE device.
+  ///
+  /// Called on fresh app start (after a swipe-away kill) so the user is
+  /// brought straight back to the connected state instead of the scan screen.
+  Future<bool> tryAutoReconnect() async {
+    if (PlatformInfo.isWeb ||
+        _manualDisconnect ||
+        _preserveUpdateScreenOnDisconnect ||
+        _state != MeshCoreConnectionState.disconnected) {
+      return false;
+    }
+    try {
+      final deviceId = _lastDeviceStore.getPersistedDeviceId();
+      if (deviceId == null || deviceId.isEmpty) {
+        return false;
+      }
+
+      final displayName = _lastDeviceStore.getPersistedDeviceName();
+      _appDebugLogService?.info(
+        'Auto-reconnecting to $deviceId ($displayName)',
+        tag: 'Lifecycle',
+      );
+
+      final device = BluetoothDevice.fromId(deviceId);
+      await connect(device, displayName: displayName);
+      return true;
+    } catch (e) {
+      _appDebugLogService?.error('Auto-reconnect failed: $e', tag: 'Lifecycle');
+      return false;
+    }
+  }
+
   Future<void> disconnect({
     bool manual = true,
     bool skipBleDeviceDisconnect = false,
@@ -3127,6 +3199,12 @@ class MeshCoreConnector extends ChangeNotifier {
       _manualDisconnect = true;
       _cancelReconnectTimer();
       _reconnectAttempts = 0;
+      try {
+        await _lastDeviceStore.clearPersistedDevice();
+        await _notificationService.cancelAll();
+      } catch (error) {
+        _appDebugLogService?.warn('Could not clear reconnect state: $error');
+      }
       unawaited(_backgroundService?.stop());
     } else {
       _manualDisconnect = false;
@@ -6912,6 +6990,17 @@ class MeshCoreConnector extends ChangeNotifier {
         );
   }
 
+  /// Public accessor to find a channel by its index.
+  Channel? findChannelByIndex(int index) => _findChannelByIndex(index);
+
+  /// Find a contact by its public key hex string.
+  Contact? findContactByKeyHex(String keyHex) {
+    return _contacts.cast<Contact?>().firstWhere(
+      (c) => c?.publicKeyHex == keyHex,
+      orElse: () => null,
+    );
+  }
+
   void _maybeIncrementChannelUnread(
     ChannelMessage message, {
     required bool isNew,
@@ -7690,6 +7779,7 @@ class MeshCoreConnector extends ChangeNotifier {
 
   @override
   void dispose() {
+    _backgroundService?.onResume = null;
     _sparseLocationLogger?.dispose();
     _scanSubscription?.cancel();
     _isScanningSubscription?.cancel();

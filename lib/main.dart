@@ -7,6 +7,10 @@ import 'package:flutter/services.dart';
 import 'l10n/app_localizations.dart';
 import 'package:provider/provider.dart';
 
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'screens/channel_chat_screen.dart';
+import 'screens/chat_screen.dart';
+import 'screens/discovery_screen.dart';
 import 'screens/chrome_required_screen.dart';
 import 'screens/contacts_screen.dart';
 import 'utils/platform_info.dart';
@@ -343,12 +347,19 @@ class MeshCoreApp extends StatefulWidget {
 const Duration _kImageSweepInterval = Duration(seconds: 5);
 
 class _MeshCoreAppState extends State<MeshCoreApp> with WidgetsBindingObserver {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  StreamSubscription<NotificationTapEvent>? _notificationTapSubscription;
   Timer? _imageSweepTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _notificationTapSubscription = NotificationService().onNotificationTapped
+        .listen(_handleNotificationTap);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(widget.connector.tryAutoReconnect());
+    });
     _imageSweepTimer = Timer.periodic(
       _kImageSweepInterval,
       (_) => widget.imageReassembler.evictExpired(),
@@ -357,6 +368,7 @@ class _MeshCoreAppState extends State<MeshCoreApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _notificationTapSubscription?.cancel();
     _imageSweepTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -373,6 +385,51 @@ class _MeshCoreAppState extends State<MeshCoreApp> with WidgetsBindingObserver {
         state == AppLifecycleState.hidden) {
       unawaited(widget.imageCodecService.handleMemoryPressure());
       unawaited(widget.receivedImageStore.handleMemoryPressure());
+    }
+  }
+
+  void _handleNotificationTap(NotificationTapEvent event) {
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null) return;
+
+    switch (event.type) {
+      case NotificationTapEventType.message:
+        if (event.id == null) return;
+        final contact = widget.connector.findContactByKeyHex(event.id!);
+        if (contact == null) return;
+        widget.connector.markContactRead(contact.publicKeyHex);
+        navigator.push(
+          MaterialPageRoute(builder: (_) => ChatScreen(contact: contact)),
+        );
+        break;
+      case NotificationTapEventType.channel:
+        if (event.id == null) return;
+        final channelIndex = int.tryParse(event.id!);
+        if (channelIndex == null) return;
+        final channel = widget.connector.findChannelByIndex(channelIndex);
+        if (channel == null) return;
+        widget.connector.markChannelRead(channelIndex);
+        navigator.push(
+          MaterialPageRoute(
+            builder: (_) => ChannelChatScreen(channel: channel),
+          ),
+        );
+        break;
+      case NotificationTapEventType.advert:
+        // Clear every advert notification - the discovery
+        // list the user is about to see contains them all.
+        NotificationService().clearAllAdvertNotifications();
+        final ids = widget.connector.allContacts
+            .map((c) => c.publicKeyHex)
+            .toList();
+        NotificationService().clearAdvertNotifications(ids);
+        navigator.push(
+          MaterialPageRoute(builder: (_) => const DiscoveryScreen()),
+        );
+        break;
+      case NotificationTapEventType.batch:
+        // Batch summaries have no single target; no-op.
+        break;
     }
   }
 
@@ -406,36 +463,39 @@ class _MeshCoreAppState extends State<MeshCoreApp> with WidgetsBindingObserver {
       ],
       child: Consumer<AppSettingsService>(
         builder: (context, settingsService, child) {
-          return MaterialApp(
-            title: 'MeshCore Open',
-            debugShowCheckedModeBanner: false,
-            localizationsDelegates: const [
-              AppLocalizations.delegate,
-              GlobalMaterialLocalizations.delegate,
-              GlobalWidgetsLocalizations.delegate,
-              GlobalCupertinoLocalizations.delegate,
-            ],
-            supportedLocales: AppLocalizations.supportedLocales,
-            locale: _localeFromSetting(
-              settingsService.settings.languageOverride,
+          return WithForegroundTask(
+            child: MaterialApp(
+              navigatorKey: _navigatorKey,
+              title: 'MeshCore Open',
+              debugShowCheckedModeBanner: false,
+              localizationsDelegates: const [
+                AppLocalizations.delegate,
+                GlobalMaterialLocalizations.delegate,
+                GlobalWidgetsLocalizations.delegate,
+                GlobalCupertinoLocalizations.delegate,
+              ],
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: _localeFromSetting(
+                settingsService.settings.languageOverride,
+              ),
+              theme: MeshTheme.light(),
+              darkTheme: MeshTheme.dark(),
+              themeMode: _themeModeFromSetting(
+                settingsService.settings.themeMode,
+              ),
+              builder: (context, child) {
+                // Update notification service with resolved locale
+                final locale = Localizations.localeOf(context);
+                NotificationService().setLocale(locale);
+                return AnnotatedRegion<SystemUiOverlayStyle>(
+                  value: _systemUiOverlayStyle(context),
+                  child: child ?? const SizedBox.shrink(),
+                );
+              },
+              home: (PlatformInfo.isWeb && !PlatformInfo.isChrome)
+                  ? const ChromeRequiredScreen()
+                  : const ContactsScreen(),
             ),
-            theme: MeshTheme.light(),
-            darkTheme: MeshTheme.dark(),
-            themeMode: _themeModeFromSetting(
-              settingsService.settings.themeMode,
-            ),
-            builder: (context, child) {
-              // Update notification service with resolved locale
-              final locale = Localizations.localeOf(context);
-              NotificationService().setLocale(locale);
-              return AnnotatedRegion<SystemUiOverlayStyle>(
-                value: _systemUiOverlayStyle(context),
-                child: child ?? const SizedBox.shrink(),
-              );
-            },
-            home: (PlatformInfo.isWeb && !PlatformInfo.isChrome)
-                ? const ChromeRequiredScreen()
-                : const ContactsScreen(),
           );
         },
       ),
