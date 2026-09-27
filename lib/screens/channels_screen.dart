@@ -62,6 +62,8 @@ class _ChannelsScreenState extends State<ChannelsScreen>
     _searchController.text = context
         .read<UiViewStateService>()
         .channelsSearchText;
+    final connector = context.read<MeshCoreConnector>();
+    _communityStore.setPublicKeyHex = connector.selfPublicKeyHex;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<MeshCoreConnector>().getChannels();
       _loadCommunities();

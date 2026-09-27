@@ -34,9 +34,6 @@ class ChannelStore {
     }
 
     if (jsonString == null || jsonString.isEmpty) {
-      jsonString = prefs.getString(keyFor);
-    }
-    if (jsonString == null || jsonString.isEmpty) {
       return [];
     }
 

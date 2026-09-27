@@ -42,6 +42,7 @@ class ChannelOrderStore {
     if (jsonString == null || jsonString.isEmpty) {
       return [];
     }
+
     try {
       final decoded = jsonDecode(jsonString);
       if (decoded is List) {
