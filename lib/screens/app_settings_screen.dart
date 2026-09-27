@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart' hide RadioListTile;
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../connector/meshcore_connector.dart';
@@ -16,7 +16,7 @@ import '../services/translation_service.dart';
 import '../theme/mesh_theme.dart';
 import '../widgets/adaptive_app_bar_title.dart';
 import '../widgets/mesh_ui.dart';
-import '../widgets/legacy_radio.dart';
+import '../widgets/legacy_radio.dart' as legacy_radio;
 import '../widgets/sync_progress_overlay.dart';
 import '../helpers/snack_bar_builder.dart';
 import 'map_cache_screen.dart';
@@ -1258,7 +1258,7 @@ class AppSettingsScreen extends StatelessWidget {
                 maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
               ),
               child: SingleChildScrollView(
-                child: RadioGroup<String>(
+                child: legacy_radio.RadioGroup<String>(
                   groupValue: selectedId,
                   onChanged: (value) {
                     if (value == null) return;
@@ -1275,7 +1275,7 @@ class AppSettingsScreen extends StatelessWidget {
                             final option = MapRasterSourceCatalog.fromPreset(
                               preset,
                             );
-                            return RadioListTile<String>(
+                            return legacy_radio.RadioListTile<String>(
                               value: preset.id,
                               title: Text(option.label),
                               subtitle: Text(option.description),
@@ -1319,7 +1319,7 @@ class AppSettingsScreen extends StatelessWidget {
           title: Text(context.l10n.appSettings_stadiaEndpoint),
           content: SizedBox(
             width: 360,
-            child: RadioGroup<String>(
+            child: legacy_radio.RadioGroup<String>(
               groupValue: selectedId,
               onChanged: (value) {
                 if (value == null) return;
@@ -1331,7 +1331,7 @@ class AppSettingsScreen extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   for (final option in MapRasterEndpointCatalog.presets)
-                    RadioListTile<String>(
+                    legacy_radio.RadioListTile<String>(
                       value: option.id,
                       title: Text(option.label),
                       subtitle: Text(option.description),
@@ -1424,7 +1424,9 @@ class AppSettingsScreen extends StatelessWidget {
       return const ListTile(
         leading: Icon(Icons.translate),
         title: Text('On-device translation unavailable'),
-        subtitle: Text('This 32-bit Android 5.1 build has no translation runtime.'),
+        subtitle: Text(
+          'This 32-bit Android 5.1 build has no translation runtime.',
+        ),
       );
     }
     final settings = settingsService.settings;
@@ -2690,7 +2692,7 @@ class _TranslationLanguageDialogContentState
             ),
             const SizedBox(height: 12),
             Flexible(
-              child: RadioGroup<String?>(
+              child: legacy_radio.RadioGroup<String?>(
                 groupValue: widget.currentLanguageCode,
                 onChanged: (value) {
                   widget.onLanguageSelected(value);
@@ -2698,12 +2700,12 @@ class _TranslationLanguageDialogContentState
                 child: ListView(
                   shrinkWrap: true,
                   children: [
-                    RadioListTile<String?>(
+                    legacy_radio.RadioListTile<String?>(
                       value: null,
                       title: Text(context.l10n.translation_useAppLanguage),
                     ),
                     for (final option in _filtered)
-                      RadioListTile<String?>(
+                      legacy_radio.RadioListTile<String?>(
                         value: option.code,
                         title: Text(option.label),
                         subtitle: Text(option.code.toUpperCase()),

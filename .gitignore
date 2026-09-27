@@ -80,6 +80,8 @@ android/.kotlin/
 **/android/.externalNativeBuild/
 *.jks
 key.properties
+*.keystore
+/pubspec_overrides.yaml
 keystore.properties
 
 # Generated files

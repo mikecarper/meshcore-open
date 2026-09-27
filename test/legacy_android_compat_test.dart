@@ -1,35 +1,52 @@
-import 'package:flutter/material.dart' hide RadioListTile;
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meshcore_open/models/app_settings.dart';
 import 'package:meshcore_open/services/app_settings_service.dart';
-import 'package:meshcore_open/services/image_codec_backend_legacy.dart';
+import 'package:meshcore_open/services/image_codec_backend.dart';
+import 'package:meshcore_open/services/image_codec_session_io.dart';
 import 'package:meshcore_open/services/translation_service.dart';
-import 'package:meshcore_open/widgets/legacy_radio.dart';
+import 'package:meshcore_open/widgets/legacy_radio.dart' as legacy_radio;
 
 void main() {
-  test('API 22 build has no native image codec', () {
-    expect(kImageCodecBitstreamPathAvailable, isFalse);
-    expect(createImageCodecBackend(), isNull);
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const legacy = bool.fromEnvironment('LEGACY_ARM32');
+  test('native image codec follows the selected build profile', () {
+    expect(kImageCodecBitstreamPathAvailable, !legacy);
+    final backend = createImageCodecBackend();
+    expect(backend, legacy ? isNull : isA<OnnxImageCodecBackend>());
   });
 
-  test('translation cannot be offered or downloaded on legacy ARM32', () async {
-    expect(const bool.fromEnvironment('LEGACY_ARM32'), isTrue);
-    final service = TranslationService(AppSettingsService());
+  test('worker factory connects the real entropy coder', () async {
+    imageCodecRansCoderBuilder = null;
+    final backend = createWorkerImageCodecBackend();
+    expect(imageCodecRansCoderBuilder, isNotNull);
+    final coder = await imageCodecRansCoderBuilder!(
+      'test/services/golden/aeic_cdf_ft32.bin',
+    );
+    expect(coder, isA<AeicRansCoders>());
+    await backend?.dispose();
+  });
+
+  test('translation follows the selected profile even when enabled', () async {
+    final service = TranslationService(_EnabledTranslationSettings());
     expect(
       service.canTranslateIncoming(
         text: 'hello',
         isCli: false,
         isOutgoing: false,
       ),
-      isFalse,
+      !legacy,
     );
     expect(
       service.shouldTranslateOutgoing(text: 'hello', targetLanguageCode: 'fr'),
-      isFalse,
+      !legacy,
     );
-    await expectLater(
-      service.downloadModel(sourceUrl: 'https://example.invalid/model.gguf'),
-      throwsUnsupportedError,
-    );
+    if (legacy) {
+      await expectLater(
+        service.downloadModel(sourceUrl: 'https://example.invalid/model.gguf'),
+        throwsUnsupportedError,
+      );
+    }
     service.dispose();
   });
 
@@ -38,14 +55,20 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: StatefulBuilder(
-          builder: (context, setState) => RadioGroup<bool>(
+          builder: (context, setState) => legacy_radio.RadioGroup<bool>(
             groupValue: selected,
             onChanged: (value) => setState(() => selected = value!),
             child: const Scaffold(
               body: Column(
                 children: [
-                  RadioListTile<bool>(value: true, title: Text('Regular')),
-                  RadioListTile<bool>(value: false, title: Text('Community')),
+                  legacy_radio.RadioListTile<bool>(
+                    value: true,
+                    title: Text('Regular'),
+                  ),
+                  legacy_radio.RadioListTile<bool>(
+                    value: false,
+                    title: Text('Community'),
+                  ),
                 ],
               ),
             ),
@@ -56,9 +79,15 @@ void main() {
     await tester.tap(find.text('Community'));
     await tester.pump();
     expect(selected, isFalse);
-    final tiles = tester.widgetList<RadioListTile<bool>>(
-      find.byType(RadioListTile<bool>),
+    final tiles = tester.widgetList<legacy_radio.RadioListTile<bool>>(
+      find.byType(legacy_radio.RadioListTile<bool>),
     );
     expect(tiles.length, 2);
   });
+}
+
+class _EnabledTranslationSettings extends AppSettingsService {
+  @override
+  AppSettings get settings =>
+      AppSettings(translationEnabled: true, composerTranslationEnabled: true);
 }

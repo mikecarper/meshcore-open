@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 9.5.4+20
+version: 9.5.5+21
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -76,16 +76,30 @@ dependencies:
   flutter_blue_plus_platform_interface: ^9.0.2
   ml_algo: ^16.0.0
   ml_dataframe: ^1.0.0
-  llamadart:
-    path: legacy_shims/llamadart
+  llamadart: 0.8.20
   flutter_langdetect: ^0.0.1
   cryptography: ^2.9.0
-  cryptography_flutter:
-    path: legacy_shims/cryptography_flutter
-  flutter_onnxruntime:
-    path: legacy_shims/flutter_onnxruntime
+  cryptography_flutter: ^2.3.4
+  flutter_onnxruntime: 1.8.5
   convert: ^3.1.2
   base32: ^2.2.0
+
+# The modern Android build ships CPU inference backends. The legacy profile
+# replaces these packages before dependency resolution, not after compilation.
+hooks:
+  user_defines:
+    llamadart:
+      # The app uses GGUF translation models, not the newer-API LiteRT runtime.
+      llamadart_native_runtimes:
+        platforms:
+          android-arm64: [llama_cpp]
+          android-x64: [llama_cpp]
+      llamadart_native_backends:
+        platforms:
+          android-arm64:
+            backends: [cpu]
+          android-x64:
+            backends: [cpu]
 
 dev_dependencies:
   flutter_test:

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart' hide RadioListTile;
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:meshcore_open/storage/channel_message_store.dart';
 import 'package:meshcore_open/utils/keys.dart';
@@ -25,7 +25,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/mesh_ui.dart';
 import '../widgets/qr_code_display.dart';
 import '../widgets/quick_switch_bar.dart';
-import '../widgets/legacy_radio.dart';
+import '../widgets/legacy_radio.dart' as legacy_radio;
 import '../widgets/sync_progress_overlay.dart';
 import '../widgets/unread_badge.dart';
 import '../helpers/gif_helper.dart';
@@ -1120,7 +1120,7 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                   children: [
                     // Only show type selection if user has communities
                     if (_communities.isNotEmpty) ...[
-                      RadioGroup<bool>(
+                      legacy_radio.RadioGroup<bool>(
                         groupValue: isRegularHashtag,
                         onChanged: (v) => setSheetState(() {
                           if (v == null) return;
@@ -1134,7 +1134,7 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                         }),
                         child: Column(
                           children: [
-                            RadioListTile<bool>(
+                            legacy_radio.RadioListTile<bool>(
                               value: true,
                               title: Text(
                                 sheetContext.l10n.community_regularHashtag,
@@ -1144,7 +1144,7 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                               ),
                               dense: true,
                             ),
-                            RadioListTile<bool>(
+                            legacy_radio.RadioListTile<bool>(
                               value: false,
                               title: Text(
                                 sheetContext.l10n.community_communityHashtag,

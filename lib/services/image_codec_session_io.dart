@@ -8,7 +8,8 @@ import 'package:flutter/services.dart';
 
 import '../models/image_codec_support.dart';
 import '../widgets/image_send_codec_binding.dart' show kImageCodecSquareSize;
-import 'image_codec_backend_legacy.dart';
+import 'entropy_tables.dart';
+import 'image_codec_backend.dart';
 
 /// Owns a long-lived [Isolate] and the native codec session inside it.
 ///
@@ -442,6 +443,15 @@ class _NullSendPort implements SendPort {
   int get hashCode => 0;
 }
 
+/// Wire the coder in this isolate before creating the backend. Keeping this
+/// connection in the production factory also lets tests exercise it directly.
+@visibleForTesting
+ImageCodecBackend? createWorkerImageCodecBackend() {
+  imageCodecRansCoderBuilder = (path) async =>
+      AeicRansCoders(EntropyTables.parse(await File(path).readAsBytes()));
+  return createImageCodecBackend();
+}
+
 /// Entry point of the codec worker isolate.
 Future<void> _codecWorkerMain(List<Object?> boot) async {
   final reply = boot[0] as SendPort;
@@ -462,14 +472,14 @@ Future<void> _codecWorkerMain(List<Object?> boot) async {
   // before createImageCodecBackend(), which constructs the plugin wrapper.
   BackgroundIsolateBinaryMessenger.ensureInitialized(rootToken);
 
-  final backend = createImageCodecBackend();
+  final backend = createWorkerImageCodecBackend();
   if (backend == null) {
     reply.send(<String, Object?>{
       'type': 'fatal',
       'unimplemented': true,
       'error':
           'no inference backend is compiled into this build '
-          '(see lib/services/image_codec_backend_legacy.dart)',
+          '(see lib/services/image_codec_backend.dart)',
     });
     return;
   }

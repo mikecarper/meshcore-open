@@ -9,6 +9,14 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    - .build/**
+    # These vendored packages are dependencies only in the legacy profile.
+    # Analyzing them in the modern package namespace resolves their imports
+    # against the hosted packages and produces spurious cross-package errors.
+    - legacy_shims/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

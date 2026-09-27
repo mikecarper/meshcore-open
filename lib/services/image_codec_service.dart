@@ -8,7 +8,7 @@ import '../models/image_codec_support.dart';
 import '../utils/app_logger.dart';
 import '../widgets/image_send_codec_binding.dart';
 import 'app_settings_service.dart';
-import 'image_codec_backend_legacy.dart' show kImageCodecBitstreamPathAvailable;
+import 'image_codec_backend.dart' show kImageCodecBitstreamPathAvailable;
 import 'image_codec_file_store.dart';
 import 'image_codec_session.dart';
 import 'image_codec_settings_store.dart';
