@@ -2995,5 +2995,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "dialog_connectCompanion": "Connectez-vous \u00e0 un compagnon pour acc\u00e9der aux fonctionnalit\u00e9s de r\u00e9p\u00e9teur et de serveur de salle.",
+  "dialog_disconnectedTitle": "D\u00e9connect\u00e9",
+  "dialog_disconnectedMessage": "Vous avez \u00e9t\u00e9 d\u00e9connect\u00e9 de votre compagnon.",
+  "contact_connectCompanion": "Connectez-vous \u00e0 un compagnon pour acc\u00e9der aux fonctionnalit\u00e9s du r\u00e9p\u00e9teur et du serveur de salle."
 }

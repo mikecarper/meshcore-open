@@ -4906,4 +4906,13 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => '切断済み';
+
+  @override
+  String get dialog_disconnectedMessage => 'コンパニオンとの接続が切れました。';
+
+  @override
+  String get dialog_connectCompanion => 'コネクトしてリピーターとルームサーバー機能にアクセス';
 }

@@ -2862,5 +2862,9 @@
   "settings_publicKeyCopied": "Publik nyckel kopierad",
   "settings_radioSettingsNotApplied": "Radion tillämpade inte dessa inställningar",
   "urlImage_enable": "Aktivera URL-bilder",
-  "urlImage_possible": "Möjlig URL-bild; aktivera den i Inställningar."
+  "urlImage_possible": "Möjlig URL-bild; aktivera den i Inställningar.",
+  "dialog_connectCompanion": "Anslut till en s\u00e4llskapstj\u00e4nst f\u00f6r att komma \u00e5t upprepning och rumsserverfunktioner.",
+  "dialog_disconnectedTitle": "Ansluten ej",
+  "dialog_disconnectedMessage": "Du har kopplats fr\u00e5n din companion.",
+  "contact_connectCompanion": "Anslut till en companion f\u00f6r att f\u00e5 tillg\u00e5ng till repeater- och rumsserverfunktioner."
 }

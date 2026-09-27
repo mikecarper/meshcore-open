@@ -5179,4 +5179,15 @@ class AppLocalizationsUk extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => 'Від’єднано';
+
+  @override
+  String get dialog_disconnectedMessage =>
+      'Вас від’єднано від вашого супутника.';
+
+  @override
+  String get dialog_connectCompanion =>
+      'Підключіться до супутнього пристрою, щоб отримати доступ до функцій ретранслятора та сервера кімнат.';
 }

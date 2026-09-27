@@ -4791,4 +4791,13 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => '已断开连接';
+
+  @override
+  String get dialog_disconnectedMessage => '你已与你的伙伴断开连接。';
+
+  @override
+  String get dialog_connectCompanion => '连接伴机以访问中继器和房间服务器功能。';
 }

@@ -5140,4 +5140,15 @@ class AppLocalizationsNl extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => 'Verbroken';
+
+  @override
+  String get dialog_disconnectedMessage =>
+      'Je bent losgekoppeld van je companion.';
+
+  @override
+  String get dialog_connectCompanion =>
+      'Maak verbinding met een companion om repeater- en kamerserverfuncties te gebruiken.';
 }

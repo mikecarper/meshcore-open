@@ -8,11 +8,11 @@ import 'l10n/app_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'screens/chrome_required_screen.dart';
+import 'screens/contacts_screen.dart';
 import 'utils/platform_info.dart';
 
 import 'connector/meshcore_connector.dart';
 import 'models/image_codec_support.dart';
-import 'screens/scanner_screen.dart';
 import 'services/image_chunk_transport.dart';
 import 'services/image_codec_service.dart';
 import 'services/image_codec_settings_store.dart';
@@ -156,13 +156,8 @@ void main() async {
     onImageSenderPrefix: (prefix) => imageReassembler.selfPrefix = prefix,
   );
 
-  await connector.loadContactCache();
-  await connector.loadChannelSettings();
-  await connector.loadCachedChannels();
-
-  // Load persisted channel messages
-  await connector.loadAllChannelMessages();
-  await connector.loadUnreadState();
+  await connector.restoreLastCompanionScope();
+  await connector.loadAllCachedDataForCurrentCompanion();
 
   runApp(
     MeshCoreApp(
@@ -440,7 +435,7 @@ class _MeshCoreAppState extends State<MeshCoreApp> with WidgetsBindingObserver {
             },
             home: (PlatformInfo.isWeb && !PlatformInfo.isChrome)
                 ? const ChromeRequiredScreen()
-                : const ScannerScreen(),
+                : const ContactsScreen(),
           );
         },
       ),

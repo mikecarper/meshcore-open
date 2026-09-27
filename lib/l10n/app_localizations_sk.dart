@@ -5137,4 +5137,15 @@ class AppLocalizationsSk extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => 'Odpojené';
+
+  @override
+  String get dialog_disconnectedMessage =>
+      'Od vášho spoločníka ste boli odpojený.';
+
+  @override
+  String get dialog_connectCompanion =>
+      'Pripojte sa k sprievodcovi a získajte prístup k funkciám opakovača a serveru miestností.';
 }

@@ -2900,5 +2900,9 @@
   "settings_publicKeyCopied": "Nyilvános kulcs másolva",
   "settings_radioSettingsNotApplied": "A rádió nem alkalmazta ezeket a beállításokat",
   "urlImage_enable": "URL-képek engedélyezése",
-  "urlImage_possible": "Lehetséges URL-kép; engedélyezze a Beállításokban."
+  "urlImage_possible": "Lehetséges URL-kép; engedélyezze a Beállításokban.",
+  "dialog_connectCompanion": "Csatlakozz egy k\u00eds\u00e9r\u0151h\u00f6z az ism\u00e9tl\u0151- \u00e9s szobaszerver-funkci\u00f3k el\u00e9r\u00e9s\u00e9hez.",
+  "dialog_disconnectedTitle": "Kapcsolat megszakadt",
+  "dialog_disconnectedMessage": "A kapcsolat megszakadt a k\u00eds\u00e9r\u0151vel.",
+  "contact_connectCompanion": "Csatlakozz egy k\u00eds\u00e9r\u0151h\u00f6z az ism\u00e9tl\u0151- \u00e9s szobaszerver-funkci\u00f3k el\u00e9r\u00e9s\u00e9hez."
 }

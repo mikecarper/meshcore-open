@@ -8787,6 +8787,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Enable location services and allow location access to use phone GPS.'**
   String get settings_phoneGpsUnavailable;
+
+  /// No description provided for @dialog_disconnectedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnected'**
+  String get dialog_disconnectedTitle;
+
+  /// No description provided for @dialog_disconnectedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'You have been disconnected from your companion.'**
+  String get dialog_disconnectedMessage;
+
+  /// No description provided for @dialog_connectCompanion.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to a companion to access repeater and room server features.'**
+  String get dialog_connectCompanion;
 }
 
 class _AppLocalizationsDelegate

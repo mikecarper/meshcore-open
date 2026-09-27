@@ -19,7 +19,6 @@ import '../models/community.dart';
 import '../storage/community_store.dart';
 import '../theme/mesh_theme.dart';
 import '../utils/dialog_utils.dart';
-import '../utils/disconnect_navigation_mixin.dart';
 import '../utils/route_transitions.dart';
 import '../widgets/list_filter_widget.dart';
 import '../widgets/empty_state.dart';
@@ -35,6 +34,7 @@ import 'channel_chat_screen.dart';
 import 'community_qr_scanner_screen.dart';
 import 'contacts_screen.dart';
 import 'map_screen.dart';
+import 'scanner_screen.dart';
 import 'settings_screen.dart';
 
 class ChannelsScreen extends StatefulWidget {
@@ -46,8 +46,7 @@ class ChannelsScreen extends StatefulWidget {
   State<ChannelsScreen> createState() => _ChannelsScreenState();
 }
 
-class _ChannelsScreenState extends State<ChannelsScreen>
-    with DisconnectNavigationMixin {
+class _ChannelsScreenState extends State<ChannelsScreen> {
   final TextEditingController _searchController = TextEditingController();
   final CommunityStore _communityStore = CommunityStore();
   final CommunityPskIndex _communityIndex = CommunityPskIndex();
@@ -105,11 +104,6 @@ class _ChannelsScreenState extends State<ChannelsScreen>
     final channelMessageStore = ChannelMessageStore();
     channelMessageStore.setPublicKeyHex = connector.selfPublicKeyHex;
 
-    // Auto-navigate back to scanner if disconnected
-    if (!checkConnectionAndNavigate(connector)) {
-      return const SizedBox.shrink();
-    }
-
     final allowBack = !connector.isConnected;
 
     return PopScope(
@@ -126,19 +120,34 @@ class _ChannelsScreenState extends State<ChannelsScreen>
               // capture the screen's context — not the itemBuilder's menu
               // context, which is deactivated by then.
               itemBuilder: (menuContext) => [
-                PopupMenuItem(
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.logout,
-                        color: Theme.of(menuContext).colorScheme.error,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(menuContext.l10n.common_disconnect),
-                    ],
+                if (!connector.isConnected)
+                  PopupMenuItem(
+                    child: Row(
+                      children: [
+                        const Icon(Icons.bluetooth_searching),
+                        const SizedBox(width: 8),
+                        Text(menuContext.l10n.common_connect),
+                      ],
+                    ),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+                    ),
                   ),
-                  onTap: () => _disconnect(context),
-                ),
+                if (connector.isConnected)
+                  PopupMenuItem(
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.logout,
+                          color: Theme.of(menuContext).colorScheme.error,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(menuContext.l10n.common_disconnect),
+                      ],
+                    ),
+                    onTap: () => _disconnect(context),
+                  ),
                 PopupMenuItem(
                   child: Row(
                     children: [

@@ -2862,5 +2862,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "dialog_connectCompanion": "Pripojte sa k sprievodcovi a z\u00edskajte pr\u00edstup k funkci\u00e1m opakova\u010da a serveru miestnost\u00ed.",
+  "dialog_disconnectedTitle": "Odpojen\u00e9",
+  "dialog_disconnectedMessage": "Od v\u00e1\u0161ho spolo\u010dn\u00edka ste boli odpojen\u00fd.",
+  "contact_connectCompanion": "Pripojte sa k spolo\u010dn\u00edkovi pre pr\u00edstup k funkci\u00e1m opakova\u010da a miestneho servera."
 }

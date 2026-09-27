@@ -5141,4 +5141,15 @@ class AppLocalizationsSl extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => 'Prekinjeno';
+
+  @override
+  String get dialog_disconnectedMessage =>
+      'Prekinjena povezava s vašim spre伴ovalcem.';
+
+  @override
+  String get dialog_connectCompanion =>
+      'Povežite se s spremljevalnikom za dostop do funkcij ponavljalnika in strežnika sob.';
 }

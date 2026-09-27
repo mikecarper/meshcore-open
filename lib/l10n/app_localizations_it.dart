@@ -5168,4 +5168,15 @@ class AppLocalizationsIt extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => 'Disconnesso';
+
+  @override
+  String get dialog_disconnectedMessage =>
+      'Sei stato disconnesso dal tuo compagno.';
+
+  @override
+  String get dialog_connectCompanion =>
+      'Connettiti a un dispositivo companion per accedere alle funzionalità di ripetitore e server stanza.';
 }

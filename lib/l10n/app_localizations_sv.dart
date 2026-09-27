@@ -5113,4 +5113,15 @@ class AppLocalizationsSv extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => 'Ansluten ej';
+
+  @override
+  String get dialog_disconnectedMessage =>
+      'Du har kopplats från din companion.';
+
+  @override
+  String get dialog_connectCompanion =>
+      'Anslut till en sällskapstjänst för att komma åt upprepning och rumsserverfunktioner.';
 }

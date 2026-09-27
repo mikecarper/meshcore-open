@@ -5171,4 +5171,15 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => 'Getrennt';
+
+  @override
+  String get dialog_disconnectedMessage =>
+      'Du wurdest von deinem Begleiter getrennt.';
+
+  @override
+  String get dialog_connectCompanion =>
+      'Verbinden Sie sich mit einem Companion, um auf die Funktionen des Repeaters und des Raumservers zuzugreifen.';
 }

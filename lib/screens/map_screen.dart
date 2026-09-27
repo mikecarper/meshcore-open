@@ -22,7 +22,6 @@ import '../services/path_history_service.dart';
 import '../services/map_marker_service.dart';
 import '../services/map_tile_cache_service.dart';
 import '../utils/contact_search.dart';
-import '../utils/disconnect_navigation_mixin.dart';
 import '../utils/battery_utils.dart';
 import '../utils/route_transitions.dart';
 import '../widgets/quick_switch_bar.dart';
@@ -38,6 +37,7 @@ import '../widgets/room_login_dialog.dart';
 import '../helpers/snack_bar_builder.dart';
 import 'repeater_hub_screen.dart';
 import 'settings_screen.dart';
+import 'scanner_screen.dart';
 import 'line_of_sight_map_screen.dart';
 
 class MapScreen extends StatefulWidget {
@@ -60,7 +60,7 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> with DisconnectNavigationMixin {
+class _MapScreenState extends State<MapScreen> {
   // Zoom level at which node labels start to appear
   static const double _labelZoomThreshold = 14.0;
   // Below this zoom, nearby nodes collapse into clusters.
@@ -346,9 +346,6 @@ class _MapScreenState extends State<MapScreen> with DisconnectNavigationMixin {
               _MapConnectorSnapshot.fromConnector,
             );
         final connector = connectorSnapshot.connector;
-        if (!checkConnectionAndNavigate(connector)) {
-          return const SizedBox.shrink();
-        }
         final settings = context.select<AppSettingsService, AppSettings>(
           (service) => service.settings,
         );
@@ -660,6 +657,7 @@ class _MapScreenState extends State<MapScreen> with DisconnectNavigationMixin {
                         },
                       ),
                     if (!_isBuildingPathTrace &&
+                        connector.isConnected &&
                         connector.selfLatitude != null &&
                         connector.selfLongitude != null)
                       PopupMenuItem(
@@ -723,19 +721,36 @@ class _MapScreenState extends State<MapScreen> with DisconnectNavigationMixin {
                           );
                         },
                       ),
-                    PopupMenuItem(
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.logout,
-                            color: Theme.of(context).colorScheme.error,
+                    if (connector.isConnected)
+                      PopupMenuItem(
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.logout,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(context.l10n.common_disconnect),
+                          ],
+                        ),
+                        onTap: () => _disconnect(context, connector),
+                      )
+                    else
+                      PopupMenuItem(
+                        child: Row(
+                          children: [
+                            const Icon(Icons.bluetooth_searching),
+                            const SizedBox(width: 8),
+                            Text(context.l10n.common_connect),
+                          ],
+                        ),
+                        onTap: () => Navigator.push(
+                          this.context,
+                          MaterialPageRoute(
+                            builder: (_) => const ScannerScreen(),
                           ),
-                          const SizedBox(width: 8),
-                          Text(context.l10n.common_disconnect),
-                        ],
+                        ),
                       ),
-                      onTap: () => _disconnect(context, connector),
-                    ),
                     PopupMenuItem(
                       child: Row(
                         children: [
@@ -2723,7 +2738,27 @@ class _MapScreenState extends State<MapScreen> with DisconnectNavigationMixin {
     );
   }
 
+  void _showCompanionRequiredDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(context.l10n.scanner_notConnected),
+        content: Text(context.l10n.dialog_connectCompanion),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(context.l10n.common_ok),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showRepeaterLogin(BuildContext context, Contact repeater) {
+    if (!context.read<MeshCoreConnector>().isConnected) {
+      _showCompanionRequiredDialog(context);
+      return;
+    }
     showDialog(
       context: context,
       builder: (context) => RepeaterLoginDialog(
@@ -2746,6 +2781,10 @@ class _MapScreenState extends State<MapScreen> with DisconnectNavigationMixin {
   }
 
   void _showRoomLogin(BuildContext context, Contact room) {
+    if (!context.read<MeshCoreConnector>().isConnected) {
+      _showCompanionRequiredDialog(context);
+      return;
+    }
     showDialog(
       context: context,
       builder: (context) => RoomLoginDialog(

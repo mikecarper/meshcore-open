@@ -20,7 +20,6 @@ import '../theme/mesh_theme.dart';
 import '../utils/contact_search.dart';
 import '../storage/contact_group_store.dart';
 import '../utils/dialog_utils.dart';
-import '../utils/disconnect_navigation_mixin.dart';
 import '../utils/emoji_utils.dart';
 import '../utils/route_transitions.dart';
 import '../widgets/list_filter_widget.dart';
@@ -38,6 +37,7 @@ import 'discovery_screen.dart';
 import 'map_screen.dart';
 import 'repeater_hub_screen.dart';
 import 'settings_screen.dart';
+import 'scanner_screen.dart';
 
 enum RoomLoginDestination { chat, management }
 
@@ -52,8 +52,7 @@ class ContactsScreen extends StatefulWidget {
   State<ContactsScreen> createState() => _ContactsScreenState();
 }
 
-class _ContactsScreenState extends State<ContactsScreen>
-    with DisconnectNavigationMixin {
+class _ContactsScreenState extends State<ContactsScreen> {
   final TextEditingController _searchController = TextEditingController();
   final ContactGroupStore _groupStore = ContactGroupStore();
   MeshCoreConnector? _scopeSyncConnector;
@@ -342,11 +341,6 @@ class _ContactsScreenState extends State<ContactsScreen>
   Widget build(BuildContext context) {
     final connector = context.watch<MeshCoreConnector>();
 
-    // Auto-navigate back to scanner if disconnected
-    if (!checkConnectionAndNavigate(connector)) {
-      return const SizedBox.shrink();
-    }
-
     final allowBack = !connector.isConnected;
     return PopScope(
       canPop: allowBack,
@@ -375,6 +369,7 @@ class _ContactsScreenState extends State<ContactsScreen>
                   ),
                 ),
                 PopupMenuItem(
+                  enabled: connector.isConnected,
                   child: Row(
                     children: [
                       const Icon(Icons.paste),
@@ -386,6 +381,7 @@ class _ContactsScreenState extends State<ContactsScreen>
                 ),
                 const PopupMenuDivider(),
                 PopupMenuItem(
+                  enabled: connector.isConnected,
                   child: Row(
                     children: [
                       const Icon(Icons.connect_without_contact),
@@ -402,6 +398,7 @@ class _ContactsScreenState extends State<ContactsScreen>
                   },
                 ),
                 PopupMenuItem(
+                  enabled: connector.isConnected,
                   child: Row(
                     children: [
                       const Icon(Icons.cell_tower),
@@ -418,6 +415,7 @@ class _ContactsScreenState extends State<ContactsScreen>
                   },
                 ),
                 PopupMenuItem(
+                  enabled: connector.isConnected,
                   child: Row(
                     children: [
                       const Icon(Icons.copy),
@@ -428,19 +426,34 @@ class _ContactsScreenState extends State<ContactsScreen>
                   onTap: () => _contactExport(Uint8List.fromList([])),
                 ),
                 const PopupMenuDivider(),
-                PopupMenuItem(
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.logout,
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(context.l10n.common_disconnect),
-                    ],
+                if (connector.isConnected)
+                  PopupMenuItem(
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.logout,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(context.l10n.common_disconnect),
+                      ],
+                    ),
+                    onTap: () => _disconnect(context, connector),
+                  )
+                else
+                  PopupMenuItem(
+                    child: Row(
+                      children: [
+                        const Icon(Icons.bluetooth_searching),
+                        const SizedBox(width: 8),
+                        Text(context.l10n.common_connect),
+                      ],
+                    ),
+                    onTap: () => Navigator.push(
+                      this.context,
+                      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+                    ),
                   ),
-                  onTap: () => _disconnect(context, connector),
-                ),
                 PopupMenuItem(
                   child: Row(
                     children: [
@@ -921,6 +934,7 @@ class _ContactsScreenState extends State<ContactsScreen>
                         contact,
                       );
                       return _ContactTileEntrance(
+                        key: ValueKey(contact.publicKeyHex),
                         index: index,
                         contact: contact,
                         pathHashByteWidth: connector.pathHashByteWidth,
@@ -1073,7 +1087,27 @@ class _ContactsScreenState extends State<ContactsScreen>
     }
   }
 
+  void _showCompanionRequiredDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(context.l10n.scanner_notConnected),
+        content: Text(context.l10n.dialog_connectCompanion),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(context.l10n.common_ok),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showRepeaterLogin(BuildContext context, Contact repeater) {
+    if (!context.read<MeshCoreConnector>().isConnected) {
+      _showCompanionRequiredDialog(context);
+      return;
+    }
     showDialog(
       context: context,
       builder: (context) => RepeaterLoginDialog(
@@ -1100,6 +1134,10 @@ class _ContactsScreenState extends State<ContactsScreen>
     Contact room,
     RoomLoginDestination destination,
   ) {
+    if (!context.read<MeshCoreConnector>().isConnected) {
+      _showCompanionRequiredDialog(context);
+      return;
+    }
     showDialog(
       context: context,
       builder: (context) => RoomLoginDialog(
@@ -1798,6 +1836,7 @@ class _ContactTileEntrance extends StatelessWidget {
   final VoidCallback onLongPress;
 
   const _ContactTileEntrance({
+    super.key,
     required this.index,
     required this.contact,
     required this.pathHashByteWidth,

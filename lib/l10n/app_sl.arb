@@ -2862,5 +2862,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "dialog_connectCompanion": "Pove\u017eite se s spremljevalnikom za dostop do funkcij ponavljalnika in stre\u017enika sob.",
+  "dialog_disconnectedTitle": "Prekinjeno",
+  "dialog_disconnectedMessage": "Prekinjena povezava s va\u0161im spre\u4f34ovalcem.",
+  "contact_connectCompanion": "Pove\u017eite se s pon\u0441\u043ebnikom za dostop do funkcij pon \ubc18\ubcf5nika in stre\u017enika prostorov."
 }

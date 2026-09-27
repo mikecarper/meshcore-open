@@ -5152,4 +5152,15 @@ class AppLocalizationsHu extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => 'Kapcsolat megszakadt';
+
+  @override
+  String get dialog_disconnectedMessage =>
+      'A kapcsolat megszakadt a kísérővel.';
+
+  @override
+  String get dialog_connectCompanion =>
+      'Csatlakozz egy kísérőhöz az ismétlő- és szobaszerver-funkciók eléréséhez.';
 }

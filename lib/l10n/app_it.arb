@@ -2995,5 +2995,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "dialog_connectCompanion": "Connettiti a un dispositivo companion per accedere alle funzionalit\u00e0 di ripetitore e server stanza.",
+  "dialog_disconnectedTitle": "Disconnesso",
+  "dialog_disconnectedMessage": "Sei stato disconnesso dal tuo compagno.",
+  "contact_connectCompanion": "Connettiti a un companion per accedere alle funzioni del repeater e del server di stanza."
 }

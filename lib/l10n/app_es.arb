@@ -2995,5 +2995,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "dialog_connectCompanion": "Con\u00e9ctate a un compa\u00f1ero para acceder a las funciones de repetidor y servidor de sala.",
+  "dialog_disconnectedTitle": "Desconectado",
+  "dialog_disconnectedMessage": "Te has desconectado de tu compa\u00f1ero.",
+  "contact_connectCompanion": "Con\u00e9ctate a un compa\u00f1ero para acceder a las funciones del repetidor y del servidor de la sala."
 }

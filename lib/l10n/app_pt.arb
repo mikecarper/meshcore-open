@@ -2861,5 +2861,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "dialog_connectCompanion": "Conecte-se a um dispositivo companion para acessar as funcionalidades de repetidor e servidor de salas.",
+  "dialog_disconnectedTitle": "Desconectado",
+  "dialog_disconnectedMessage": "Voc\u00ea foi desconectado do seu companheiro.",
+  "contact_connectCompanion": "Conecte-se a um companheiro para acessar recursos de repetidor e servidor de sala."
 }

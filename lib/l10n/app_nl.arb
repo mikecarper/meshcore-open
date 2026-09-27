@@ -2862,5 +2862,9 @@
   "settings_publicKeyCopied": "Openbare sleutel gekopieerd",
   "settings_radioSettingsNotApplied": "De radio heeft deze instellingen niet toegepast",
   "urlImage_enable": "URL-afbeeldingen inschakelen",
-  "urlImage_possible": "Mogelijke URL-afbeelding; schakel dit in bij Instellingen."
+  "urlImage_possible": "Mogelijke URL-afbeelding; schakel dit in bij Instellingen.",
+  "dialog_connectCompanion": "Maak verbinding met een companion om repeater- en kamerserverfuncties te gebruiken.",
+  "dialog_disconnectedTitle": "Verbroken",
+  "dialog_disconnectedMessage": "Je bent losgekoppeld van je companion.",
+  "contact_connectCompanion": "Maak verbinding met een companion om toegang te krijgen tot repeater- en roomserverfuncties."
 }

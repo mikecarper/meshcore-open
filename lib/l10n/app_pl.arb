@@ -2900,5 +2900,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "dialog_connectCompanion": "Po\u0142\u0105cz si\u0119 z towarzyszem, aby uzyska\u0107 dost\u0119p do funkcji powtarzacza i serwera pokoi.",
+  "dialog_disconnectedTitle": "Roz\u0142\u0105czono",
+  "dialog_disconnectedMessage": "Zosta\u0142e\u015b roz\u0142\u0105czony ze swoim towarzyszem.",
+  "contact_connectCompanion": "Po\u0142\u0105cz si\u0119 z towarzyszem, aby uzyska\u0107 dost\u0119p do funkcji repeatera i serwera pokojowego."
 }

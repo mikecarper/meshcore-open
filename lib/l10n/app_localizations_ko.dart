@@ -4914,4 +4914,13 @@ class AppLocalizationsKo extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => '연결 끊김';
+
+  @override
+  String get dialog_disconnectedMessage => '컴패니언과의 연결이 끊어졌습니다.';
+
+  @override
+  String get dialog_connectCompanion => '리피터 및 룸 서버 기능에 액세스하려면 컴패니언에 연결하세요.';
 }

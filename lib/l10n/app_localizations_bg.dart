@@ -5155,4 +5155,15 @@ class AppLocalizationsBg extends AppLocalizations {
   @override
   String get settings_phoneGpsUnavailable =>
       'Enable location services and allow location access to use phone GPS.';
+
+  @override
+  String get dialog_disconnectedTitle => 'Прекъснато';
+
+  @override
+  String get dialog_disconnectedMessage =>
+      'Свързването ви с вашия спътник е прекъснато.';
+
+  @override
+  String get dialog_connectCompanion =>
+      'Свържете се с придружител, за да получите достъп до функциите на ретранслатора и сървъра за стаи.';
 }
