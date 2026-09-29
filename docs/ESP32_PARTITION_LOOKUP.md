@@ -18,10 +18,15 @@ existing authenticated management connection. Old firmware errors/timeouts
 fall back to the local catalog using the reported board, role and version.
 No terminal interaction or Internet connection is required on the phone.
 
-Known oversized images are blocked before starting the regular updater. Remote
-Wi-Fi updates reveal the two-step migration section. The migration bridge itself
-is checked against the old slot capacity, and its existing on-device validation
-still gates the final upload. Version estimates never authorize table rewrites.
+Known oversized images are blocked before starting the regular updater. For a
+repeater or room-server migration ZIP, the app checks the reported board, role,
+optional exact OTA target, physical flash size when reported, and current slot
+capacity. If the full image already fits, it loads that image into the normal
+Wi-Fi updater and skips the bridge. If expansion is needed, it checks that the
+bridge fits the old slot before offering the two-step route. Unknown or
+single-app layouts stop the automatic migration. The bridge's on-device table
+validation still gates the final upload. Version estimates never authorize
+table rewrites by themselves.
 
 Companion Wi-Fi uses the same preflight, but Companion partition migration is
 not implemented on that screen. Single-app builds require a cable installation.

@@ -13,6 +13,7 @@ import 'local_mota_builder.dart';
 class Esp32PartitionMigrationPackage {
   Esp32PartitionMigrationPackage._({
     required this.board,
+    required this.role,
     required this.target,
     required this.targetId,
     required this.hardwareId,
@@ -26,6 +27,7 @@ class Esp32PartitionMigrationPackage {
   });
 
   final String board;
+  final String role;
   final String target;
   final int targetId;
   final String hardwareId;
@@ -76,6 +78,7 @@ class Esp32PartitionMigrationPackage {
     final manifest = decoded;
     final files = manifest['files'];
     final board = manifest['board'];
+    final role = manifest['role'];
     final target = manifest['target'];
     final hardware = manifest['hardware_id'];
     final version = manifest['firmware_version'];
@@ -90,7 +93,7 @@ class Esp32PartitionMigrationPackage {
         version is! String ||
         targetIdText is! String ||
         !RegExp(r'^0x[0-9a-fA-F]{8}$').hasMatch(targetIdText) ||
-        manifest['role'] != 'repeater' ||
+        !<String>{'repeater', 'room-server'}.contains(role) ||
         manifest['atomic_power_loss_recovery'] != false ||
         flashBytes is! int ||
         !<int>{0x400000, 0x800000, 0x1000000}.contains(flashBytes) ||
@@ -161,6 +164,7 @@ class Esp32PartitionMigrationPackage {
     }
     return Esp32PartitionMigrationPackage._(
       board: board,
+      role: role as String,
       target: target,
       targetId: targetId,
       hardwareId: hardware,

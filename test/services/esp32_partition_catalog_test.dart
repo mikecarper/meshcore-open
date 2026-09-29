@@ -65,6 +65,7 @@ void main() {
     final result = assess(role: 'companion_radio', reply: live);
     expect(result.source, Esp32PartitionSource.device);
     expect(result.action, Esp32PartitionAction.expand);
+    expect(result.flashBytes, 0x400000);
     expect(result.blocksUpload, isTrue);
   });
 

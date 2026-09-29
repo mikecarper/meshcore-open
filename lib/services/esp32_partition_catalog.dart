@@ -12,12 +12,14 @@ class Esp32PartitionAssessment {
     required this.source,
     required this.action,
     this.slotBytes,
+    this.flashBytes,
     this.detail = '',
   });
 
   final Esp32PartitionSource source;
   final Esp32PartitionAction action;
   final int? slotBytes;
+  final int? flashBytes;
   final String detail;
 
   bool get blocksUpload =>
@@ -123,9 +125,10 @@ class Esp32PartitionCatalog {
         !reply.substring(header.end).contains('...') &&
         matches.length ==
             reply.substring(header.end).trim().split(',').length) {
-      return const Esp32PartitionAssessment(
+      return Esp32PartitionAssessment(
         source: Esp32PartitionSource.device,
         action: Esp32PartitionAction.cableRequired,
+        flashBytes: flash,
       );
     }
     // A bounded CLI reply can be truncated. Missing slots do NOT prove that
@@ -137,7 +140,18 @@ class Esp32PartitionCatalog {
     final capacity = slots[pair[0]]! < slots[pair[1]]!
         ? slots[pair[0]]!
         : slots[pair[1]]!;
-    return _assessment(Esp32PartitionSource.device, capacity, imageBytes);
+    final assessment = _assessment(
+      Esp32PartitionSource.device,
+      capacity,
+      imageBytes,
+    );
+    return Esp32PartitionAssessment(
+      source: assessment.source,
+      action: assessment.action,
+      slotBytes: assessment.slotBytes,
+      flashBytes: flash,
+      detail: assessment.detail,
+    );
   }
 
   Esp32PartitionAssessment assess({

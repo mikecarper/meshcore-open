@@ -11,6 +11,7 @@ import '../models/contact.dart';
 import '../services/esp32_partition_catalog.dart';
 import '../services/esp32_wifi_ota_service.dart';
 import '../services/esp32_partition_migration_package.dart';
+import '../services/esp32_migration_decision.dart';
 import '../services/github_mota_release_service.dart';
 import '../services/local_mota_builder.dart';
 import '../services/repeater_command_service.dart';
@@ -23,11 +24,13 @@ class Esp32WifiOtaScreen extends StatefulWidget {
     required this.repeater,
     this.commandService,
     this.pickApplication,
+    this.pickMigration,
   });
 
   final Contact repeater;
   final RepeaterCommandService? commandService;
   final Future<XFile?> Function()? pickApplication;
+  final Future<XFile?> Function()? pickMigration;
 
   @override
   State<Esp32WifiOtaScreen> createState() => _Esp32WifiOtaScreenState();
@@ -52,6 +55,9 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
   Esp32PartitionMigrationPackage? _migrationPackage;
   int _migrationStep = 0;
   bool _migrationStarted = false;
+
+  String get _migrationRole =>
+      widget.repeater.type == advTypeRoom ? 'room-server' : 'repeater';
 
   String get _batteryConfirmationLine {
     final snapshot = context
@@ -107,6 +113,8 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
       _url = null;
       _probe = null;
       _migrationStarted = false;
+      _migrationPackage = null;
+      _migrationStep = 0;
       _uploadConfirmed = false;
       _status =
           'Selected ${file.name} (${(bytes.length / 1024).round()} KB). '
@@ -153,11 +161,16 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
           if (selected == null) return;
           file = XFile(selected.path);
         } else {
-          file = await openFile(
-            acceptedTypeGroups: const [
-              XTypeGroup(label: 'ESP32 migration bundle', extensions: ['zip']),
-            ],
-          );
+          file = widget.pickMigration == null
+              ? await openFile(
+                  acceptedTypeGroups: const [
+                    XTypeGroup(
+                      label: 'ESP32 migration bundle',
+                      extensions: ['zip'],
+                    ),
+                  ],
+                )
+              : await widget.pickMigration!();
         }
         if (file == null || !mounted) return;
         if (await file.length() > 32 * 1024 * 1024) {
@@ -173,17 +186,27 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
     Esp32PartitionMigrationPackage package, {
     required String source,
   }) {
+    if (package.role != _migrationRole) {
+      throw StateError(
+        'This ${package.role} migration ZIP cannot update a '
+        '$_migrationRole radio.',
+      );
+    }
     if (!mounted) return;
     setState(() {
       _migrationPackage = package;
       _migrationStep = 0;
       _migrationStarted = false;
+      _image = null;
+      _filename = null;
+      _partition = null;
       _url = null;
       _probe = null;
       _status =
-          '$source: ${package.board} ${package.version} migration bundle. '
+          '$source: ${package.board} ${package.version} ${package.role} '
+          'migration bundle. '
           'This is for target ${package.target}; confirm the radio board '
-          'before step 1.';
+          'before checking the upgrade.';
     });
   }
 
@@ -195,49 +218,38 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
         'Choose an exact-board bundle from Downloads instead.',
       );
     }
-    var candidates = assets;
-    try {
-      final board = await _commands.sendCommand(
-        widget.repeater,
-        'board',
-        retries: 1,
-        minimumTimeoutMs: 5000,
-      );
-      final slug = board.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
-      final matching = assets
-          .where((asset) => asset.name.toLowerCase().startsWith('$slug-'))
-          .toList();
-      if (matching.isNotEmpty) candidates = matching;
-    } catch (_) {
-      // Board matching is a convenience, not a substitute for the exact-board
-      // confirmation and the package's firmware target checks.
-    }
-    if (!mounted) return;
-    final chosen = await showDialog<GitHubReleaseAsset>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Choose exact board package'),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 360,
-          child: ListView.builder(
-            itemCount: candidates.length,
-            itemBuilder: (_, index) => ListTile(
-              title: Text(candidates[index].name),
-              onTap: () => Navigator.pop(dialogContext, candidates[index]),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
+    final board = await _commands.sendCommand(
+      widget.repeater,
+      'board',
+      retries: 2,
+      minimumTimeoutMs: 15000,
     );
-    if (chosen == null || !mounted) return;
-    final package = await _releases.downloadPartitionMigrationBundle(chosen);
+    final candidates = assets
+        .where(
+          (asset) => Esp32MigrationDecision.matchesAsset(
+            reportedBoard: board,
+            role: _migrationRole,
+            assetName: asset.name,
+          ),
+        )
+        .toList();
+    if (candidates.length != 1) {
+      throw StateError(
+        'Expected one published $_migrationRole migration ZIP for $board; '
+        'found ${candidates.length}. Choose an exact-board local ZIP if '
+        'this board uses a different published name.',
+      );
+    }
+    final package = await _releases.downloadPartitionMigrationBundle(
+      candidates.single,
+    );
+    if (!Esp32MigrationDecision.matchesBoard(
+      reportedBoard: board,
+      packageBoard: package.board,
+      role: package.role,
+    )) {
+      throw StateError('The published ZIP manifest has a different board.');
+    }
     _setMigrationPackage(package, source: 'GitHub SHA-256 verified');
   });
 
@@ -256,24 +268,56 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
       retries: 2,
       minimumTimeoutMs: 15000,
     );
-    // Newer nodes can report an exact OTA target; older Wi-Fi-only firmware
-    // cannot. A mismatch is decisive, but lack of this optional read is not.
+    // Newer nodes report an exact OTA target. Old Wi-Fi-only firmware may
+    // reject this optional command, so check the board name in that case.
+    String? status;
     try {
-      final status = await _commands.sendCommand(
+      status = await _commands.sendCommand(
         widget.repeater,
         'ota status',
         retries: 1,
         minimumTimeoutMs: 5000,
       );
-      final target = RegExp(r'\btarget:([0-9a-fA-F]{8})').firstMatch(status);
-      if (target != null &&
-          int.parse(target.group(1)!, radix: 16) != package.targetId) {
-        throw StateError('Migration bundle targets a different radio.');
-      }
-    } on StateError {
-      rethrow;
     } catch (_) {
       // Legacy builds may not implement the read-only mOTA status command.
+    }
+    final target = status == null
+        ? null
+        : RegExp(r'\btarget:([0-9a-fA-F]{8})').firstMatch(status);
+    final targetConfirmed = target != null;
+    if (targetConfirmed &&
+        int.parse(target.group(1)!, radix: 16) != package.targetId) {
+      throw StateError('Migration bundle targets a different radio.');
+    }
+    final currentLayout = await _checkPartitions(
+      board,
+      version,
+      package.application.length,
+    );
+    final route = Esp32MigrationDecision.choose(
+      package: package,
+      reportedBoard: board,
+      role: _migrationRole,
+      currentLayout: currentLayout,
+      targetConfirmed: targetConfirmed,
+    );
+    if (route == Esp32MigrationRoute.normalUpdate) {
+      if (!mounted) return;
+      setState(() {
+        _image = package.application;
+        _filename = 'full-application.bin';
+        _partition = currentLayout;
+        _reportedBoard = board;
+        _versionBefore = version;
+        _url = null;
+        _probe = null;
+        _migrationStarted = false;
+        _status =
+            'The full application already fits this radio. No partition '
+            'bridge is needed. Start the normal Wi-Fi updater to install '
+            '${package.version}. ${currentLayout.message}';
+      });
+      return;
     }
     final bridgePartition = await _checkPartitions(
       board,
@@ -688,14 +732,14 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
               initiallyExpanded:
                   _partition?.action == Esp32PartitionAction.expand,
               tilePadding: EdgeInsets.zero,
-              title: const Text('Expand old partitions'),
-              subtitle: const Text('Two-step migration for supported boards'),
+              title: const Text('Partition upgrade'),
+              subtitle: const Text('Check whether this upgrade needs a bridge'),
               children: [
                 const SizedBox(height: 6),
                 const Text(
-                  'For a supported exact-board migration ZIP: first upload its '
-                  'bridge through the old updater, then wait for the bridge to '
-                  'verify the expanded layout and upload the final application. '
+                  'The app checks the installed layout first. If the full '
+                  'image fits, use the normal updater. Otherwise, a supported '
+                  'exact-board ZIP supplies a bridge and final application. '
                   'Unsupported boards still need a cable migration. Never upload '
                   'a merged .bin through Wi-Fi.',
                 ),
@@ -718,15 +762,16 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
                     '${_migrationPackage!.board} · ${_migrationPackage!.version} · '
                     '${_migrationPackage!.flashBytes ~/ 0x100000} MB flash',
                   ),
-                  Text(
-                    'Bridge Wi-Fi after step 1: '
-                    '${_migrationPackage!.migrationApName} · '
-                    'password ${_migrationPackage!.migrationApPassword} '
-                    '(from ZIP instructions)',
-                  ),
+                  if (_migrationStarted || _migrationStep > 0)
+                    Text(
+                      'Bridge Wi-Fi after step 1: '
+                      '${_migrationPackage!.migrationApName} - '
+                      'password ${_migrationPackage!.migrationApPassword} '
+                      '(from ZIP instructions)',
+                    ),
                   FilledButton(
                     onPressed: _busy ? null : _startMigrationUpdater,
-                    child: const Text('Step 1: start old updater'),
+                    child: const Text('Check this upgrade'),
                   ),
                   if (_migrationStarted &&
                       _url != null &&
@@ -764,7 +809,8 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
                       child: const Text('Check expanded layout and identity'),
                     ),
                   ],
-                  if (_migrationStep == 0)
+                  if (_migrationStep == 0 &&
+                      _partition?.action != Esp32PartitionAction.fits)
                     OutlinedButton(
                       onPressed: _busy ? null : _checkMigrationReady,
                       child: const Text('Resume step 2 on a ready bridge'),
