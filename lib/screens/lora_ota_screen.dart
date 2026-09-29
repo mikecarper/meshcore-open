@@ -14,6 +14,7 @@ import '../models/path_selection.dart';
 import '../services/ble_mota_catalog.dart';
 import '../services/github_mota_release_service.dart';
 import '../services/lora_ota_bootloader_install.dart';
+import '../services/lora_ota_hop_session.dart';
 import '../services/lora_ota_route_planner.dart';
 import '../services/lora_ota_target_info.dart';
 import '../services/local_mota_downloads.dart';
@@ -63,6 +64,14 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
   final GitHubMotaReleaseService _githubReleases = GitHubMotaReleaseService();
   final List<_ControlledHopPlan> _controlledHops = <_ControlledHopPlan>[];
   final Set<String> _switchedControlledKeys = <String>{};
+  LoraOtaHopSession? _hopSession;
+  List<LoraOtaHopRecovery> _savedHopRecovery = [];
+  late final Future<void> _hopRecoveryLoad;
+  String? _hopRecoveryError;
+  bool _hopRecoveryLoaded = false;
+  bool _hopUsesTemporaryPaths = false;
+  String? _hopOwnerSource;
+  String? _hopRecoverySource;
 
   late final MeshCoreConnector _connector;
   late final RepeaterCommandService _commandService;
@@ -116,6 +125,7 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
     _normalTargetPath = _bestKnownPath(current);
     _temporaryTargetPath = Uint8List.fromList(_normalTargetPath);
     _frameSubscription = _connector.receivedFrames.listen(_handleFrame);
+    _hopRecoveryLoad = _loadHopRecovery();
   }
 
   void _preferCurrentRadioProfile() {
@@ -212,6 +222,10 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
   Future<void> _resumeBleSourceAfterReconnect() async {
     if (_sourceResumeActive || !_sessionActive || _restoringSession) return;
     if (!_resumeSourceAfterReconnect || !_connector.isConnected) return;
+    if (_busy) {
+      _scheduleBleSourceResume(delay: const Duration(seconds: 2));
+      return;
+    }
     if (!_connector.isBleMotaChannelReady) {
       _scheduleBleSourceResume(delay: const Duration(seconds: 2));
       return;
@@ -240,6 +254,13 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
       _addEvent('Companion reconnect: $radioReply');
       await Future<void>.delayed(const Duration(milliseconds: 2500));
       if (!_connector.isConnected || !_sessionActive || _restoringSession) {
+        return;
+      }
+      await _hopSession?.verifyTransfer();
+      if (_busy ||
+          !_sessionActive ||
+          _restoringSession ||
+          !_resumeSourceAfterReconnect) {
         return;
       }
 
@@ -304,6 +325,11 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
     final candidates = <Contact>[
       _currentRepeater(),
       ..._controlledHops.map((plan) => plan.contact),
+      ..._connector.allContactsUnfiltered.where(
+        (contact) => _savedHopRecovery.any(
+          (record) => !record.local && record.publicKey == contact.publicKeyHex,
+        ),
+      ),
     ];
     for (final contact in candidates) {
       if (_matchesPrefix(contact, prefix)) return contact;
@@ -1269,6 +1295,244 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
     }
   }
 
+  Future<void> _loadHopRecovery() async {
+    try {
+      final source = _connector.selfPublicKeyHex;
+      if (source.length == 64) {
+        _hopRecoverySource = source;
+        _savedHopRecovery = await _storage.loadLoraOtaHopRecovery(
+          source,
+          widget.repeater.publicKeyHex,
+        );
+      }
+    } catch (error) {
+      _hopRecoveryError = 'Could not read saved OTA hop recovery: $error';
+    } finally {
+      if (mounted) setState(() => _hopRecoveryLoaded = true);
+    }
+  }
+
+  LoraOtaHopSession _newHopSession(String source) {
+    _hopOwnerSource = source;
+    return LoraOtaHopSession(
+      persist: (records) async {
+        await _storage.saveLoraOtaHopRecovery(
+          source,
+          widget.repeater.publicKeyHex,
+          records,
+        );
+        if (mounted) setState(() => _savedHopRecovery = records);
+      },
+      log: _addEvent,
+    );
+  }
+
+  LoraOtaHopParticipant _hopParticipant({
+    required String publicKey,
+    required String name,
+    required bool local,
+    required List<int> normalPath,
+    required List<int> temporaryPath,
+    required int hashWidth,
+    bool allowOpaque = false,
+  }) => LoraOtaHopParticipant(
+    publicKey: publicKey,
+    name: name,
+    local: local,
+    allowOpaque: allowOpaque,
+    normalPath: normalPath,
+    temporaryPath: temporaryPath,
+    hashWidth: hashWidth,
+    command: (command) async {
+      if (_connector.selfPublicKeyHex != _hopOwnerSource) {
+        throw StateError(
+          'Reconnect the original Companion for OTA hop recovery.',
+        );
+      }
+      if (local) {
+        if (_connector.selfPublicKeyHex != publicKey) {
+          throw StateError(
+            'Reconnect the original Companion for OTA hop recovery.',
+          );
+        }
+        return _connector.executeLocalOtaControl(command);
+      }
+      final contact = _connector.allContactsUnfiltered
+          .cast<Contact?>()
+          .firstWhere(
+            (contact) => contact?.publicKeyHex == publicKey,
+            orElse: () => null,
+          );
+      if (contact == null) {
+        throw StateError('Add $name ($publicKey) to contacts for recovery.');
+      }
+      if (_connector.pathHashByteWidth != hashWidth) {
+        throw StateError(
+          'Restore path-hash width $hashWidth before OTA recovery.',
+        );
+      }
+      final bytes = _hopUsesTemporaryPaths ? temporaryPath : normalPath;
+      return _sendRemoteCommand(
+        contact,
+        command,
+        PathSelection(
+          pathBytes: bytes,
+          hopCount: bytes.length ~/ hashWidth,
+          useFlood: false,
+        ),
+      );
+    },
+  );
+
+  Future<void> _prepareHopSettings() async {
+    await _hopRecoveryLoad;
+    if (_savedHopRecovery.isEmpty &&
+        _connector.selfPublicKeyHex != _hopRecoverySource) {
+      await _loadHopRecovery();
+    }
+    if (_hopRecoveryError != null || _savedHopRecovery.isNotEmpty) {
+      throw StateError(
+        _hopRecoveryError ??
+            'Restore the previous OTA hop limits before starting another session.',
+      );
+    }
+    final width = _connector.pathHashByteWidth;
+    final minimum = loraOtaMinimumHopLimit([
+      _temporaryTargetPath,
+      ..._controlledHops.map((plan) => plan.temporaryPath),
+    ], width);
+    final source = _connector.selfPublicKeyHex;
+    if (source.length == 64 &&
+        _storage.hasOtherLoraOtaHopRecovery(
+          source,
+          widget.repeater.publicKeyHex,
+        )) {
+      throw StateError(
+        'This Companion has unresolved OTA hop recovery for another target. Open that target and restore it first.',
+      );
+    }
+    if (minimum != 0 && source.length != 64) {
+      throw StateError(
+        'Read the Companion identity before starting relayed OTA.',
+      );
+    }
+    _hopUsesTemporaryPaths = false;
+    final session = _newHopSession(source);
+    _hopSession = session;
+    final target = _currentRepeater();
+    await session.prepare([
+      _hopParticipant(
+        publicKey: source,
+        name: 'Companion',
+        local: true,
+        normalPath: const [],
+        temporaryPath: const [],
+        hashWidth: width,
+      ),
+      _hopParticipant(
+        publicKey: target.publicKeyHex,
+        name: target.name,
+        local: false,
+        normalPath: _normalTargetPath,
+        temporaryPath: _temporaryTargetPath,
+        hashWidth: width,
+      ),
+      for (final plan in _controlledHops)
+        _hopParticipant(
+          publicKey: plan.contact.publicKeyHex,
+          name: plan.contact.name,
+          local: false,
+          normalPath: plan.normalPath,
+          temporaryPath: plan.temporaryPath,
+          hashWidth: width,
+          allowOpaque: true,
+        ),
+    ], minimum);
+    if (minimum > 0) {
+      _addEvent(
+        'OTA requires at least $minimum hop(s), including passive route hops. '
+        'Passive relays are not changed; their owners must allow this reach.',
+      );
+    }
+  }
+
+  Future<void> _retryHopRecovery() async {
+    await _runBusy('Restoring saved OTA hop limits', () async {
+      await _hopRecoveryLoad;
+      if (_connector.selfPublicKeyHex != _hopRecoverySource) {
+        throw StateError(
+          'Reconnect the original Companion for saved OTA recovery.',
+        );
+      }
+      if (_hopRecoveryError != null) throw StateError(_hopRecoveryError!);
+      if (_hopSession == null) {
+        // After an app restart the bounded TempRadio windows may have expired.
+        // Retry over recorded normal paths, never guess a different identity.
+        _hopUsesTemporaryPaths = false;
+        final session = _newHopSession(_connector.selfPublicKeyHex);
+        for (final record in _savedHopRecovery) {
+          session.resumeRecovery(
+            _hopParticipant(
+              publicKey: record.publicKey,
+              name: record.name,
+              local: record.local,
+              normalPath: record.normalPath,
+              temporaryPath: record.temporaryPath,
+              hashWidth: record.hashWidth,
+            ),
+            record,
+          );
+        }
+        _hopSession = session;
+      }
+      if (!_sessionActive) {
+        // Management login to the target is already required to open this
+        // screen. Other endpoints need their saved admin credentials again.
+        for (final record in _savedHopRecovery) {
+          if (record.local ||
+              record.publicKey == widget.repeater.publicKeyHex) {
+            continue;
+          }
+          if (record.hashWidth != _connector.pathHashByteWidth) {
+            _addEvent(
+              '${record.name}: restore path-hash width ${record.hashWidth} before recovery login.',
+            );
+            continue;
+          }
+          final plan = _controlledHops
+              .where((plan) => plan.contact.publicKeyHex == record.publicKey)
+              .firstOrNull;
+          final password =
+              plan?.passwordController.text ??
+              await _storage.getRepeaterPassword(record.publicKey);
+          final contact = _connector.allContactsUnfiltered
+              .where((contact) => contact.publicKeyHex == record.publicKey)
+              .firstOrNull;
+          if (password == null || contact == null) {
+            _addEvent(
+              '${record.name}: add this controlled intermediate and enter its admin password, then retry recovery.',
+            );
+            continue; // Still attempt recovery of every other reachable radio.
+          }
+          final login = _ControlledHopPlan(
+            contact: contact,
+            normalPath: Uint8List.fromList(record.normalPath),
+            temporaryPath: Uint8List.fromList(record.temporaryPath),
+          );
+          login.passwordController.text = password;
+          try {
+            await _loginControlledHop(login);
+          } catch (error) {
+            _addEvent('${record.name} recovery login failed: $error');
+          } finally {
+            login.dispose();
+          }
+        }
+      }
+      await _hopSession!.restore();
+    });
+  }
+
   Future<void> _startSession() async {
     await _runBusy('Starting LoRa OTA', () async {
       final catalog = _catalog;
@@ -1291,6 +1555,7 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
         await _preflightCatalog(catalog);
       }
       await _loginControlledHops();
+      await _prepareHopSettings();
       catalog.resetTransferMetrics();
       _connector.setBleMotaCatalog(catalog);
       _switchedControlledKeys.clear();
@@ -1344,8 +1609,10 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
         await Future<void>.delayed(const Duration(milliseconds: 2500));
         await _waitForCompanionTemporaryRadio();
         localTemporaryConfirmed = true;
+        _hopUsesTemporaryPaths = true;
         await _verifyTemporaryRadioParticipants();
         await _extendTemporaryRadioParticipants(tempRadio);
+        await _hopSession!.apply();
 
         final status = await _connector.controlBleMotaSource(
           bleMotaActionStart,
@@ -1616,6 +1883,12 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
 
     await _runBusy('Installing firmware', () async {
       _requireActiveSession();
+      if (_hopRecoveryError != null ||
+          (_savedHopRecovery.isNotEmpty && _hopSession == null)) {
+        throw StateError(
+          'Stop the earlier OTA session and restore its saved hop limits before installing.',
+        );
+      }
       if (!_readyToInstall) {
         throw StateError('The download is not reported ready to install.');
       }
@@ -1635,6 +1908,19 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
         _addEvent(
           'Staged bootloader MID and image hash match the selected file.',
         );
+      }
+      // Restore persisted policy before a successful install reboots the
+      // target. If restoration cannot be verified, leave install undispatched.
+      if (_hopSession?.needsRecovery == true) {
+        _resumeSourceAfterReconnect = false;
+        _statusTimer?.cancel();
+        _liveProgressTimer?.cancel();
+        final status = await _connector.controlBleMotaSource(bleMotaActionStop);
+        if (status.attached) {
+          throw StateError('Stop the OTA source before restoring hop limits.');
+        }
+        if (mounted) setState(() => _sourceStatus = status);
+        await _hopSession!.restore();
       }
       final operation = _beginRemoteCommand(
         _currentRepeater(),
@@ -1782,6 +2068,12 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
       _addEvent('Could not detach source cleanly: $error');
     }
 
+    try {
+      await _hopSession?.restore();
+    } catch (error) {
+      _addEvent('$error. Saved recovery commands remain available below.');
+    }
+
     if (restoreTarget) {
       final operation = _beginRemoteCommand(
         _currentRepeater(),
@@ -1819,6 +2111,7 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
     } catch (error) {
       _addEvent('Could not restore Companion radio: $error');
     }
+    _hopUsesTemporaryPaths = false;
 
     // Put the Companion's contact table back on the normal-route paths after
     // all temporary-channel commands have been confirmed or exhausted.
@@ -2171,7 +2464,9 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                     Text(
                       'Add only nodes whose admin password you have. Passive '
                       'hops need no entry here; include their hashes in the '
-                      'temporary paths that traverse them.',
+                      'temporary paths that traverse them. OTA hop limits are '
+                      'adjusted and restored automatically on managed radios. '
+                      'Passive relay owners must allow the required OTA reach.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     if (_controlledHops.isNotEmpty) ...[
@@ -2343,6 +2638,9 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                       FilledButton.icon(
                         onPressed:
                             _busy ||
+                                !_hopRecoveryLoaded ||
+                                _hopRecoveryError != null ||
+                                _savedHopRecovery.isNotEmpty ||
                                 !channelReady ||
                                 catalog == null ||
                                 (_pendingInstallVerification != null &&
@@ -2416,6 +2714,40 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                   ],
                 ),
               ),
+              if (_hopRecoveryError != null ||
+                  _savedHopRecovery.isNotEmpty) ...[
+                SectionHeader('OTA hop-limit recovery'),
+                MeshCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        _hopRecoveryError ??
+                            (_sessionActive && _hopSession == null
+                                ? 'An earlier source session is still attached. Stop it and restore the saved hop limits before installing.'
+                                : _sessionActive
+                                ? 'Original OTA hop limits are saved and will be restored before install or when stopping.'
+                                : 'Original hop limits still need restoration. '
+                                      'New sessions are blocked until recovery is verified. '
+                                      'After an app restart, wait for TempRadio to expire '
+                                      'and reconnect on the normal channel before retrying.'),
+                      ),
+                      for (final record in _savedHopRecovery)
+                        SelectableText(
+                          '${record.name} (${record.publicKey}): '
+                          '${record.restoreCommand}',
+                        ),
+                      OutlinedButton(
+                        onPressed:
+                            _busy || _sessionActive || _hopRecoveryError != null
+                            ? null
+                            : _retryHopRecovery,
+                        child: const Text('Retry hop-limit restore'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               if (_events.isNotEmpty) ...[
                 SectionHeader('Session log'),
                 MeshCard(

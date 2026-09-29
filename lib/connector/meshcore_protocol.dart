@@ -792,11 +792,13 @@ bool isAllowedLocalOtaControlCommand(String command) {
   }
 
   if (command == 'ota ls' ||
+      command == 'ota config' ||
       command == 'ota status' ||
       command == 'ota install') {
     return true;
   }
-  return RegExp(r'^ota pull [0-9A-Fa-f]{8} flash$').hasMatch(command);
+  return RegExp(r'^ota pull [0-9A-Fa-f]{8} flash$').hasMatch(command) ||
+      RegExp(r'^ota config hops [0-8]$').hasMatch(command);
 }
 
 Uint8List buildLocalOtaControlFrame(String command) {

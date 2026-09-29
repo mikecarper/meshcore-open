@@ -79,6 +79,41 @@ Only after every check succeeds does the app extend the target, controlled
 intermediates, and Companion to the requested duration. It then attaches the
 phone catalog and asks the repeater to discover it with `ota ls`.
 
+### Automatic OTA Hop Limits
+
+For a relayed temporary route, the app reads `ota config` on the Companion,
+target, and controlled intermediates before switching radios. It counts actual
+hops (not route bytes), including passive relays and the longest controlled
+temporary route. Routes requiring more than eight hops are rejected. Direct
+sessions do not change hop limits.
+
+After the safety test and window extension, it rechecks all policies and raises
+only limits below the required reach using `ota config hops N`. Higher limits
+are preserved. Every change requires readback; a lost setter reply triggers a
+readback rather than a blind repeat. Unknown commands, authentication failures,
+and malformed policies stop the session instead of being interpreted as zero.
+Only an explicit non-OTA-build response allows a controlled intermediate to be
+treated as an opaque relay without a hop setting. Passive relays are never
+changed: their owners must allow the required OTA reach.
+
+Before each persistent change, the phone saves a password-free recovery record
+containing the radio's full identity, original limit, transfer limit, route
+paths, and path-hash width. It restores the original limits before installation
+can reboot the target, when stopping, and after setup failure. Restoration
+attempts every changed node; an unexpected administrator change is left
+untouched. A reconnect verifies the transfer policies before restarting the
+source.
+
+If recovery fails or the app is killed, **OTA hop-limit recovery** shows the
+remaining radios and exact restore commands. New sessions using that Companion
+are blocked until recovery is verified. Use **Retry hop-limit restore** after
+reconnecting. After an app restart, wait for the bounded TempRadio windows to
+expire and reconnect on the normal channel; saved normal paths are used. Open
+the same target with the same Companion, and add controlled intermediates with
+their admin passwords if those passwords were not saved. If you restore a
+limit manually, retrying verifies it and clears that record without rewriting
+the radio.
+
 ## Downloading and Installing
 
 - Tap **Refresh updates** if the first discovery does not list the new files.

@@ -11,12 +11,21 @@ import 'package:meshcore_open/models/path_selection.dart';
 import 'package:meshcore_open/screens/lora_ota_screen.dart';
 import 'package:meshcore_open/services/ble_mota_catalog.dart';
 import 'package:meshcore_open/services/repeater_command_service.dart';
+import 'package:meshcore_open/services/lora_ota_hop_session.dart';
+import 'package:meshcore_open/services/storage_service.dart';
+import 'package:meshcore_open/storage/prefs_manager.dart';
 import 'package:meshcore_open/theme/mesh_theme.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/mota_test_data.dart';
 
 void main() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    PrefsManager.reset();
+    await PrefsManager.initialize();
+  });
   testWidgets('restores saved path when both preflight routes time out', (
     tester,
   ) async {
@@ -55,159 +64,168 @@ void main() {
     await connector.closeFake();
   });
 
-  testWidgets('runs phone OTA workflow and renders both progress measures', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(430, 932);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets(
+    'runs phone OTA workflow and renders both progress measures',
+    (tester) async {
+      tester.view.physicalSize = const Size(430, 932);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    final catalog = (await tester.runAsync(
-      () => BleMotaCatalog.load(<XFile>[
-        XFile.fromData(
-          buildTestFullMotaContainer(),
-          path: 'TEST_BOARD-full-v1.17.1.2.mota',
-          name: 'TEST_BOARD-full-v1.17.1.2.mota',
-        ),
-      ]),
-    ))!;
-    final target = Contact(
-      publicKey: Uint8List.fromList(
-        List<int>.generate(pubKeySize, (index) => index + 16),
-      ),
-      name: 'Test repeater',
-      type: advTypeRepeater,
-      pathLength: 2,
-      path: Uint8List.fromList(<int>[0xA1, 0xB2]),
-      lastSeen: DateTime(2026, 8, 26),
-    );
-    final connector = _FakeMotaConnector(
-      target,
-      catalog,
-      radioFrequencyHz: 910525000,
-      radioBandwidthHz: 62500,
-      radioSf: 7,
-      radioCr: 5,
-    );
-    final commands = _FakeRepeaterCommandService(connector);
-
-    await tester.pumpWidget(
-      ChangeNotifierProvider<MeshCoreConnector>.value(
-        value: connector,
-        child: MaterialApp(
-          theme: MeshTheme.dark().copyWith(
-            splashFactory: NoSplash.splashFactory,
+      final catalog = (await tester.runAsync(
+        () => BleMotaCatalog.load(<XFile>[
+          XFile.fromData(
+            buildTestFullMotaContainer(),
+            path: 'TEST_BOARD-full-v1.17.1.2.mota',
+            name: 'TEST_BOARD-full-v1.17.1.2.mota',
           ),
-          home: LoRaOtaScreen(repeater: target, commandService: commands),
+        ]),
+      ))!;
+      final target = Contact(
+        publicKey: Uint8List.fromList(
+          List<int>.generate(pubKeySize, (index) => index + 16),
         ),
-      ),
-    );
+        name: 'Test repeater',
+        type: advTypeRepeater,
+        pathLength: 2,
+        path: Uint8List.fromList(<int>[0xA1, 0xB2]),
+        lastSeen: DateTime(2026, 8, 26),
+      );
+      final connector = _FakeMotaConnector(
+        target,
+        catalog,
+        radioFrequencyHz: 910525000,
+        radioBandwidthHz: 62500,
+        radioSf: 7,
+        radioCr: 5,
+      );
+      final commands = _FakeRepeaterCommandService(connector);
 
-    expect(find.text('Encrypted mOTA channel: Ready'), findsOneWidget);
-    final pageScroll = find
-        .descendant(
-          of: find.byType(ListView),
-          matching: find.byType(Scrollable),
-        )
-        .first;
-    await tester.scrollUntilVisible(
-      find.textContaining('Passive hops need no entry'),
-      300,
-      scrollable: pageScroll,
-    );
-    expect(find.textContaining('Passive hops need no entry'), findsOneWidget);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<MeshCoreConnector>.value(
+          value: connector,
+          child: MaterialApp(
+            theme: MeshTheme.dark().copyWith(
+              splashFactory: NoSplash.splashFactory,
+            ),
+            home: LoRaOtaScreen(repeater: target, commandService: commands),
+          ),
+        ),
+      );
 
-    final start = find.text('Test radios and start source');
-    await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
-    final startButton = find.ancestor(
-      of: start,
-      matching: find.byWidgetPredicate((widget) => widget is FilledButton),
-    );
-    final startCallback = tester.widget<FilledButton>(startButton).onPressed;
-    expect(startCallback, isNotNull);
-    startCallback!();
-    for (var tick = 0; tick < 40; tick++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
+      expect(find.text('Encrypted mOTA channel: Ready'), findsOneWidget);
+      final pageScroll = find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(
+        find.textContaining('Passive hops need no entry'),
+        300,
+        scrollable: pageScroll,
+      );
+      expect(find.textContaining('Passive hops need no entry'), findsOneWidget);
 
-    expect(connector.localCommands.take(3), <String>[
-      'tempradio 910.525,62.5,7,5,3',
-      'tempradio',
-      'tempradio 910.525,62.5,7,5,120',
-    ]);
-    expect(commands.calls.take(4).map((call) => call.command), <String>[
-      'tempradio 910.525,62.5,7,5,3',
-      'ota status',
-      'tempradio 910.525,62.5,7,5,120',
-      'ota ls',
-    ]);
-    expect(commands.calls.take(4).map((call) => call.minimumTimeoutMs), <int>[
-      15000,
-      20000,
-      15000,
-      20000,
-    ]);
-    expect(connector.sourceStarts, 1);
+      final start = find.text('Test radios and start source');
+      await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
+      final startButton = find.ancestor(
+        of: start,
+        matching: find.byWidgetPredicate((widget) => widget is FilledButton),
+      );
+      final startCallback = tester.widget<FilledButton>(startButton).onPressed;
+      expect(startCallback, isNotNull);
+      startCallback!();
+      for (var tick = 0; tick < 40; tick++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
 
-    final pull = find.text('Pull');
-    await tester.scrollUntilVisible(pull, -300, scrollable: pageScroll);
-    expect(pull, findsOneWidget);
-    await tester.tap(pull);
-    await tester.pump();
-    await tester.tap(find.text('Start download'));
-    await tester.pump();
-    await tester.pump();
+      expect(
+        connector.localCommands
+            .where((command) => command != 'ota config')
+            .take(3),
+        <String>[
+          'tempradio 910.525,62.5,7,5,3',
+          'tempradio',
+          'tempradio 910.525,62.5,7,5,120',
+        ],
+      );
+      final radioCalls = commands.calls.where(
+        (call) => call.command != 'ota config',
+      );
+      expect(radioCalls.take(4).map((call) => call.command), <String>[
+        'tempradio 910.525,62.5,7,5,3',
+        'ota status',
+        'tempradio 910.525,62.5,7,5,120',
+        'ota ls',
+      ]);
+      expect(radioCalls.take(4).map((call) => call.minimumTimeoutMs), <int>[
+        15000,
+        20000,
+        15000,
+        20000,
+      ]);
+      expect(connector.sourceStarts, 1);
 
-    final file = catalog.files.single;
-    await tester.runAsync(() => file.read(file.payloadOffset, 1024));
-    await tester.pump(const Duration(seconds: 2));
+      final pull = find.text('Pull');
+      await tester.scrollUntilVisible(pull, -300, scrollable: pageScroll);
+      expect(pull, findsOneWidget);
+      await tester.tap(pull);
+      await tester.pump();
+      await tester.tap(find.text('Start download'));
+      await tester.pump();
+      await tester.pump();
 
-    final check = find.text('Check download');
-    await tester.scrollUntilVisible(check, 300, scrollable: pageScroll);
-    await tester.ensureVisible(check);
-    await tester.pump();
-    expect(check, findsOneWidget);
-    await tester.tap(check);
-    await tester.pump();
-    await tester.pump();
+      final file = catalog.files.single;
+      await tester.runAsync(() => file.read(file.payloadOffset, 1024));
+      await tester.pump(const Duration(seconds: 2));
 
-    expect(find.text('Sent / queued by source'), findsOneWidget);
-    expect(find.text('1 / 3 blocks'), findsOneWidget);
-    expect(find.text('Confirmed by target'), findsOneWidget);
-    expect(find.text('1 / 3 verified blocks'), findsOneWidget);
-    expect(find.text('LoRa source packets: 42'), findsOneWidget);
-    expect(commands.commands, contains('ota pull ${file.manifestId} flash'));
+      final check = find.text('Check download');
+      await tester.scrollUntilVisible(check, 300, scrollable: pageScroll);
+      await tester.ensureVisible(check);
+      await tester.pump();
+      expect(check, findsOneWidget);
+      await tester.tap(check);
+      await tester.pump();
+      await tester.pump();
 
-    final stop = find.text('Stop and restore controlled radios');
-    await tester.scrollUntilVisible(stop, 300, scrollable: pageScroll);
-    final stopButton = find.ancestor(
-      of: stop,
-      matching: find.byWidgetPredicate((widget) => widget is OutlinedButton),
-    );
-    final stopCallback = tester.widget<OutlinedButton>(stopButton).onPressed;
-    expect(stopCallback, isNotNull);
-    stopCallback!();
-    await tester.pump();
-    await tester.pump();
-    expect(connector.bleMotaCatalog, isNull);
+      expect(find.text('Sent / queued by source'), findsOneWidget);
+      expect(find.text('1 / 3 blocks'), findsOneWidget);
+      expect(find.text('Confirmed by target'), findsOneWidget);
+      expect(find.text('1 / 3 verified blocks'), findsOneWidget);
+      expect(find.text('LoRa source packets: 42'), findsOneWidget);
+      expect(commands.commands, contains('ota pull ${file.manifestId} flash'));
 
-    final remove = find.byTooltip(
-      'Remove TEST_BOARD-full-v1.17.1.2.mota from catalog',
-    );
-    await tester.scrollUntilVisible(remove, -300, scrollable: pageScroll);
-    await tester.tap(remove);
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('No packages selected'),
-      -300,
-      scrollable: pageScroll,
-    );
-    expect(find.text('No packages selected'), findsOneWidget);
+      final stop = find.text('Stop and restore controlled radios');
+      await tester.scrollUntilVisible(stop, 300, scrollable: pageScroll);
+      final stopButton = find.ancestor(
+        of: stop,
+        matching: find.byWidgetPredicate((widget) => widget is OutlinedButton),
+      );
+      final stopCallback = tester.widget<OutlinedButton>(stopButton).onPressed;
+      expect(stopCallback, isNotNull);
+      stopCallback!();
+      await tester.pump();
+      await tester.pump();
+      expect(connector.bleMotaCatalog, isNull);
 
-    await tester.pumpWidget(const SizedBox.shrink());
-    await connector.closeFake();
-  });
+      final remove = find.byTooltip(
+        'Remove TEST_BOARD-full-v1.17.1.2.mota from catalog',
+      );
+      await tester.scrollUntilVisible(remove, -300, scrollable: pageScroll);
+      await tester.tap(remove);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('No packages selected'),
+        -300,
+        scrollable: pageScroll,
+      );
+      expect(find.text('No packages selected'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await connector.closeFake();
+    },
+  );
 
   testWidgets('rejects non-finite frequencies before sending radio commands', (
     tester,
@@ -650,6 +668,8 @@ void main() {
       additionalContacts: <Contact>[near, far],
     );
     final commands = _FakeRepeaterCommandService(connector);
+    connector.otaHops = 0;
+    commands.otaHops.addAll({target.name: 0, far.name: 0, near.name: 8});
 
     await tester.pumpWidget(
       ChangeNotifierProvider<MeshCoreConnector>.value(
@@ -715,6 +735,15 @@ void main() {
         .toList();
     expect(probes, <String>['Target repeater', 'Far relay', 'Near relay']);
     expect(connector.sourceStarts, 1);
+    expect(connector.otaHops, 2);
+    expect(commands.otaHops, {target.name: 2, far.name: 2, near.name: 8});
+    expect(
+      (await StorageService().loadLoraOtaHopRecovery(
+        connector.selfPublicKeyHex,
+        target.publicKeyHex,
+      )).length,
+      3,
+    );
 
     final stop = find.text('Stop and restore controlled radios');
     await tester.scrollUntilVisible(stop, 300, scrollable: pageScroll);
@@ -728,11 +757,21 @@ void main() {
     await tester.pump();
     await tester.pump();
 
+    await tester.pumpAndSettle();
     final restore = commands.calls
         .where((call) => call.command == 'normalradio')
         .map((call) => call.contact)
         .toList();
     expect(restore, <String>['Target repeater', 'Far relay', 'Near relay']);
+    expect(connector.otaHops, 0);
+    expect(commands.otaHops, {target.name: 0, far.name: 0, near.name: 8});
+    expect(
+      await StorageService().loadLoraOtaHopRecovery(
+        connector.selfPublicKeyHex,
+        target.publicKeyHex,
+      ),
+      isEmpty,
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
     await connector.closeFake();
@@ -827,6 +866,322 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await connector.closeFake();
   });
+
+  testWidgets(
+    'passive route raises source and target, then restores before install',
+    (tester) async {
+      final h = await _HopScreenHarness.mount(tester, readyToInstall: true);
+      h.connector.otaHops = 0;
+      h.commands.otaHops[h.target.name] = 0;
+      await h.start(tester);
+      expect(h.connector.sourceStarts, 1);
+      expect(h.connector.otaHops, 2);
+      expect(h.commands.otaHops[h.target.name], 2);
+      expect((await h.saved()).length, 2);
+      expect(
+        h.commands.calls
+            .where((call) => call.command == 'ota config')
+            .every((call) => call.path.length == 2),
+        isTrue,
+      );
+      await h.click(tester, 'Pull');
+      await tester.tap(find.text('Start download'));
+      await tester.pumpAndSettle();
+      await h.click(tester, 'Check download');
+      h.commands.inspectCommand = (command) {
+        if (command == 'ota install') {
+          expect(h.connector.attached, isFalse);
+          expect(h.connector.otaHops, 0);
+          expect(h.commands.otaHops[h.target.name], 0);
+          expect(
+            PrefsManager.instance.getKeys().where(
+              (key) => key.startsWith('lora_ota_hop_recovery_'),
+            ),
+            isEmpty,
+          );
+        }
+      };
+      await h.click(tester, 'Install and reboot');
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(FilledButton, 'Install and reboot'),
+        ),
+      );
+      for (var tick = 0; tick < 30; tick++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(h.commands.commands, contains('ota install'));
+      expect(await h.saved(), isEmpty);
+      await h.close(tester);
+    },
+  );
+
+  for (final failure in ['unknown', 'probe', 'write']) {
+    testWidgets(
+      '$failure failure prevents source and cleans up partial hop changes',
+      (tester) async {
+        final h = await _HopScreenHarness.mount(
+          tester,
+          unreachableProbe: failure == 'probe',
+        );
+        h.connector.otaHops = 0;
+        h.commands.otaHops[h.target.name] = 0;
+        if (failure == 'unknown') h.commands.hopConfigError = 'Unknown command';
+        if (failure == 'write') h.commands.failHopSetter = true;
+        await h.start(tester);
+        expect(h.connector.sourceStarts, 0);
+        expect(h.connector.otaHops, 0);
+        expect(h.commands.otaHops[h.target.name], 0);
+        expect(await h.saved(), isEmpty);
+        if (failure != 'write') {
+          expect(
+            h.connector.localCommands.where(
+              (command) => command.startsWith('ota config hops'),
+            ),
+            isEmpty,
+          );
+        }
+        await h.close(tester);
+      },
+    );
+  }
+
+  testWidgets('failed restore blocks install, stays saved, and is retryable', (
+    tester,
+  ) async {
+    final h = await _HopScreenHarness.mount(tester, readyToInstall: true);
+    h.connector.otaHops = 5; // A higher existing policy must remain unchanged.
+    h.commands.otaHops[h.target.name] = 0;
+    await h.start(tester);
+    await h.click(tester, 'Pull');
+    await tester.tap(find.text('Start download'));
+    await tester.pumpAndSettle();
+    await h.click(tester, 'Check download');
+    h.commands.failHopRestore = true;
+    await h.click(tester, 'Install and reboot');
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.widgetWithText(FilledButton, 'Install and reboot'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(h.commands.commands, isNot(contains('ota install')));
+    expect((await h.saved()).single.original, 0);
+    await h.click(tester, 'Stop and restore controlled radios');
+    expect(h.connector.otaHops, 5);
+    expect(h.commands.otaHops[h.target.name], 2);
+    expect((await h.saved()).single.original, 0);
+    tester.state<ScrollableState>(h.scroll).position.jumpTo(0);
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.text('Test radios and start source'),
+      200,
+      scrollable: h.scroll,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.ancestor(
+              of: find.text('Test radios and start source'),
+              matching: find.byWidgetPredicate(
+                (widget) => widget is FilledButton,
+              ),
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
+    h.commands.failHopRestore = false;
+    await h.click(tester, 'Retry hop-limit restore');
+    expect(h.commands.otaHops[h.target.name], 0);
+    expect(await h.saved(), isEmpty);
+    await h.close(tester);
+  });
+
+  testWidgets('multi-byte paths count hops and reconnect preserves recovery', (
+    tester,
+  ) async {
+    final h = await _HopScreenHarness.mount(tester, hashWidth: 2);
+    h.connector.otaHops = 0;
+    h.commands.otaHops[h.target.name] = 0;
+    await h.start(tester);
+    expect(h.connector.otaHops, 2);
+    final original = (await h.saved())
+        .map((record) => record.toJson())
+        .toList();
+    h.connector.simulateDisconnect();
+    await tester.pump(const Duration(milliseconds: 100));
+    h.connector.simulateReconnect(channelReady: true);
+    for (var tick = 0; tick < 40; tick++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(h.connector.sourceStarts, 2);
+    expect(
+      (await h.saved()).map((record) => record.toJson()).toList(),
+      original,
+    );
+    await h.click(tester, 'Stop and restore controlled radios');
+    expect(h.connector.otaHops, 0);
+    expect(h.commands.otaHops[h.target.name], 0);
+    expect(await h.saved(), isEmpty);
+    await h.close(tester);
+  });
+
+  testWidgets(
+    'reading an old attached session cannot bypass pre-install recovery',
+    (tester) async {
+      final h = await _HopScreenHarness.mount(tester, readyToInstall: true);
+      h.connector.otaHops = 0;
+      h.commands.otaHops[h.target.name] = 0;
+      await h.start(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await h.show(
+        tester,
+      ); // Navigation recreated the screen; source still attached.
+      await h.click(tester, 'Read source status');
+      await h.click(tester, 'Check download');
+      await h.click(tester, 'Install and reboot');
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(FilledButton, 'Install and reboot'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(h.commands.commands, isNot(contains('ota install')));
+      expect((await h.saved()).length, 2);
+      await h.click(tester, 'Stop and restore controlled radios');
+      await h.click(tester, 'Retry hop-limit restore');
+      expect(await h.saved(), isEmpty);
+      expect(h.connector.otaHops, 0);
+      expect(h.commands.otaHops[h.target.name], 0);
+      await h.close(tester);
+    },
+  );
+
+  testWidgets('app restart displays and restores saved original limits', (
+    tester,
+  ) async {
+    final h = await _HopScreenHarness.mount(tester);
+    h.connector.otaHops = 0;
+    h.commands.otaHops[h.target.name] = 0;
+    await h.start(tester);
+    expect((await h.saved()).length, 2);
+    await tester.pumpWidget(
+      const SizedBox.shrink(),
+    ); // App was killed, no cleanup.
+    h.connector.simulateDisconnect();
+    h.connector.simulateReconnect(channelReady: true);
+    await h.show(tester);
+    final start = find.ancestor(
+      of: find.text('Test radios and start source'),
+      matching: find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
+    await tester.scrollUntilVisible(start, 300, scrollable: h.scroll);
+    expect(tester.widget<FilledButton>(start).onPressed, isNull);
+    await h.click(tester, 'Retry hop-limit restore');
+    expect(h.connector.otaHops, 0);
+    expect(h.commands.otaHops[h.target.name], 0);
+    expect(await h.saved(), isEmpty);
+    expect(h.commands.calls.last.path, h.target.path);
+    await h.close(tester);
+  });
+}
+
+class _HopScreenHarness {
+  final Contact target;
+  final _FakeMotaConnector connector;
+  final _FakeRepeaterCommandService commands;
+  _HopScreenHarness(this.target, this.connector, this.commands);
+
+  static Future<_HopScreenHarness> mount(
+    WidgetTester tester, {
+    bool readyToInstall = false,
+    bool unreachableProbe = false,
+    int hashWidth = 1,
+  }) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final catalog = (await tester.runAsync(
+      () => BleMotaCatalog.load([
+        XFile.fromData(
+          buildTestFullMotaContainer(),
+          path: 'TEST_BOARD-full-v1.17.1.2.mota',
+          name: 'TEST_BOARD-full-v1.17.1.2.mota',
+        ),
+      ]),
+    ))!;
+    final target = Contact(
+      publicKey: Uint8List.fromList(
+        List.generate(pubKeySize, (index) => index + 32),
+      ),
+      name: 'Hop target',
+      type: advTypeRepeater,
+      pathLength: 2,
+      path: Uint8List.fromList(
+        List.generate(2 * hashWidth, (index) => index + 0x55),
+      ),
+      lastSeen: DateTime(2026, 9, 29),
+    );
+    final connector = _FakeMotaConnector(target, catalog);
+    connector.hashWidth = hashWidth;
+    final commands = _FakeRepeaterCommandService(
+      connector,
+      readyToInstall: readyToInstall,
+      statusManifestId: catalog.files.single.manifestId,
+      unreachableProbeContact: unreachableProbe ? target.name : null,
+    );
+    final h = _HopScreenHarness(target, connector, commands);
+    await h.show(tester);
+    return h;
+  }
+
+  Finder get scroll => find
+      .descendant(of: find.byType(ListView), matching: find.byType(Scrollable))
+      .first;
+  Future<void> show(WidgetTester tester) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider<MeshCoreConnector>.value(
+        value: connector,
+        child: MaterialApp(
+          theme: MeshTheme.dark().copyWith(
+            splashFactory: NoSplash.splashFactory,
+          ),
+          home: LoRaOtaScreen(repeater: target, commandService: commands),
+        ),
+      ),
+    );
+    await tester.pump();
+  }
+
+  Future<void> click(WidgetTester tester, String label) async {
+    tester.state<ScrollableState>(scroll).position.jumpTo(0);
+    await tester.pump();
+    final text = find.text(label);
+    await tester.scrollUntilVisible(text, 200, scrollable: scroll);
+    await tester.ensureVisible(text);
+    await tester.pumpAndSettle();
+    await tester.tap(text);
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> start(WidgetTester tester) async {
+    await click(tester, 'Test radios and start source');
+    for (var tick = 0; tick < 40; tick++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
+  Future<List<LoraOtaHopRecovery>> saved() => StorageService()
+      .loadLoraOtaHopRecovery(connector.selfPublicKeyHex, target.publicKeyHex);
+  Future<void> close(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await connector.closeFake();
+  }
 }
 
 class _FakeMotaConnector extends MeshCoreConnector {
@@ -844,6 +1199,8 @@ class _FakeMotaConnector extends MeshCoreConnector {
   MeshCoreConnectionState _fakeState = MeshCoreConnectionState.connected;
   int sourceStarts = 0;
   int sourceStops = 0;
+  int otaHops = 3;
+  int hashWidth = 1;
   final List<List<int>> preparedPaths = <List<int>>[];
   final List<String> localCommands = <String>[];
 
@@ -888,6 +1245,9 @@ class _FakeMotaConnector extends MeshCoreConnector {
   bool get isConnected => _fakeState == MeshCoreConnectionState.connected;
 
   @override
+  String get selfPublicKeyHex => 'aa' * 32;
+
+  @override
   MeshCoreTransportType get activeTransport => MeshCoreTransportType.bluetooth;
 
   @override
@@ -900,7 +1260,7 @@ class _FakeMotaConnector extends MeshCoreConnector {
   BleMotaCatalog? get bleMotaCatalog => _catalog;
 
   @override
-  int get pathHashByteWidth => 1;
+  int get pathHashByteWidth => hashWidth;
 
   @override
   void setBleMotaCatalog(BleMotaCatalog? catalog) {
@@ -910,6 +1270,13 @@ class _FakeMotaConnector extends MeshCoreConnector {
   @override
   Future<String> executeLocalOtaControl(String command) async {
     localCommands.add(command);
+    if (command == 'ota config') {
+      return 'ota config: mode=seeder-only hops=$otaHops';
+    }
+    if (command.startsWith('ota config hops ')) {
+      otaHops = int.parse(command.split(' ').last);
+      return 'OK OTA reach = $otaHops hops (saved)';
+    }
     return switch (command) {
       'normalradio' => 'OK normal radio',
       'tempradio' => 'TempRadio active: 909.950,250.00,5,5 177s left',
@@ -1003,6 +1370,11 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
   final bool installReplyTimesOut;
   final String? bootloaderStatus;
   final List<String> commands = <String>[];
+  final Map<String, int> otaHops = {};
+  String? hopConfigError;
+  bool failHopSetter = false;
+  bool failHopRestore = false;
+  void Function(String command)? inspectCommand;
   final List<
     ({String contact, String command, List<int> path, int minimumTimeoutMs})
   >
@@ -1042,6 +1414,19 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
     ));
     onAttempt?.call(1);
     onPacketSent?.call();
+    inspectCommand?.call(command);
+    if (command == 'ota config') {
+      return hopConfigError ??
+          'ota config: speed=1x hops=${otaHops[repeater.name] ?? 3} keys=0';
+    }
+    if (command.startsWith('ota config hops ')) {
+      final hops = int.parse(command.split(' ').last);
+      if (failHopSetter || (failHopRestore && hops == 0)) {
+        return 'ERR could not save';
+      }
+      otaHops[repeater.name] = hops;
+      return 'OK OTA reach = $hops hops (saved)';
+    }
     if (pullReplyTimesOut && command.startsWith('ota pull ')) {
       throw StateError('Command timeout after 20 seconds');
     }

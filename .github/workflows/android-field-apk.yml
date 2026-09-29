@@ -38,6 +38,7 @@ jobs:
           flutter test
           test/services/ble_mota_catalog_test.dart
           test/services/lora_ota_bootloader_install_test.dart
+          test/services/lora_ota_hop_session_test.dart
           test/screens/lora_ota_screen_test.dart
       - name: Isolate the field build from normal app installs
         shell: bash

@@ -3,8 +3,61 @@ import '../models/delivery_observation.dart';
 import '../models/path_history.dart';
 import '../storage/prefs_manager.dart';
 import '../utils/app_logger.dart';
+import 'lora_ota_hop_session.dart';
 
 class StorageService {
+  String _otaHopRecoveryKey(String source, String target) {
+    final key = RegExp(r'^[0-9a-fA-F]{64}$');
+    if (!key.hasMatch(source) || !key.hasMatch(target)) {
+      throw StateError(
+        'Full Companion and target public keys are required for OTA recovery.',
+      );
+    }
+    return 'lora_ota_hop_recovery_${source.toLowerCase()}_${target.toLowerCase()}';
+  }
+
+  Future<List<LoraOtaHopRecovery>> loadLoraOtaHopRecovery(
+    String source,
+    String target,
+  ) async {
+    final value = PrefsManager.instance.getString(
+      _otaHopRecoveryKey(source, target),
+    );
+    if (value == null) return [];
+    // Corrupt recovery is not an empty session: stop instead of losing ownership.
+    return (jsonDecode(value) as List)
+        .map(
+          (entry) => LoraOtaHopRecovery.fromJson(
+            (entry as Map).cast<String, dynamic>(),
+          ),
+        )
+        .toList();
+  }
+
+  Future<void> saveLoraOtaHopRecovery(
+    String source,
+    String target,
+    List<LoraOtaHopRecovery> recovery,
+  ) async {
+    final key = _otaHopRecoveryKey(source, target);
+    final prefs = PrefsManager.instance;
+    final saved = recovery.isEmpty
+        ? await prefs.remove(key)
+        : await prefs.setString(
+            key,
+            jsonEncode(recovery.map((record) => record.toJson()).toList()),
+          );
+    if (!saved) throw StateError('Could not save OTA hop-limit recovery.');
+  }
+
+  bool hasOtherLoraOtaHopRecovery(String source, String target) {
+    final currentKey = _otaHopRecoveryKey(source, target);
+    final prefix = 'lora_ota_hop_recovery_${source.toLowerCase()}_';
+    return PrefsManager.instance.getKeys().any(
+      (key) => key.startsWith(prefix) && key != currentKey,
+    );
+  }
+
   static const String _pathHistoryPrefix = 'path_history_';
   static const String _pendingMessagesKey = 'pending_messages';
   static const String _repeaterPasswordsKey = 'repeater_passwords';
