@@ -586,6 +586,42 @@ class AppLocalizationsPl extends AppLocalizations {
   String get settings_debug => 'Naprawianie błędów';
 
   @override
+  String get companionCli_title => 'Companion CLI';
+
+  @override
+  String get companionCli_settingsSubtitle =>
+      'Run commands on the connected Companion';
+
+  @override
+  String get companionCli_description =>
+      'Commands run directly on this Companion, not over LoRa. Use care: some commands change device settings.';
+
+  @override
+  String get companionCli_notConnected =>
+      'Connect to a Companion to send commands.';
+
+  @override
+  String get companionCli_unsupported =>
+      'Local CLI requires Companion protocol version 14 or newer.';
+
+  @override
+  String get companionCli_empty => 'No commands sent yet';
+
+  @override
+  String get companionCli_hint => 'Enter a Companion command';
+
+  @override
+  String get companionCli_send => 'Send command';
+
+  @override
+  String get companionCli_noReply => '(No response)';
+
+  @override
+  String companionCli_error(String error) {
+    return 'Error: $error';
+  }
+
+  @override
   String get settings_companionDebugLog =>
       'Log debugowania (dla pomocy w rozwiązywaniu problemów)';
 
@@ -5188,13 +5224,13 @@ class AppLocalizationsPl extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => 'Roz\u0142\u0105czono';
+  String get dialog_disconnectedTitle => 'Rozłączono';
 
   @override
   String get dialog_disconnectedMessage =>
-      'Zosta\u0142e\u015b roz\u0142\u0105czony ze swoim towarzyszem.';
+      'Zostałeś rozłączony ze swoim towarzyszem.';
 
   @override
   String get dialog_connectCompanion =>
-      'Po\u0142\u0105cz si\u0119 z towarzyszem, aby uzyska\u0107 dost\u0119p do funkcji powtarzacza i serwera pokoi.';
+      'Połącz się z towarzyszem, aby uzyskać dostęp do funkcji powtarzacza i serwera pokoi.';
 }

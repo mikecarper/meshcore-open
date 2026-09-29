@@ -550,6 +550,42 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settings_debug => 'デバッグ';
 
   @override
+  String get companionCli_title => 'Companion CLI';
+
+  @override
+  String get companionCli_settingsSubtitle =>
+      'Run commands on the connected Companion';
+
+  @override
+  String get companionCli_description =>
+      'Commands run directly on this Companion, not over LoRa. Use care: some commands change device settings.';
+
+  @override
+  String get companionCli_notConnected =>
+      'Connect to a Companion to send commands.';
+
+  @override
+  String get companionCli_unsupported =>
+      'Local CLI requires Companion protocol version 14 or newer.';
+
+  @override
+  String get companionCli_empty => 'No commands sent yet';
+
+  @override
+  String get companionCli_hint => 'Enter a Companion command';
+
+  @override
+  String get companionCli_send => 'Send command';
+
+  @override
+  String get companionCli_noReply => '(No response)';
+
+  @override
+  String companionCli_error(String error) {
+    return 'Error: $error';
+  }
+
+  @override
   String get settings_companionDebugLog => '同伴デバッグログ';
 
   @override
@@ -4908,11 +4944,11 @@ class AppLocalizationsJa extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => '\u5207\u65ad\u6e08\u307f';
+  String get dialog_disconnectedTitle => '切断済み';
 
   @override
-  String get dialog_disconnectedMessage => '\u30b3\u30f3\u30d1\u30cb\u30aa\u30f3\u3068\u306e\u63a5\u7d9a\u304c\u5207\u308c\u307e\u3057\u305f\u3002';
+  String get dialog_disconnectedMessage => 'コンパニオンとの接続が切れました。';
 
   @override
-  String get dialog_connectCompanion => '\u30b3\u30cd\u30af\u30c8\u3057\u3066\u30ea\u30d4\u30fc\u30bf\u30fc\u3068\u30eb\u30fc\u30e0\u30b5\u30fc\u30d0\u30fc\u6a5f\u80fd\u306b\u30a2\u30af\u30bb\u30b9';
+  String get dialog_connectCompanion => 'コネクトしてリピーターとルームサーバー機能にアクセス';
 }

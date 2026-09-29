@@ -228,6 +228,23 @@
   "settings_rebootDeviceSubtitle": "Restart the MeshCore device",
   "settings_rebootDeviceConfirm": "Are you sure you want to reboot the device? You will be disconnected.",
   "settings_debug": "Debug",
+  "companionCli_title": "Companion CLI",
+  "companionCli_settingsSubtitle": "Run commands on the connected Companion",
+  "companionCli_description": "Commands run directly on this Companion, not over LoRa. Use care: some commands change device settings.",
+  "companionCli_notConnected": "Connect to a Companion to send commands.",
+  "companionCli_unsupported": "Local CLI requires Companion protocol version 14 or newer.",
+  "companionCli_empty": "No commands sent yet",
+  "companionCli_hint": "Enter a Companion command",
+  "companionCli_send": "Send command",
+  "companionCli_noReply": "(No response)",
+  "companionCli_error": "Error: {error}",
+  "@companionCli_error": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "settings_companionDebugLog": "Companion Debug Log",
   "settings_companionDebugLogSubtitle": "BLE/TCP/USB commands, responses, and raw data",
   "settings_appDebugLog": "App Debug Log",

@@ -576,6 +576,42 @@ class AppLocalizationsSk extends AppLocalizations {
   String get settings_debug => 'Ladenie';
 
   @override
+  String get companionCli_title => 'Companion CLI';
+
+  @override
+  String get companionCli_settingsSubtitle =>
+      'Run commands on the connected Companion';
+
+  @override
+  String get companionCli_description =>
+      'Commands run directly on this Companion, not over LoRa. Use care: some commands change device settings.';
+
+  @override
+  String get companionCli_notConnected =>
+      'Connect to a Companion to send commands.';
+
+  @override
+  String get companionCli_unsupported =>
+      'Local CLI requires Companion protocol version 14 or newer.';
+
+  @override
+  String get companionCli_empty => 'No commands sent yet';
+
+  @override
+  String get companionCli_hint => 'Enter a Companion command';
+
+  @override
+  String get companionCli_send => 'Send command';
+
+  @override
+  String get companionCli_noReply => '(No response)';
+
+  @override
+  String companionCli_error(String error) {
+    return 'Error: $error';
+  }
+
+  @override
   String get settings_companionDebugLog =>
       'Logovanie pre ladenie (sprievodný log)';
 
@@ -5139,13 +5175,13 @@ class AppLocalizationsSk extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => 'Odpojen\u00e9';
+  String get dialog_disconnectedTitle => 'Odpojené';
 
   @override
   String get dialog_disconnectedMessage =>
-      'Od v\u00e1\u0161ho spolo\u010dn\u00edka ste boli odpojen\u00fd.';
+      'Od vášho spoločníka ste boli odpojený.';
 
   @override
   String get dialog_connectCompanion =>
-      'Pripojte sa k sprievodcovi a z\u00edskajte pr\u00edstup k funkci\u00e1m opakova\u010da a serveru miestnost\u00ed.';
+      'Pripojte sa k sprievodcovi a získajte prístup k funkciám opakovača a serveru miestností.';
 }

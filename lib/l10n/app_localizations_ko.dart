@@ -551,6 +551,42 @@ class AppLocalizationsKo extends AppLocalizations {
   String get settings_debug => '디버그';
 
   @override
+  String get companionCli_title => 'Companion CLI';
+
+  @override
+  String get companionCli_settingsSubtitle =>
+      'Run commands on the connected Companion';
+
+  @override
+  String get companionCli_description =>
+      'Commands run directly on this Companion, not over LoRa. Use care: some commands change device settings.';
+
+  @override
+  String get companionCli_notConnected =>
+      'Connect to a Companion to send commands.';
+
+  @override
+  String get companionCli_unsupported =>
+      'Local CLI requires Companion protocol version 14 or newer.';
+
+  @override
+  String get companionCli_empty => 'No commands sent yet';
+
+  @override
+  String get companionCli_hint => 'Enter a Companion command';
+
+  @override
+  String get companionCli_send => 'Send command';
+
+  @override
+  String get companionCli_noReply => '(No response)';
+
+  @override
+  String companionCli_error(String error) {
+    return 'Error: $error';
+  }
+
+  @override
   String get settings_companionDebugLog => '동반 디버깅 로그';
 
   @override
@@ -4916,11 +4952,11 @@ class AppLocalizationsKo extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => '\uc5f0\uacb0 \ub04a\uae40';
+  String get dialog_disconnectedTitle => '연결 끊김';
 
   @override
-  String get dialog_disconnectedMessage => '\ucef4\ud328\ub2c8\uc5b8\uacfc\uc758 \uc5f0\uacb0\uc774 \ub04a\uc5b4\uc84c\uc2b5\ub2c8\ub2e4.';
+  String get dialog_disconnectedMessage => '컴패니언과의 연결이 끊어졌습니다.';
 
   @override
-  String get dialog_connectCompanion => '\ub9ac\ud53c\ud130 \ubc0f \ub8f8 \uc11c\ubc84 \uae30\ub2a5\uc5d0 \uc561\uc138\uc2a4\ud558\ub824\uba74 \ucef4\ud328\ub2c8\uc5b8\uc5d0 \uc5f0\uacb0\ud558\uc138\uc694.';
+  String get dialog_connectCompanion => '리피터 및 룸 서버 기능에 액세스하려면 컴패니언에 연결하세요.';
 }

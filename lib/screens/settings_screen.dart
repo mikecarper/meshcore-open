@@ -20,6 +20,7 @@ import '../widgets/mesh_ui.dart';
 import 'app_settings_screen.dart';
 import 'app_debug_log_screen.dart';
 import 'ble_debug_log_screen.dart';
+import 'companion_cli_screen.dart';
 import '../widgets/radio_stats_entry.dart';
 import '../widgets/sync_progress_overlay.dart';
 import 'region_management_screen.dart';
@@ -746,6 +747,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final l10n = context.l10n;
     return Column(
       children: [
+        _tappableTile(
+          context,
+          icon: Icons.terminal,
+          title: l10n.companionCli_title,
+          subtitle: l10n.companionCli_settingsSubtitle,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (context) => const CompanionCliScreen(),
+            ),
+          ),
+        ),
+        const Divider(height: 1, indent: 16),
         _tappableTile(
           context,
           icon: Icons.bluetooth_outlined,

@@ -544,6 +544,42 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settings_debug => '调试';
 
   @override
+  String get companionCli_title => 'Companion CLI';
+
+  @override
+  String get companionCli_settingsSubtitle =>
+      'Run commands on the connected Companion';
+
+  @override
+  String get companionCli_description =>
+      'Commands run directly on this Companion, not over LoRa. Use care: some commands change device settings.';
+
+  @override
+  String get companionCli_notConnected =>
+      'Connect to a Companion to send commands.';
+
+  @override
+  String get companionCli_unsupported =>
+      'Local CLI requires Companion protocol version 14 or newer.';
+
+  @override
+  String get companionCli_empty => 'No commands sent yet';
+
+  @override
+  String get companionCli_hint => 'Enter a Companion command';
+
+  @override
+  String get companionCli_send => 'Send command';
+
+  @override
+  String get companionCli_noReply => '(No response)';
+
+  @override
+  String companionCli_error(String error) {
+    return 'Error: $error';
+  }
+
+  @override
   String get settings_companionDebugLog => '调试日志';
 
   @override
@@ -4793,11 +4829,11 @@ class AppLocalizationsZh extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => '\u5df2\u65ad\u5f00\u8fde\u63a5';
+  String get dialog_disconnectedTitle => '已断开连接';
 
   @override
-  String get dialog_disconnectedMessage => '\u4f60\u5df2\u4e0e\u4f60\u7684\u4f19\u4f34\u65ad\u5f00\u8fde\u63a5\u3002';
+  String get dialog_disconnectedMessage => '你已与你的伙伴断开连接。';
 
   @override
-  String get dialog_connectCompanion => '\u8fde\u63a5\u4f34\u673a\u4ee5\u8bbf\u95ee\u4e2d\u7ee7\u5668\u548c\u623f\u95f4\u670d\u52a1\u5668\u529f\u80fd\u3002';
+  String get dialog_connectCompanion => '连接伴机以访问中继器和房间服务器功能。';
 }

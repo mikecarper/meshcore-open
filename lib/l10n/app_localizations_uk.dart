@@ -578,6 +578,42 @@ class AppLocalizationsUk extends AppLocalizations {
   String get settings_debug => 'Налагодження';
 
   @override
+  String get companionCli_title => 'Companion CLI';
+
+  @override
+  String get companionCli_settingsSubtitle =>
+      'Run commands on the connected Companion';
+
+  @override
+  String get companionCli_description =>
+      'Commands run directly on this Companion, not over LoRa. Use care: some commands change device settings.';
+
+  @override
+  String get companionCli_notConnected =>
+      'Connect to a Companion to send commands.';
+
+  @override
+  String get companionCli_unsupported =>
+      'Local CLI requires Companion protocol version 14 or newer.';
+
+  @override
+  String get companionCli_empty => 'No commands sent yet';
+
+  @override
+  String get companionCli_hint => 'Enter a Companion command';
+
+  @override
+  String get companionCli_send => 'Send command';
+
+  @override
+  String get companionCli_noReply => '(No response)';
+
+  @override
+  String companionCli_error(String error) {
+    return 'Error: $error';
+  }
+
+  @override
   String get settings_companionDebugLog =>
       'Журнал відлачування (для супутника)';
 
@@ -5181,13 +5217,13 @@ class AppLocalizationsUk extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => '\u0412\u0456\u0434\u2019\u0454\u0434\u043d\u0430\u043d\u043e';
+  String get dialog_disconnectedTitle => 'Від’єднано';
 
   @override
   String get dialog_disconnectedMessage =>
-      '\u0412\u0430\u0441 \u0432\u0456\u0434\u2019\u0454\u0434\u043d\u0430\u043d\u043e \u0432\u0456\u0434 \u0432\u0430\u0448\u043e\u0433\u043e \u0441\u0443\u043f\u0443\u0442\u043d\u0438\u043a\u0430.';
+      'Вас від’єднано від вашого супутника.';
 
   @override
   String get dialog_connectCompanion =>
-      '\u041f\u0456\u0434\u043a\u043b\u044e\u0447\u0456\u0442\u044c\u0441\u044f \u0434\u043e \u0441\u0443\u043f\u0443\u0442\u043d\u044c\u043e\u0433\u043e \u043f\u0440\u0438\u0441\u0442\u0440\u043e\u044e, \u0449\u043e\u0431 \u043e\u0442\u0440\u0438\u043c\u0430\u0442\u0438 \u0434\u043e\u0441\u0442\u0443\u043f \u0434\u043e \u0444\u0443\u043d\u043a\u0446\u0456\u0439 \u0440\u0435\u0442\u0440\u0430\u043d\u0441\u043b\u044f\u0442\u043e\u0440\u0430 \u0442\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u043a\u0456\u043c\u043d\u0430\u0442.';
+      'Підключіться до супутнього пристрою, щоб отримати доступ до функцій ретранслятора та сервера кімнат.';
 }

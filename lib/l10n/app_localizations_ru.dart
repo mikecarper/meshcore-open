@@ -584,6 +584,42 @@ class AppLocalizationsRu extends AppLocalizations {
   String get settings_debug => 'Отладка';
 
   @override
+  String get companionCli_title => 'Companion CLI';
+
+  @override
+  String get companionCli_settingsSubtitle =>
+      'Run commands on the connected Companion';
+
+  @override
+  String get companionCli_description =>
+      'Commands run directly on this Companion, not over LoRa. Use care: some commands change device settings.';
+
+  @override
+  String get companionCli_notConnected =>
+      'Connect to a Companion to send commands.';
+
+  @override
+  String get companionCli_unsupported =>
+      'Local CLI requires Companion protocol version 14 or newer.';
+
+  @override
+  String get companionCli_empty => 'No commands sent yet';
+
+  @override
+  String get companionCli_hint => 'Enter a Companion command';
+
+  @override
+  String get companionCli_send => 'Send command';
+
+  @override
+  String get companionCli_noReply => '(No response)';
+
+  @override
+  String companionCli_error(String error) {
+    return 'Error: $error';
+  }
+
+  @override
   String get settings_companionDebugLog =>
       'Журнал отладки (для сопутствующего приложения)';
 
@@ -5178,13 +5214,13 @@ class AppLocalizationsRu extends AppLocalizations {
       'Enable location services and allow location access to use phone GPS.';
 
   @override
-  String get dialog_disconnectedTitle => '\u041e\u0442\u043a\u043b\u044e\u0447\u0435\u043d\u043e';
+  String get dialog_disconnectedTitle => 'Отключено';
 
   @override
   String get dialog_disconnectedMessage =>
-      '\u0412\u044b \u0431\u044b\u043b\u0438 \u043e\u0442\u043a\u043b\u044e\u0447\u0435\u043d\u044b \u043e\u0442 \u0432\u0430\u0448\u0435\u0433\u043e \u043a\u043e\u043c\u043f\u0430\u043d\u044c\u043e\u043d\u0430.';
+      'Вы были отключены от вашего компаньона.';
 
   @override
   String get dialog_connectCompanion =>
-      '\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u0435\u0441\u044c \u043a \u043a\u043e\u043c\u043f\u0430\u043d\u044c\u043e\u043d\u0443, \u0447\u0442\u043e\u0431\u044b \u043f\u043e\u043b\u0443\u0447\u0438\u0442\u044c \u0434\u043e\u0441\u0442\u0443\u043f \u043a \u0444\u0443\u043d\u043a\u0446\u0438\u044f\u043c \u0440\u0435\u0442\u0440\u0430\u043d\u0441\u043b\u044f\u0442\u043e\u0440\u0430 \u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u043a\u043e\u043c\u043d\u0430\u0442.';
+      'Подключитесь к компаньону, чтобы получить доступ к функциям ретранслятора и сервера комнат.';
 }
