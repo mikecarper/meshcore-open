@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:meshcore_open/services/github_mota_release_service.dart';
+import 'package:meshcore_open/services/rak_bootloader_migration.dart';
 
 import '../support/mota_test_data.dart';
 
@@ -86,6 +87,109 @@ void main() {
     expect(file.bootloaderStorageCaps, 0x09);
     expect(file.isSigned, isTrue);
   });
+
+  test(
+    'selects the installed RAK recovery identity and checks the nested ZIP',
+    () async {
+      const tag = 'v0.11.0-OTAFIX2.4.10';
+      const profile = 'wiscore_rak4631_auto';
+      const recoveryName =
+          'R_wiscore_rak4631_auto_bootloader-v0.11.0-OTAFIX2.4.10_s140_6.1.1.zip';
+      const normalName =
+          'wiscore_rak4631_auto_bootloader-v0.11.0-OTAFIX2.4.10_s140_6.1.1.zip';
+      const bundleName = 'OTAFIX-2.4.10-R_recovery.zip';
+      final dfu = ZipEncoder().encodeBytes(
+        Archive()
+          ..add(
+            ArchiveFile.bytes(
+              'manifest.json',
+              utf8.encode(
+                jsonEncode({
+                  'manifest': {
+                    'softdevice_bootloader': {
+                      'bin_file': 'bootloader.bin',
+                      'dat_file': 'bootloader.dat',
+                    },
+                  },
+                }),
+              ),
+            ),
+          )
+          ..add(ArchiveFile.bytes('bootloader.bin', List.filled(1024, 0x55)))
+          ..add(ArchiveFile.bytes('bootloader.dat', List.filled(32, 0x33))),
+      );
+      final member = 'boards/$profile/$recoveryName';
+      final innerHash = crypto.sha256.convert(dfu).toString();
+      final bundle = ZipEncoder().encodeBytes(
+        Archive()
+          ..add(ArchiveFile.bytes(member, dfu))
+          ..add(
+            ArchiveFile.bytes(
+              'manifest.json',
+              utf8.encode(
+                jsonEncode({
+                  'tag': tag,
+                  'recovery_only': true,
+                  'boards': [
+                    {
+                      'board': profile,
+                      'device_name': '4631_AUTO_DFU',
+                      'files': {recoveryName: innerHash},
+                    },
+                  ],
+                }),
+              ),
+            ),
+          )
+          ..add(
+            ArchiveFile.bytes(
+              'SHA256SUMS.txt',
+              utf8.encode('$innerHash  $member\n'),
+            ),
+          ),
+      );
+      Map<String, Object> asset(String name, List<int> bytes) => {
+        'name': name,
+        'browser_download_url':
+            'https://github.com/mikecarper/Adafruit_nRF52_Bootloader_OTAFIX/releases/download/$tag/$name',
+        'digest': 'sha256:${crypto.sha256.convert(bytes)}',
+        'size': bytes.length,
+      };
+      final service = GitHubMotaReleaseService(
+        client: MockClient((request) async {
+          if (request.url.host == 'api.github.com') {
+            return http.Response(
+              jsonEncode([
+                {
+                  'name': 'OTAFIX 2.4.10',
+                  'tag_name': tag,
+                  'assets': [asset(normalName, dfu), asset(bundleName, bundle)],
+                },
+              ]),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/$normalName')) {
+            return http.Response.bytes(dfu, 200);
+          }
+          if (request.url.path.endsWith('/$bundleName')) {
+            return http.Response.bytes(bundle, 200);
+          }
+          return http.Response('Missing', 404);
+        }),
+      );
+      final plan = RakBootloaderMigration.fromReplies(
+        board: 'RAK 4631',
+        bootloader: 'BL name=4631_AUTO_DFU abi=2 caps=02',
+      );
+      final files = await service.downloadRakBootloaderDfu(plan);
+      expect(files.tag, tag);
+      expect(files.recoveryName, recoveryName);
+      expect(files.recoveryBytes, dfu);
+      expect(files.normalName, normalName);
+      expect(files.normalBytes, dfu);
+    },
+  );
 
   test(
     'downloads a digest-checked exact-board raw image for phone build',

@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:nordic_dfu/nordic_dfu.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -11,7 +12,9 @@ import 'package:provider/provider.dart';
 import '../connector/meshcore_connector.dart';
 import '../connector/meshcore_protocol.dart';
 import '../models/contact.dart';
+import '../services/github_mota_release_service.dart';
 import '../services/nrf_dfu_package.dart';
+import '../services/rak_bootloader_migration.dart';
 import '../services/repeater_command_service.dart';
 import '../widgets/update_status_card.dart';
 
@@ -31,6 +34,7 @@ class NrfBluetoothDfuScreen extends StatefulWidget {
 
 class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
   late final RepeaterCommandService _commands;
+  final GitHubMotaReleaseService _releases = GitHubMotaReleaseService();
   StreamSubscription<Uint8List>? _frameSubscription;
   String? _packagePath;
   String? _packageName;
@@ -40,6 +44,9 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
   int? _progress;
   bool _busy = false;
   bool _completed = false;
+  RakBootloaderMigration? _rakPlan;
+  RakBootloaderDfuFiles? _rakFiles;
+  bool _bridgeInstalled = false;
 
   @override
   void initState() {
@@ -64,6 +71,7 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
   void dispose() {
     _frameSubscription?.cancel();
     if (widget.commandService == null) _commands.dispose();
+    _releases.dispose();
     final path = _packagePath;
     if (path != null) {
       unawaited(File(path).delete().catchError((_) => File(path)));
@@ -77,15 +85,64 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
     try {
       await action();
     } catch (error) {
-      if (mounted) setState(() => _status = '$error');
+      if (mounted) {
+        setState(() => _status = _errorMessage(error));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  String _errorMessage(Object error) {
+    if (error is PlatformException && error.code == '133') {
+      return 'Android could not connect to the radio DFU service (GATT 133). '
+          'Check that the radio is still advertising, then retry. If this '
+          'phone keeps failing, use another phone or the exact-board USB '
+          'updater.';
+    }
+    return error is StateError ? error.message.toString() : '$error';
+  }
+
+  Future<bool> _bridgeIsAdvertising(String address) async {
+    if (FlutterBluePlus.isScanningNow) return false;
+    final seen = Completer<void>();
+    final subscription = FlutterBluePlus.onScanResults.listen((results) {
+      if (!seen.isCompleted &&
+          results.any(
+            (result) => result.device.remoteId.str.toUpperCase() == address,
+          )) {
+        seen.complete();
+      }
+    }, onError: (Object _) {});
+    try {
+      await FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: 8),
+        androidScanMode: AndroidScanMode.lowLatency,
+      );
+      await seen.future.timeout(const Duration(seconds: 8));
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      await subscription.cancel();
+      if (FlutterBluePlus.isScanningNow) await FlutterBluePlus.stopScan();
+    }
+  }
+
   Future<void> _loadPackage(XFile file) async {
     final bytes = await file.readAsBytes();
-    final package = NrfDfuPackage.inspect(Uint8List.fromList(bytes));
+    await _loadPackageBytes(file.name, Uint8List.fromList(bytes));
+    _rakPlan = null;
+    _rakFiles = null;
+    _bridgeInstalled = false;
+  }
+
+  Future<void> _loadPackageBytes(
+    String name,
+    Uint8List bytes, {
+    bool keepAddress = false,
+  }) async {
+    final package = NrfDfuPackage.inspect(bytes);
     final directory = await getTemporaryDirectory();
     final copy = File(
       '${directory.path}/meshcore-dfu-${DateTime.now().microsecondsSinceEpoch}.zip',
@@ -98,13 +155,13 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
     }
     setState(() {
       _packagePath = copy.path;
-      _packageName = file.name;
+      _packageName = name;
       _package = package;
-      _address = null;
+      if (!keepAddress) _address = null;
       _progress = null;
       _completed = false;
       _status =
-          '${file.name}: ${package.components.join(', ')} '
+          '$name: ${package.components.join(', ')} '
           '(${(package.size / 1024).round()} KB). Confirm the board matches '
           '${widget.repeater.name}.';
     });
@@ -116,6 +173,73 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
       }
     }
   }
+
+  Future<void> _prepareRakUpdate() => _run(() async {
+    final previous = _packagePath;
+    setState(() {
+      _packagePath = null;
+      _packageName = null;
+      _package = null;
+      _address = null;
+      _rakPlan = null;
+      _rakFiles = null;
+      _bridgeInstalled = false;
+      _progress = null;
+      _completed = false;
+      _status = 'Reading the RAK board and installed bootloader...';
+    });
+    if (previous != null) {
+      unawaited(File(previous).delete().catchError((_) => File(previous)));
+    }
+    final board = await _commands.sendCommand(
+      widget.repeater,
+      'board',
+      retries: 2,
+      minimumTimeoutMs: 15000,
+    );
+    final bootloader = await _commands.sendCommand(
+      widget.repeater,
+      'ota bootloader',
+      retries: 2,
+      minimumTimeoutMs: 15000,
+    );
+    final plan = RakBootloaderMigration.fromReplies(
+      board: board,
+      bootloader: bootloader,
+    );
+    setState(
+      () => _status = plan.needsRecovery
+          ? 'Installed ${plan.installedName} needs the exact recovery bridge. '
+                'Checking the published two-stage update...'
+          : 'Installed ${plan.installedName} can use the unified RAK image. '
+                'Checking its published update...',
+    );
+    final files = await _releases.downloadRakBootloaderDfu(plan);
+    if (!mounted) return;
+    if (plan.needsRecovery) {
+      final recoveryName = files.recoveryName;
+      final recoveryBytes = files.recoveryBytes;
+      if (recoveryName == null || recoveryBytes == null) {
+        throw StateError('The matching recovery bridge is unavailable.');
+      }
+      await _loadPackageBytes(recoveryName, recoveryBytes);
+    } else {
+      await _loadPackageBytes(files.normalName, files.normalBytes);
+    }
+    if (!mounted) return;
+    setState(() {
+      _rakPlan = plan;
+      _rakFiles = files;
+      _bridgeInstalled = false;
+      _status = plan.needsRecovery
+          ? 'Verified ${plan.installedName}: recovery bridge first, then '
+                '${plan.normalProfile} from ${files.tag}. Enable the nearby '
+                'radio updater to install both in order.'
+          : 'Verified ${plan.installedName}: ${plan.normalProfile} from '
+                '${files.tag}. A recovery bridge is not needed. The signed '
+                'LoRa bootloader package is available in LoRa OTA when supported.';
+    });
+  });
 
   Future<void> _choosePackage() => _run(() async {
     const group = XTypeGroup(label: 'Nordic DFU ZIP', extensions: ['zip']);
@@ -178,18 +302,30 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
   });
 
   Future<void> _startDfu() async {
-    final address = _address;
+    var address = _address;
     final path = _packagePath;
     if (address == null || path == null) return;
+    final needsBridge = _rakPlan?.needsRecovery == true && !_bridgeInstalled;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         scrollable: true,
-        title: const Text('Update over Bluetooth?'),
+        title: Text(
+          needsBridge
+              ? 'Install RAK recovery and normal bootloader?'
+              : 'Update over Bluetooth?',
+        ),
         content: Text(
-          'Send $_packageName to $address for ${widget.repeater.name}. '
-          'The ZIP must match this exact board and bootloader. '
-          'Keep the phone close and do not remove radio power.',
+          needsBridge
+              ? 'The installed ${_rakPlan!.installedName} needs the verified '
+                    '$_packageName bridge first, followed by '
+                    '${_rakFiles!.normalName}. These bootloader DFU ZIPs can '
+                    'erase the application; it may need reinstalling afterward. '
+                    'Keep the phone close and radio powered through both stages.'
+              : 'Send $_packageName to $address for ${widget.repeater.name}. '
+                    'A bootloader DFU ZIP may erase the application. The ZIP '
+                    'must match this exact board and bootloader. Keep the phone '
+                    'close and do not remove radio power.',
         ),
         actions: [
           TextButton(
@@ -206,40 +342,107 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
     if (confirmed != true || !mounted) return;
     await _run(() async {
       setState(() {
-        _status = 'Connecting to the radio DFU service…';
+        _status = 'Connecting to the radio DFU service...';
         _progress = 0;
       });
-      await NordicDfu().startDfu(
-        address,
-        path,
-        name: widget.repeater.name,
-        androidParameters: const AndroidParameters(
-          startAsForegroundService: true,
-          packetReceiptNotificationsEnabled: true,
-          // API 22 often observes the buttonless disconnect before the Nordic
-          // bootloader has begun advertising. Give it time to re-enumerate.
-          rebootTime: 5000,
-          numberOfRetries: 5,
-        ),
-        dfuEventHandler: DfuEventHandler(
-          onProgressChanged:
-              (_, percent, speed, avgSpeed, currentPart, partsTotal) {
-                if (mounted) setState(() => _progress = percent);
+      Future<void> transfer(String filePath, {required bool forceDfu}) =>
+          NordicDfu().startDfu(
+            address!,
+            filePath,
+            name: widget.repeater.name,
+            forceDfu: forceDfu,
+            androidParameters: const AndroidParameters(
+              startAsForegroundService: true,
+              packetReceiptNotificationsEnabled: true,
+              rebootTime: 5000,
+              numberOfRetries: 5,
+            ),
+            dfuEventHandler: DfuEventHandler(
+              onProgressChanged:
+                  (_, percent, speed, avgSpeed, currentPart, partsTotal) {
+                    if (mounted) setState(() => _progress = percent);
+                  },
+              onError: (_, error, errorType, message) {
+                if (mounted) {
+                  setState(() => _status = 'Bluetooth DFU error: $message');
+                }
               },
-          onError: (_, error, errorType, message) {
+            ),
+          );
+      var bridgeAdvertising = false;
+      try {
+        await transfer(path, forceDfu: _bridgeInstalled);
+      } catch (_) {
+        if (!needsBridge || (_progress ?? 0) < 95) rethrow;
+        bridgeAdvertising = await _bridgeIsAdvertising(
+          NrfDfuPackage.bootloaderAddress(address!),
+        );
+        if (!bridgeAdvertising) rethrow;
+      }
+      if (needsBridge) {
+        _bridgeInstalled = true;
+        final bridgeAddress = NrfDfuPackage.bootloaderAddress(address!);
+        await _loadPackageBytes(
+          _rakFiles!.normalName,
+          _rakFiles!.normalBytes,
+          keepAddress: true,
+        );
+        if (!mounted) return;
+        setState(() {
+          _status =
+              'Recovery bridge accepted. Waiting for its DFU restart '
+              'before installing the normal RAK bootloader...';
+          _progress = 0;
+        });
+        await Future<void>.delayed(const Duration(seconds: 5));
+        // A combined bootloader ZIP may leave the application running after
+        // activation. If it does, ask it to enter DFU again. If it was erased,
+        // the bridge advertises at the previous Bluetooth address plus one.
+        if (bridgeAdvertising) {
+          address = bridgeAddress;
+          if (mounted) setState(() => _address = bridgeAddress);
+        } else {
+          try {
+            final reply = await _commands.sendCommand(
+              widget.repeater,
+              'start ota',
+              retries: 1,
+              minimumTimeoutMs: 8000,
+            );
+            address = NrfDfuPackage.macFromStartReply(reply);
+            if (mounted) setState(() => _address = address);
+          } catch (_) {
+            address = bridgeAddress;
+            if (mounted) setState(() => _address = bridgeAddress);
             if (mounted) {
-              setState(() => _status = 'Bluetooth DFU error: $message');
+              setState(
+                () => _status =
+                    'The application did not answer after recovery. '
+                    'Trying the bridge at $bridgeAddress...',
+              );
             }
-          },
-        ),
-      );
+          }
+        }
+        try {
+          await transfer(_packagePath!, forceDfu: true);
+        } catch (error) {
+          throw StateError(
+            'The recovery bridge was sent, but the normal '
+            'bootloader did not finish: $error. Keep the radio powered '
+            'and retry the normal stage.',
+          );
+        }
+      }
       if (!mounted) return;
       setState(() {
         _completed = true;
         _progress = 100;
-        _status =
-            'Nordic DFU completed. Wait for the radio to restart, '
-            'then reconnect and check its version.';
+        _status = _rakPlan == null
+            ? 'Nordic DFU completed. Verify the installed version after '
+                  'restart. Reinstall the application if needed.'
+            : 'Nordic DFU completed. Check that the installed bootloader is '
+                  '${_rakPlan!.model}_DFU and verify its version after '
+                  'restart. Reinstall the application if needed.';
       });
     });
   }
@@ -270,6 +473,12 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
                 'Keep the radio powered and nearby.',
               ),
               const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _prepareRakUpdate,
+                icon: const Icon(Icons.auto_fix_high),
+                label: const Text('Find the right RAK bootloader update'),
+              ),
+              const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _busy ? null : _choosePackage,
                 icon: const Icon(Icons.file_open),

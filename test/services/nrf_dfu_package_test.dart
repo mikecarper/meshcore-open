@@ -41,5 +41,13 @@ void main() {
       '44:1B:F6:69:CF:99',
     );
     expect(() => NrfDfuPackage.macFromStartReply('OK'), throwsFormatException);
+    expect(
+      NrfDfuPackage.bootloaderAddress('EB:9D:56:B2:48:48'),
+      'EB:9D:56:B2:48:49',
+    );
+    expect(
+      NrfDfuPackage.bootloaderAddress('eb:9d:56:b2:48:ff'),
+      'EB:9D:56:B2:48:00',
+    );
   });
 }

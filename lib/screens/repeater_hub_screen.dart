@@ -299,23 +299,6 @@ class RepeaterHubScreen extends StatelessWidget {
                 },
               ),
               _HubActionTile(
-                index: 5,
-                icon: Icons.bluetooth,
-                title: 'nRF52 Bluetooth update',
-                subtitle: 'Send a board-matched Nordic DFU ZIP from this phone',
-                accentColor: MeshPalette.blue,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          NrfBluetoothDfuScreen(repeater: repeater),
-                    ),
-                  );
-                },
-              ),
-              _HubActionTile(
                 index: 6,
                 icon: Icons.terminal,
                 title: l10n.repeater_cli,
@@ -354,6 +337,24 @@ class RepeaterHubScreen extends StatelessWidget {
                 },
               ),
             ],
+            if (repeater.type == advTypeRepeater)
+              _HubActionTile(
+                index: 5,
+                icon: Icons.bluetooth,
+                title: 'nRF52 Bluetooth update',
+                subtitle: 'Find a RAK bootloader or choose a Nordic DFU ZIP',
+                accentColor: MeshPalette.blue,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          NrfBluetoothDfuScreen(repeater: repeater),
+                    ),
+                  );
+                },
+              ),
           ],
         ),
       ),

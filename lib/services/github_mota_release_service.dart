@@ -12,6 +12,8 @@ import 'package:http/io_client.dart';
 import 'ble_mota_catalog.dart';
 import 'esp32_partition_migration_package.dart';
 import 'local_mota_builder.dart';
+import 'nrf_dfu_package.dart';
+import 'rak_bootloader_migration.dart';
 
 /// GitHub release discovery is advisory. Only a digest-checked, validated
 /// .mota can enter the Bluetooth source catalog.
@@ -252,6 +254,128 @@ class GitHubMotaReleaseService {
     return match;
   }
 
+  /// Select the local DFU path by the installed bootloader identity, not by
+  /// the physical board alone. The recovery ZIP is a separate release asset.
+  Future<RakBootloaderDfuFiles> downloadRakBootloaderDfu(
+    RakBootloaderMigration plan,
+  ) async {
+    for (final release in await _releases(_bootloaderRepository)) {
+      if (release.prerelease ||
+          release.draft ||
+          !RegExp(
+            r'^v[0-9]+\.[0-9]+\.[0-9]+-OTAFIX[0-9]+\.[0-9]+\.[0-9]+$',
+          ).hasMatch(release.tag)) {
+        continue;
+      }
+      final normalPattern = RegExp(
+        '^${RegExp.escape(plan.normalProfile)}_bootloader-'
+        '${RegExp.escape(release.tag)}_s[0-9]+_[0-9.]+[.]zip'
+        r'$',
+      );
+      final normalAssets = release.assets
+          .where((asset) => normalPattern.hasMatch(asset.name))
+          .toList();
+      if (normalAssets.isEmpty) continue;
+      if (normalAssets.length != 1) {
+        throw StateError('The RAK normal bootloader download is ambiguous.');
+      }
+      final normal = normalAssets.single;
+      final normalBytes = await _download(normal);
+      if (!NrfDfuPackage.inspect(
+        normalBytes,
+      ).components.contains('softdevice_bootloader')) {
+        throw const FormatException('Normal RAK ZIP lacks a bootloader.');
+      }
+      final recoveryProfile = plan.recoveryProfile;
+      if (recoveryProfile == null) {
+        return RakBootloaderDfuFiles(
+          tag: release.tag,
+          normalName: normal.name,
+          normalBytes: normalBytes,
+        );
+      }
+      final version = RegExp(
+        r'OTAFIX([0-9]+\.[0-9]+\.[0-9]+)$',
+      ).firstMatch(release.tag)!.group(1)!;
+      final recoveryName = 'OTAFIX-$version-R_recovery.zip';
+      final recoveryAssets = release.assets
+          .where((asset) => asset.name == recoveryName)
+          .toList();
+      if (recoveryAssets.length != 1) {
+        throw StateError('This release has no unambiguous RAK recovery ZIP.');
+      }
+      final archive = ZipDecoder().decodeBytes(
+        await _download(recoveryAssets.single),
+        verify: true,
+      );
+      final manifestBytes = archive.findFile('manifest.json')?.readBytes();
+      final sumsBytes = archive.findFile('SHA256SUMS.txt')?.readBytes();
+      if (manifestBytes == null || sumsBytes == null) {
+        throw const FormatException('Recovery ZIP lacks its verified index.');
+      }
+      final manifest = jsonDecode(utf8.decode(manifestBytes));
+      if (manifest is! Map ||
+          manifest['tag'] != release.tag ||
+          manifest['recovery_only'] != true ||
+          manifest['boards'] is! List) {
+        throw const FormatException('Recovery ZIP has the wrong release tag.');
+      }
+      final boardEntries = (manifest['boards'] as List)
+          .whereType<Map>()
+          .where((entry) => entry['board'] == recoveryProfile)
+          .toList();
+      if (boardEntries.length != 1 ||
+          boardEntries.single['device_name'] != plan.installedName) {
+        throw const FormatException('Recovery bridge identity is wrong.');
+      }
+      final memberName =
+          'R_$recoveryProfile'
+          '_bootloader-'
+          '${release.tag}_s';
+      final matches = archive.files
+          .where(
+            (member) =>
+                member.isFile &&
+                member.name.startsWith('boards/$recoveryProfile/$memberName') &&
+                member.name.endsWith('.zip'),
+          )
+          .toList();
+      if (matches.length != 1) {
+        throw const FormatException(
+          'Recovery bridge ZIP is missing or ambiguous.',
+        );
+      }
+      final member = matches.single;
+      final expectedHash =
+          (boardEntries.single['files'] as Map?)?[member.name.split('/').last];
+      final bytes = member.readBytes();
+      if (bytes == null ||
+          expectedHash is! String ||
+          crypto.sha256.convert(bytes).toString() != expectedHash) {
+        throw const FormatException('Recovery bridge checksum does not match.');
+      }
+      final checksumLine = '$expectedHash  ${member.name}';
+      if (!utf8.decode(sumsBytes).split('\n').contains(checksumLine)) {
+        throw const FormatException(
+          'Recovery bridge is missing from SHA256SUMS.',
+        );
+      }
+      if (!NrfDfuPackage.inspect(
+        bytes,
+      ).components.contains('softdevice_bootloader')) {
+        throw const FormatException('Recovery bridge is not a bootloader ZIP.');
+      }
+      return RakBootloaderDfuFiles(
+        tag: release.tag,
+        normalName: normal.name,
+        normalBytes: normalBytes,
+        recoveryName: member.name.split('/').last,
+        recoveryBytes: Uint8List.fromList(bytes),
+      );
+    }
+    throw StateError('No published RAK bootloader ZIP matches this board.');
+  }
+
   /// Lists only published board bundles. The exact radio/board still has to
   /// be confirmed by the user because legacy Wi-Fi builds may not expose an
   /// mOTA target ID over LoRa.
@@ -444,10 +568,28 @@ class GitHubMotaDiscovery {
   bool get hasBootloaderBundle => bootloaderBundle != null;
 }
 
+class RakBootloaderDfuFiles {
+  const RakBootloaderDfuFiles({
+    required this.tag,
+    required this.normalName,
+    required this.normalBytes,
+    this.recoveryName,
+    this.recoveryBytes,
+  });
+
+  final String tag;
+  final String normalName;
+  final Uint8List normalBytes;
+  final String? recoveryName;
+  final Uint8List? recoveryBytes;
+}
+
 class _Release {
   _Release.fromJson(Map<String, dynamic> json)
     : name = json['name'] is String ? json['name'] as String : '',
       tag = json['tag_name'] is String ? json['tag_name'] as String : '',
+      prerelease = json['prerelease'] == true,
+      draft = json['draft'] == true,
       htmlUrl = json['html_url'] is String ? json['html_url'] as String : '',
       assets = (json['assets'] is List ? json['assets'] as List : const [])
           .whereType<Map<String, dynamic>>()
@@ -456,6 +598,8 @@ class _Release {
 
   final String name;
   final String tag;
+  final bool prerelease;
+  final bool draft;
   final String htmlUrl;
   final List<GitHubReleaseAsset> assets;
 }

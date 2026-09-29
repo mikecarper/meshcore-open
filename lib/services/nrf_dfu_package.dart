@@ -24,6 +24,16 @@ class NrfDfuPackage {
     return match.group(1)!.toUpperCase();
   }
 
+  /// The legacy Nordic bootloader advertises at the application's address +1.
+  /// Match Nordic's last-octet wrap without carrying into the preceding octet.
+  static String bootloaderAddress(String address) {
+    if (!RegExp(r'^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$').hasMatch(address)) {
+      throw const FormatException('Invalid Bluetooth DFU address.');
+    }
+    final next = (int.parse(address.substring(15), radix: 16) + 1) & 0xff;
+    return '${address.substring(0, 15).toUpperCase()}${next.toRadixString(16).padLeft(2, '0').toUpperCase()}';
+  }
+
   static NrfDfuPackage inspect(Uint8List bytes) {
     if (bytes.length < 256 || bytes.length > 0x1000000) {
       throw const FormatException(
