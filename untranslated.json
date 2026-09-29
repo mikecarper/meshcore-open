@@ -1,1 +1,222 @@
-{}
+{
+  "bg": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "de": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "es": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "fr": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "hu": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "it": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "ja": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "ko": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "nl": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "pl": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "pt": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "ru": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "sk": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "sl": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "sv": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "uk": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ],
+
+  "zh": [
+    "companionCli_title",
+    "companionCli_settingsSubtitle",
+    "companionCli_description",
+    "companionCli_notConnected",
+    "companionCli_unsupported",
+    "companionCli_empty",
+    "companionCli_hint",
+    "companionCli_send",
+    "companionCli_noReply",
+    "companionCli_error"
+  ]
+}

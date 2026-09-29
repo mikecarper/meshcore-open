@@ -1162,6 +1162,66 @@ abstract class AppLocalizations {
   /// **'Debug'**
   String get settings_debug;
 
+  /// No description provided for @companionCli_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Companion CLI'**
+  String get companionCli_title;
+
+  /// No description provided for @companionCli_settingsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Run commands on the connected Companion'**
+  String get companionCli_settingsSubtitle;
+
+  /// No description provided for @companionCli_description.
+  ///
+  /// In en, this message translates to:
+  /// **'Commands run directly on this Companion, not over LoRa. Use care: some commands change device settings.'**
+  String get companionCli_description;
+
+  /// No description provided for @companionCli_notConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to a Companion to send commands.'**
+  String get companionCli_notConnected;
+
+  /// No description provided for @companionCli_unsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Local CLI requires Companion protocol version 14 or newer.'**
+  String get companionCli_unsupported;
+
+  /// No description provided for @companionCli_empty.
+  ///
+  /// In en, this message translates to:
+  /// **'No commands sent yet'**
+  String get companionCli_empty;
+
+  /// No description provided for @companionCli_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a Companion command'**
+  String get companionCli_hint;
+
+  /// No description provided for @companionCli_send.
+  ///
+  /// In en, this message translates to:
+  /// **'Send command'**
+  String get companionCli_send;
+
+  /// No description provided for @companionCli_noReply.
+  ///
+  /// In en, this message translates to:
+  /// **'(No response)'**
+  String get companionCli_noReply;
+
+  /// No description provided for @companionCli_error.
+  ///
+  /// In en, this message translates to:
+  /// **'Error: {error}'**
+  String companionCli_error(String error);
+
   /// No description provided for @settings_companionDebugLog.
   ///
   /// In en, this message translates to:
