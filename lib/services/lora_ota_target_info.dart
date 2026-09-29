@@ -66,7 +66,12 @@ class LoraOtaTargetInfo {
     final receiverStorage = switch (storageCaps) {
       0x09 => 'external_sd',
       0x0E => 'external_qspi',
-      0x0A => 'internal_flash',
+      // Compatible RAK bootloaders stage bootloader updates internally, while
+      // the running application may use an optional external NOR chip.
+      0x0A =>
+        RegExp(r'\bQSPI store:[1-9][0-9]*K\b').hasMatch(self)
+            ? 'external_qspi'
+            : 'internal_flash',
       _ => throw const FormatException('Unknown target bootloader storage'),
     };
     final keySection = keys.contains(':') ? keys.split(':').last : '';

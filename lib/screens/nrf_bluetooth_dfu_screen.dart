@@ -9,15 +9,21 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../connector/meshcore_connector.dart';
+import '../connector/meshcore_protocol.dart';
 import '../models/contact.dart';
 import '../services/nrf_dfu_package.dart';
 import '../services/repeater_command_service.dart';
 import '../widgets/update_status_card.dart';
 
 class NrfBluetoothDfuScreen extends StatefulWidget {
-  const NrfBluetoothDfuScreen({super.key, required this.repeater});
+  const NrfBluetoothDfuScreen({
+    super.key,
+    required this.repeater,
+    this.commandService,
+  });
 
   final Contact repeater;
+  final RepeaterCommandService? commandService;
 
   @override
   State<NrfBluetoothDfuScreen> createState() => _NrfBluetoothDfuScreenState();
@@ -25,6 +31,7 @@ class NrfBluetoothDfuScreen extends StatefulWidget {
 
 class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
   late final RepeaterCommandService _commands;
+  StreamSubscription<Uint8List>? _frameSubscription;
   String? _packagePath;
   String? _packageName;
   NrfDfuPackage? _package;
@@ -37,12 +44,26 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
   @override
   void initState() {
     super.initState();
-    _commands = RepeaterCommandService(context.read<MeshCoreConnector>());
+    final connector = context.read<MeshCoreConnector>();
+    _commands = widget.commandService ?? RepeaterCommandService(connector);
+    _frameSubscription = connector.receivedFrames.listen(_handleFrame);
+  }
+
+  void _handleFrame(Uint8List frame) {
+    final reply = parseContactMessageText(frame);
+    if (reply == null) return;
+    final target = widget.repeater.publicKey;
+    if (target.length < 6 || reply.senderPrefix.length != 6) return;
+    for (var i = 0; i < 6; i++) {
+      if (reply.senderPrefix[i] != target[i]) return;
+    }
+    _commands.handleResponse(widget.repeater, reply.text);
   }
 
   @override
   void dispose() {
-    _commands.dispose();
+    _frameSubscription?.cancel();
+    if (widget.commandService == null) _commands.dispose();
     final path = _packagePath;
     if (path != null) {
       unawaited(File(path).delete().catchError((_) => File(path)));

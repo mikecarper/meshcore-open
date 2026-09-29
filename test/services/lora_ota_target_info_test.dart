@@ -40,6 +40,25 @@ void main() {
     expect(() => target().validatePackage(file), throwsStateError);
   });
 
+  test('RAK application storage is independent of bootloader staging', () {
+    for (final external in [false, true]) {
+      final info = LoraOtaTargetInfo.parse(
+        status: 'OTA target:05F5FFAE env:RAK_4631_repeater_unified_lora_ota',
+        self:
+            'self body=620000 base_hash=1809003428588E08 | '
+            '${external ? 'QSPI store:2048K' : 'internal store:252K'}',
+        bootloader:
+            'BL board=239A0029 target=2D0DF000 name=4631_DFU abi=3 caps=0A',
+        keys: '',
+      );
+      expect(info.bootloaderStorageCaps, 0x0A);
+      expect(
+        info.receiverStorage,
+        external ? 'external_qspi' : 'internal_flash',
+      );
+    }
+  });
+
   test(
     'rejects wrong bootloader storage even with matching target ID',
     () async {
