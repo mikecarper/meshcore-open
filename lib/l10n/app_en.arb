@@ -2926,6 +2926,22 @@
       }
     }
   },
+  "repeater_pathHashFilter": "Path-width filter",
+  "repeater_pathHashFilterWarning": "Requires firmware with hashbytes support. Matches all payloads with the selected encoded path width, including zero hops. Radio rules affect flood forwarding, not direct packets or local delivery. Dropping or limiting all floods can disrupt relayed login/admin traffic. Review before sending; no command is sent by this dialog.",
+  "repeater_pathHashFilterWidth": "Path hash width",
+  "repeater_pathHashFilterAny": "Any width",
+  "repeater_pathHashFilterBytes": "{count}-byte hashes",
+  "@repeater_pathHashFilterBytes": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "repeater_pathHashFilterMode": "Admission path",
+  "repeater_pathHashFilterRate": "Forwarding limit per minute",
+  "repeater_pathHashFilterDrop": "Off: drop every matching packet",
+  "repeater_pathHashFilterInvalidRate": "Enter a whole number from 1 to 65534",
+  "repeater_pathHashFilterPrepare": "Prepare command",
+  "repeater_pathHashFilterList": "List saved forwarding rules. Use get fr.N for a copyable rule and del fr.N to remove that slot.",
   "chat_longMessageRetryNote": "Over 158 bytes: sent at most {count} times",
   "@chat_longMessageRetryNote": {
     "description": "Shown under the DM composer when the message is too long for the firmware's later retry attempts",

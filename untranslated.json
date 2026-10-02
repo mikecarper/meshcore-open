@@ -9,7 +9,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "de": [
@@ -22,7 +33,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "es": [
@@ -35,7 +57,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "fr": [
@@ -48,7 +81,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "hu": [
@@ -61,7 +105,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "it": [
@@ -74,7 +129,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "ja": [
@@ -87,7 +153,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "ko": [
@@ -100,7 +177,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "nl": [
@@ -113,7 +201,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "pl": [
@@ -126,7 +225,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "pt": [
@@ -139,7 +249,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "ru": [
@@ -152,7 +273,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "sk": [
@@ -165,7 +297,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "sl": [
@@ -178,7 +321,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "sv": [
@@ -191,7 +345,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "uk": [
@@ -204,7 +369,18 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
 
   "zh": [
@@ -217,6 +393,17 @@
     "companionCli_hint",
     "companionCli_send",
     "companionCli_noReply",
-    "companionCli_error"
+    "companionCli_error",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ]
 }

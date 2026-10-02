@@ -10,6 +10,7 @@ import '../theme/mesh_theme.dart';
 import '../widgets/debug_frame_viewer.dart';
 import '../services/repeater_command_service.dart';
 import '../widgets/routing_sheet.dart';
+import '../widgets/path_hash_filter_dialog.dart';
 import '../helpers/snack_bar_builder.dart';
 
 class RepeaterCliScreen extends StatefulWidget {
@@ -265,6 +266,16 @@ class _RepeaterCliScreenState extends State<RepeaterCliScreen> {
     _sendCommand();
   }
 
+  Future<void> _preparePathHashFilter() async {
+    final command = await showDialog<String>(
+      context: context,
+      builder: (context) => const PathHashFilterDialog(),
+    );
+    if (!mounted || command == null) return;
+    _commandController.text = command;
+    _commandFocusNode.requestFocus();
+  }
+
   void _navigateHistory(bool up) {
     final commands = _commandHistory
         .where((entry) => entry['type'] == 'command')
@@ -344,6 +355,11 @@ class _RepeaterCliScreenState extends State<RepeaterCliScreen> {
         title: Text(l10n.repeater_cliTitle),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.filter_alt_outlined),
+            tooltip: l10n.repeater_pathHashFilter,
+            onPressed: _regionLoadActive ? null : _preparePathHashFilter,
+          ),
           IconButton(
             icon: Icon(isFloodMode ? Icons.waves : Icons.route),
             tooltip: l10n.repeater_routingMode,
@@ -712,6 +728,14 @@ class _RepeaterCliScreenState extends State<RepeaterCliScreen> {
       _CommandHelpEntry(
         command: 'set flood.max {max-hops}',
         description: l10n.repeater_cliHelpSetFloodMax,
+      ),
+      _CommandHelpEntry(
+        command: 'set fr any pb={1|2|3|*} d',
+        description: l10n.repeater_pathHashFilterWarning,
+      ),
+      _CommandHelpEntry(
+        command: 'get fr',
+        description: l10n.repeater_pathHashFilterList,
       ),
       _CommandHelpEntry(
         command: 'set flood.max.unscoped {0-64}',

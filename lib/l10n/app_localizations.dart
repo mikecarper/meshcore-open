@@ -8818,6 +8818,72 @@ abstract class AppLocalizations {
   /// **'{minutes} m {seconds} s'**
   String imageSend_minutesSecondsValue(String minutes, String seconds);
 
+  /// No description provided for @repeater_pathHashFilter.
+  ///
+  /// In en, this message translates to:
+  /// **'Path-width filter'**
+  String get repeater_pathHashFilter;
+
+  /// No description provided for @repeater_pathHashFilterWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires firmware with hashbytes support. Matches all payloads with the selected encoded path width, including zero hops. Radio rules affect flood forwarding, not direct packets or local delivery. Dropping or limiting all floods can disrupt relayed login/admin traffic. Review before sending; no command is sent by this dialog.'**
+  String get repeater_pathHashFilterWarning;
+
+  /// No description provided for @repeater_pathHashFilterWidth.
+  ///
+  /// In en, this message translates to:
+  /// **'Path hash width'**
+  String get repeater_pathHashFilterWidth;
+
+  /// No description provided for @repeater_pathHashFilterAny.
+  ///
+  /// In en, this message translates to:
+  /// **'Any width'**
+  String get repeater_pathHashFilterAny;
+
+  /// No description provided for @repeater_pathHashFilterBytes.
+  ///
+  /// In en, this message translates to:
+  /// **'{count}-byte hashes'**
+  String repeater_pathHashFilterBytes(int count);
+
+  /// No description provided for @repeater_pathHashFilterMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Admission path'**
+  String get repeater_pathHashFilterMode;
+
+  /// No description provided for @repeater_pathHashFilterRate.
+  ///
+  /// In en, this message translates to:
+  /// **'Forwarding limit per minute'**
+  String get repeater_pathHashFilterRate;
+
+  /// No description provided for @repeater_pathHashFilterDrop.
+  ///
+  /// In en, this message translates to:
+  /// **'Off: drop every matching packet'**
+  String get repeater_pathHashFilterDrop;
+
+  /// No description provided for @repeater_pathHashFilterInvalidRate.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a whole number from 1 to 65534'**
+  String get repeater_pathHashFilterInvalidRate;
+
+  /// No description provided for @repeater_pathHashFilterPrepare.
+  ///
+  /// In en, this message translates to:
+  /// **'Prepare command'**
+  String get repeater_pathHashFilterPrepare;
+
+  /// No description provided for @repeater_pathHashFilterList.
+  ///
+  /// In en, this message translates to:
+  /// **'List saved forwarding rules. Use get fr.N for a copyable rule and del fr.N to remove that slot.'**
+  String get repeater_pathHashFilterList;
+
   /// Shown under the DM composer when the message is too long for the firmware's later retry attempts
   ///
   /// In en, this message translates to:

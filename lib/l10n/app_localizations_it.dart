@@ -5187,6 +5187,44 @@ class AppLocalizationsIt extends AppLocalizations {
   }
 
   @override
+  String get repeater_pathHashFilter => 'Path-width filter';
+
+  @override
+  String get repeater_pathHashFilterWarning =>
+      'Requires firmware with hashbytes support. Matches all payloads with the selected encoded path width, including zero hops. Radio rules affect flood forwarding, not direct packets or local delivery. Dropping or limiting all floods can disrupt relayed login/admin traffic. Review before sending; no command is sent by this dialog.';
+
+  @override
+  String get repeater_pathHashFilterWidth => 'Path hash width';
+
+  @override
+  String get repeater_pathHashFilterAny => 'Any width';
+
+  @override
+  String repeater_pathHashFilterBytes(int count) {
+    return '$count-byte hashes';
+  }
+
+  @override
+  String get repeater_pathHashFilterMode => 'Admission path';
+
+  @override
+  String get repeater_pathHashFilterRate => 'Forwarding limit per minute';
+
+  @override
+  String get repeater_pathHashFilterDrop => 'Off: drop every matching packet';
+
+  @override
+  String get repeater_pathHashFilterInvalidRate =>
+      'Enter a whole number from 1 to 65534';
+
+  @override
+  String get repeater_pathHashFilterPrepare => 'Prepare command';
+
+  @override
+  String get repeater_pathHashFilterList =>
+      'List saved forwarding rules. Use get fr.N for a copyable rule and del fr.N to remove that slot.';
+
+  @override
   String chat_longMessageRetryNote(int count) {
     return 'Oltre 158 byte: inviato al massimo $count volte';
   }
