@@ -4325,11 +4325,36 @@ class MeshCoreConnector extends ChangeNotifier {
     final resolved =
         explicitSelection ??
         resolvePathSelection(contact, selection: autoSelection);
+    final usesLearnedPath =
+        explicitSelection == null &&
+        contact.pathOverride == null &&
+        (autoSelection == null || autoSelection.pathBytes.isEmpty);
+    // A learned route can use a different width from the Companion's current
+    // flood mode. Preserve its metadata; explicit/history/manual selections
+    // encode their width through complete hop groups. Zero-hop has no groups.
+    final width = resolved.hopCount > 0
+        ? (usesLearnedPath
+              ? contact.pathHashWidth
+              : resolved.pathBytes.length ~/ resolved.hopCount)
+        : _pathHashByteWidth;
+    appLogger.info(
+      'Route preparation: source=${explicitSelection != null
+          ? 'explicit'
+          : contact.pathOverride != null
+          ? 'override'
+          : usesLearnedPath
+          ? 'learned'
+          : 'history'} '
+      'flood=${resolved.useFlood} hops=${resolved.hopCount} '
+      'bytes=${resolved.pathBytes.length} width=$width current=$_pathHashByteWidth '
+      'contactHops=${contact.pathLength} contactBytes=${contact.path.length} '
+      'contactWidth=${contact.pathHashWidth} override=${contact.pathOverride} '
+      'overrideBytes=${contact.pathOverrideBytes?.length ?? 0}',
+      tag: 'RoutePreparation',
+    );
     if (!resolved.useFlood &&
-        (resolved.hopCount < 0 ||
-            resolved.pathBytes.length !=
-                resolved.hopCount * _pathHashByteWidth)) {
-      throw ArgumentError('Explicit route does not match the path hash width');
+        !_isPathLenValidForMode(resolved.hopCount, resolved.pathBytes, width)) {
+      throw ArgumentError('Route does not match its path hash width');
     }
 
     if (resolved.useFlood) {
@@ -4339,6 +4364,7 @@ class MeshCoreConnector extends ChangeNotifier {
         contact,
         Uint8List.fromList(resolved.pathBytes),
         resolved.hopCount,
+        pathHashWidth: width,
       );
     }
 
