@@ -13,9 +13,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "de": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -30,9 +40,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "es": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -47,9 +67,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "fr": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -64,9 +94,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "hu": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -81,9 +121,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "it": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -98,9 +148,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "ja": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -115,9 +175,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "ko": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -132,9 +202,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "nl": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -149,9 +229,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "pl": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -166,9 +256,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "pt": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -183,9 +283,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "ru": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -200,9 +310,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "sk": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -217,9 +337,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "sl": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -234,9 +364,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "sv": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -251,9 +391,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "uk": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -268,9 +418,19 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ],
-
   "zh": [
     "companionCli_title",
     "companionCli_settingsSubtitle",
@@ -285,6 +445,17 @@
     "map_updateMyLocation",
     "settings_phoneGpsTracking",
     "settings_phoneGpsTrackingDescription",
-    "settings_phoneGpsUnavailable"
+    "settings_phoneGpsUnavailable",
+    "repeater_pathHashFilter",
+    "repeater_pathHashFilterWarning",
+    "repeater_pathHashFilterWidth",
+    "repeater_pathHashFilterAny",
+    "repeater_pathHashFilterBytes",
+    "repeater_pathHashFilterMode",
+    "repeater_pathHashFilterRate",
+    "repeater_pathHashFilterDrop",
+    "repeater_pathHashFilterInvalidRate",
+    "repeater_pathHashFilterPrepare",
+    "repeater_pathHashFilterList"
   ]
 }
