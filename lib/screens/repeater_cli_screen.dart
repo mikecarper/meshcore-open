@@ -730,7 +730,7 @@ class _RepeaterCliScreenState extends State<RepeaterCliScreen> {
         description: l10n.repeater_cliHelpSetFloodMax,
       ),
       _CommandHelpEntry(
-        command: 'set fr any pb={1|2|3|*} d',
+        command: 'set fr any pb={1|2|2+|3|*} d',
         description: l10n.repeater_pathHashFilterWarning,
       ),
       _CommandHelpEntry(

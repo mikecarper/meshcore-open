@@ -53,7 +53,7 @@ void main() {
   ) async {
     String? result;
     await openDialog(tester, (value) => result = value);
-    await tester.tap(find.byType(DropdownButtonFormField<int>));
+    await tester.tap(find.byKey(const ValueKey('path-hash-filter-width')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('3-byte hashes').last);
     await tester.pumpAndSettle();
@@ -88,5 +88,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(called, true);
     expect(result, isNull);
+  });
+
+  testWidgets('2+ prepares one range rule without sending it', (tester) async {
+    String? result;
+    await openDialog(tester, (value) => result = value);
+    await tester.tap(find.byKey(const ValueKey('path-hash-filter-width')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('2+ bytes (2 or 3)').last);
+    await tester.pumpAndSettle();
+    expect(result, isNull);
+    await tester.tap(find.text('Prepare command'));
+    await tester.pumpAndSettle();
+    expect(result, 'set fr any pb=2+ d');
   });
 }

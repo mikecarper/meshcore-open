@@ -5169,6 +5169,9 @@ class AppLocalizationsSk extends AppLocalizations {
   String get repeater_pathHashFilterAny => 'Any width';
 
   @override
+  String get repeater_pathHashFilterTwoPlus => '2+ bytes (2 or 3)';
+
+  @override
   String repeater_pathHashFilterBytes(int count) {
     return '$count-byte hashes';
   }
