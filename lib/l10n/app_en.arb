@@ -2930,6 +2930,7 @@
   "repeater_pathHashFilterWarning": "Requires firmware with hashbytes support. Matches all payloads with the selected encoded path width, including zero hops. Radio rules affect flood forwarding, not direct packets or local delivery. Dropping or limiting all floods can disrupt relayed login/admin traffic. Review before sending; no command is sent by this dialog.",
   "repeater_pathHashFilterWidth": "Path hash width",
   "repeater_pathHashFilterAny": "Any width",
+  "repeater_pathHashFilterTwoPlus": "2+ bytes (2 or 3)",
   "repeater_pathHashFilterBytes": "{count}-byte hashes",
   "@repeater_pathHashFilterBytes": {
     "placeholders": {

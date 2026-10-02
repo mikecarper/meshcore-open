@@ -8842,6 +8842,12 @@ abstract class AppLocalizations {
   /// **'Any width'**
   String get repeater_pathHashFilterAny;
 
+  /// No description provided for @repeater_pathHashFilterTwoPlus.
+  ///
+  /// In en, this message translates to:
+  /// **'2+ bytes (2 or 3)'**
+  String get repeater_pathHashFilterTwoPlus;
+
   /// No description provided for @repeater_pathHashFilterBytes.
   ///
   /// In en, this message translates to:

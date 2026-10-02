@@ -30,6 +30,31 @@ void main() {
     }
   });
 
+  test(
+    '2+ is one rule for both larger widths, with drops or a shared rate',
+    () {
+      expect(
+        buildPathHashFilterCommand(hashBytes: 2, orMore: true),
+        'set fr any pb=2+ d',
+      );
+      expect(
+        buildPathHashFilterCommand(
+          hashBytes: 2,
+          orMore: true,
+          mode: 'bridge,cross',
+          ratePerMinute: 10,
+        ),
+        'set fr any pb=2+ m=bc q=10',
+      );
+      for (final width in [0, 1, 3]) {
+        expect(
+          () => buildPathHashFilterCommand(hashBytes: width, orMore: true),
+          throwsArgumentError,
+        );
+      }
+    },
+  );
+
   test('invalid values cannot become commands', () {
     for (final width in [-1, 4, 255]) {
       expect(

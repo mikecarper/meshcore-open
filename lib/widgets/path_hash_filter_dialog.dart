@@ -14,7 +14,7 @@ class PathHashFilterDialog extends StatefulWidget {
 class _PathHashFilterDialogState extends State<PathHashFilterDialog> {
   final _formKey = GlobalKey<FormState>();
   final _rateController = TextEditingController(text: '10');
-  int _hashBytes = 1;
+  String _hashBytes = '1';
   String _mode = 'radio';
   bool _limitRate = false;
 
@@ -39,7 +39,8 @@ class _PathHashFilterDialogState extends State<PathHashFilterDialog> {
             children: [
               Text(l10n.repeater_pathHashFilterWarning),
               const SizedBox(height: 16),
-              DropdownButtonFormField<int>(
+              DropdownButtonFormField<String>(
+                key: const ValueKey('path-hash-filter-width'),
                 initialValue: _hashBytes,
                 isExpanded: true,
                 decoration: InputDecoration(
@@ -47,14 +48,18 @@ class _PathHashFilterDialogState extends State<PathHashFilterDialog> {
                 ),
                 items: [
                   DropdownMenuItem(
-                    value: 0,
+                    value: '0',
                     child: Text(l10n.repeater_pathHashFilterAny),
                   ),
                   for (final width in [1, 2, 3])
                     DropdownMenuItem(
-                      value: width,
+                      value: '$width',
                       child: Text(l10n.repeater_pathHashFilterBytes(width)),
                     ),
+                  DropdownMenuItem(
+                    value: '2+',
+                    child: Text(l10n.repeater_pathHashFilterTwoPlus),
+                  ),
                 ],
                 onChanged: (value) => setState(() => _hashBytes = value!),
               ),
@@ -112,7 +117,8 @@ class _PathHashFilterDialogState extends State<PathHashFilterDialog> {
             Navigator.pop(
               context,
               buildPathHashFilterCommand(
-                hashBytes: _hashBytes,
+                hashBytes: _hashBytes == '2+' ? 2 : int.parse(_hashBytes),
+                orMore: _hashBytes == '2+',
                 mode: _mode,
                 ratePerMinute: _limitRate
                     ? int.parse(_rateController.text.trim())
