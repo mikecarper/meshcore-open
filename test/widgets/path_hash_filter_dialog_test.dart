@@ -102,4 +102,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(result, 'set fr any pb=2+ d');
   });
+
+  testWidgets('selected width and mode survive rate-editor rebuilds', (
+    tester,
+  ) async {
+    String? result;
+    await openDialog(tester, (value) => result = value);
+    await tester.tap(find.byKey(const ValueKey('path-hash-filter-mode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('bridge,cross').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('path-hash-filter-width')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('2+ bytes (2 or 3)').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), '9');
+    expect(result, isNull);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Prepare command'));
+    await tester.pumpAndSettle();
+    expect(result, 'set fr any pb=2+ m=bc q=9');
+  });
 }

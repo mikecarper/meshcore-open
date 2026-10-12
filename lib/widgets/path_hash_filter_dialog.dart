@@ -41,7 +41,9 @@ class _PathHashFilterDialogState extends State<PathHashFilterDialog> {
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 key: const ValueKey('path-hash-filter-width'),
-                initialValue: _hashBytes,
+                // The pinned legacy toolchain predates initialValue.
+                // ignore: deprecated_member_use
+                value: _hashBytes,
                 isExpanded: true,
                 decoration: InputDecoration(
                   labelText: l10n.repeater_pathHashFilterWidth,
@@ -65,7 +67,10 @@ class _PathHashFilterDialogState extends State<PathHashFilterDialog> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                initialValue: _mode,
+                key: const ValueKey('path-hash-filter-mode'),
+                // The pinned legacy toolchain predates initialValue.
+                // ignore: deprecated_member_use
+                value: _mode,
                 isExpanded: true,
                 decoration: InputDecoration(
                   labelText: l10n.repeater_pathHashFilterMode,
