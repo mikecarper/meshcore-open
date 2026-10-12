@@ -38,6 +38,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
       - run: python3 -m unittest discover -s tools -p 'test_build_android.py'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify the offline Android USB flashing engine
+        run: node --experimental-vm-modules tools/test_android_usb_flash.mjs
       - name: Test and build the selected Android profile
         run: python3 tools/build_android.py ${{ matrix.profile }} --flutter "$(command -v flutter)" --sideload --test
       - uses: actions/upload-artifact@v4

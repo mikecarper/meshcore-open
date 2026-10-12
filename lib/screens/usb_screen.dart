@@ -16,6 +16,7 @@ import '../widgets/mesh_ui.dart';
 import '../helpers/snack_bar_builder.dart';
 import 'channels_screen.dart';
 import 'tcp_screen.dart';
+import 'usb_node_update_screen.dart';
 
 class UsbScreen extends StatefulWidget {
   const UsbScreen({super.key});
@@ -204,6 +205,14 @@ class _UsbScreenState extends State<UsbScreen> {
         spacing: 12,
         runSpacing: 8,
         children: [
+          if (PlatformInfo.isAndroid)
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const UsbNodeUpdateScreen()),
+              ),
+              icon: const Icon(Icons.system_update_alt),
+              label: const Text('Update over USB'),
+            ),
           if (!PlatformInfo.isWeb)
             OutlinedButton.icon(
               onPressed: () {

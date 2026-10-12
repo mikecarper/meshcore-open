@@ -54,6 +54,9 @@ MeshCore Open is a cross-platform mobile application for communicating with Mesh
 ### Device Management
 
 - **BLE, USB, TCP Connection**: Scan and connect to MeshCore devices via Bluetooth, USB or TCP
+- **Native Android USB Updates**: CH340/CP210x and native USB application updates,
+  verified backup/restore, nRF52 serial DFU and qualified USB partition expansion.
+  See [USB updater requirements and safeguards](docs/USB_NODE_UPDATE.md).
 - **Device Settings**: Configure radio parameters, power settings, and network options
 - **Battery Monitoring**: Real-time battery status with chemistry-specific voltage curves
 - **Repeater Firmware Updates**: Serve verified `.mota` files from a phone over

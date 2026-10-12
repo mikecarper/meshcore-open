@@ -2,6 +2,11 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Only the pinned USB serial driver is resolved from JitPack.
+        exclusiveContent {
+            forRepository { maven(url = "https://jitpack.io") }
+            filter { includeModule("com.github.mik3y", "usb-serial-for-android") }
+        }
     }
 }
 

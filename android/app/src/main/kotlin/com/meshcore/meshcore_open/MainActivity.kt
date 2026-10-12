@@ -8,10 +8,12 @@ import io.flutter.embedding.engine.FlutterEngine
 
 class MainActivity : FlutterActivity() {
     private val usbFunctions by lazy { MeshcoreUsbFunctions(this) }
+    private val usbEspEngine by lazy { MeshcoreUsbEspEngine(this, usbFunctions) }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         usbFunctions.configureFlutterEngine(flutterEngine)
+        usbEspEngine.configureFlutterEngine(flutterEngine)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.meshcore.meshcore_open/settings"
@@ -26,6 +28,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        usbEspEngine.dispose()
         usbFunctions.dispose()
         super.onDestroy()
     }
