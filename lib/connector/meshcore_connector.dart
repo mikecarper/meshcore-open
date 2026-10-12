@@ -24,6 +24,7 @@ import '../helpers/smaz.dart';
 import '../services/app_debug_log_service.dart';
 import '../services/ble_debug_log_service.dart';
 import '../services/ble_mota_catalog.dart';
+import '../services/dfu_gatt_discovery.dart';
 import '../services/linux_ble_error_classifier.dart';
 import '../services/linux_ble_pairing_service_stub.dart'
     if (dart.library.io) '../services/linux_ble_pairing_service.dart';
@@ -46,6 +47,7 @@ import '../services/background_service.dart';
 import '../services/timeout_prediction_service.dart';
 import '../services/translation_service.dart';
 import '../services/notification_service.dart';
+import '../services/repeater_admin_sessions.dart';
 import 'meshcore_connector_usb.dart';
 import 'meshcore_connector_tcp.dart';
 import '../storage/channel_message_store.dart';
@@ -375,6 +377,7 @@ class MeshCoreConnector extends ChangeNotifier {
   /// repeater's RTC clock at the moment of the most recent successful login.
   /// Reported by firmware in the login-success push frame at byte offset 8.
   final Map<String, DateTime> _repeaterLoginClocks = {};
+  final RepeaterAdminSessions repeaterAdminSessions = RepeaterAdminSessions();
 
   // Channel syncing state (sequential pattern)
   bool _isSyncingChannels = false;
@@ -2540,7 +2543,28 @@ class MeshCoreConnector extends ChangeNotifier {
 
       late final List<BluetoothService> services;
       try {
-        services = await device.discoverServices();
+        final discovered = await discoverWithDfuCacheRecovery(
+          isAndroid: PlatformInfo.isAndroid,
+          // Inspect the database before writing Service Changed's CCCD. A
+          // cached bootloader handle can otherwise fail before NUS is checked.
+          discover: () => device.discoverServices(
+            subscribeToServicesChanged: !PlatformInfo.isAndroid,
+          ),
+          refreshCache: device.clearGattCache,
+          onRefresh: () => _appDebugLogService?.warn(
+            'Cached DFU services without NUS; refreshing GATT once without removing the bond',
+            tag: 'BLE Connect',
+          ),
+        );
+        // Restore the plugin's normal Service Changed subscription only
+        // after the database has been proven to describe a Companion.
+        services =
+            PlatformInfo.isAndroid &&
+                discovered.any(
+                  (s) => s.uuid.str.toLowerCase() == MeshCoreUuids.service,
+                )
+            ? await device.discoverServices()
+            : discovered;
       } catch (error) {
         _appDebugLogService?.error(
           'service discovery failure: $error',
@@ -5358,6 +5382,9 @@ class MeshCoreConnector extends ChangeNotifier {
         _handleLoginSuccess(frame);
         break;
       case pushCodeLoginFail:
+        repeaterAdminSessions.observeLogin(frame, contacts, selfPublicKeyHex);
+        notifyListeners();
+        break;
       case pushCodeStatusResponse:
         break;
       case pushCodeLogRxData:
@@ -5531,6 +5558,8 @@ class MeshCoreConnector extends ChangeNotifier {
         selfName.isNotEmpty) {
       _usbManager.updateConnectedLabel(selfName);
     }
+
+    repeaterAdminSessions.bindCompanion(selfPublicKeyHex);
 
     // GPS poll responses arrive as RESP_CODE_SELF_INFO but are not the real
     // handshake — only update location and notify, skip store reloads and
@@ -7823,6 +7852,8 @@ class MeshCoreConnector extends ChangeNotifier {
   /// The timestamp is only present in the v7+ "new login response" — older
   /// firmware emits a shorter frame that we silently skip.
   void _handleLoginSuccess(Uint8List frame) {
+    repeaterAdminSessions.observeLogin(frame, contacts, selfPublicKeyHex);
+    notifyListeners();
     if (frame.length < 12) return;
     final prefix = pubKeyToHex(frame.sublist(2, 8));
     final ts = ByteData.sublistView(frame, 8, 12).getUint32(0, Endian.little);

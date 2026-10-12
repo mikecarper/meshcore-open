@@ -15,6 +15,7 @@ import 'repeater_settings_screen.dart';
 import 'telemetry_screen.dart';
 import 'neighbors_screen.dart';
 import 'lora_ota_screen.dart';
+import 'node_filters_screen.dart';
 import 'esp32_wifi_ota_screen.dart';
 import 'nrf_bluetooth_dfu_screen.dart';
 import 'remote_key_backup_screen.dart';
@@ -141,6 +142,20 @@ class RepeaterHubScreen extends StatelessWidget {
 
             // ── Battery chemistry (admin only) ─────────────────────────────
             if (isAdmin) ...[
+              _HubActionTile(
+                index: 8,
+                icon: Icons.filter_alt_outlined,
+                title: 'Packet filters',
+                subtitle:
+                    'Forwarding rules, scope rewrites, and path blacklist',
+                accentColor: MeshPalette.warn,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => NodeFiltersScreen(target: repeater),
+                  ),
+                ),
+              ),
               SectionHeader(l10n.appSettings_batteryChemistry),
               MeshCard(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),

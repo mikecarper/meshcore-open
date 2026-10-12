@@ -1,0 +1,1561 @@
+{
+  "packetTemperature": {
+    "input": "3E00545442311122334455667788800092651E0008000102354A4E5082",
+    "kind": "temperature",
+    "source": "1122334455667788",
+    "channel": null,
+    "interval": 30,
+    "rows": [
+      {
+        "index": 0,
+        "epoch": 1704067200,
+        "status": "Missing",
+        "statusCode": null,
+        "rawCode": 0,
+        "valueC": null
+      },
+      {
+        "index": 1,
+        "epoch": 1704069000,
+        "status": "Below range",
+        "statusCode": null,
+        "rawCode": 1,
+        "valueC": null
+      },
+      {
+        "index": 2,
+        "epoch": 1704070800,
+        "status": "Above range",
+        "statusCode": null,
+        "rawCode": 2,
+        "valueC": null
+      },
+      {
+        "index": 3,
+        "epoch": 1704072600,
+        "status": "Value",
+        "statusCode": null,
+        "rawCode": 53,
+        "valueC": 0
+      },
+      {
+        "index": 4,
+        "epoch": 1704074400,
+        "status": "Value",
+        "statusCode": null,
+        "rawCode": 74,
+        "valueC": 21
+      },
+      {
+        "index": 5,
+        "epoch": 1704076200,
+        "status": "Value",
+        "statusCode": null,
+        "rawCode": 78,
+        "valueC": 25
+      },
+      {
+        "index": 6,
+        "epoch": 1704078000,
+        "status": "Value",
+        "statusCode": null,
+        "rawCode": 80,
+        "valueC": 27
+      },
+      {
+        "index": 7,
+        "epoch": 1704079800,
+        "status": "Value",
+        "statusCode": null,
+        "rawCode": 130,
+        "valueC": 77
+      }
+    ]
+  },
+  "packetVoltage": {
+    "input": "3E00545642311122334455667788800092651E000800010264C8FEFFDC",
+    "kind": "voltage",
+    "source": "1122334455667788",
+    "channel": null,
+    "interval": 30,
+    "rows": [
+      {
+        "index": 0,
+        "epoch": 1704067200,
+        "status": "Missing",
+        "rawCode": 0,
+        "millivolts": null
+      },
+      {
+        "index": 1,
+        "epoch": 1704069000,
+        "status": "Below range",
+        "rawCode": 1,
+        "millivolts": null
+      },
+      {
+        "index": 2,
+        "epoch": 1704070800,
+        "status": "Value",
+        "rawCode": 2,
+        "millivolts": 1880
+      },
+      {
+        "index": 3,
+        "epoch": 1704072600,
+        "status": "Value",
+        "rawCode": 100,
+        "millivolts": 2860
+      },
+      {
+        "index": 4,
+        "epoch": 1704074400,
+        "status": "Value",
+        "rawCode": 200,
+        "millivolts": 3860
+      },
+      {
+        "index": 5,
+        "epoch": 1704076200,
+        "status": "Value",
+        "rawCode": 254,
+        "millivolts": 4400
+      },
+      {
+        "index": 6,
+        "epoch": 1704078000,
+        "status": "Above range",
+        "rawCode": 255,
+        "millivolts": null
+      },
+      {
+        "index": 7,
+        "epoch": 1704079800,
+        "status": "Value",
+        "rawCode": 220,
+        "millivolts": 4060
+      }
+    ]
+  },
+  "packetExternalVoltage": {
+    "input": "3E00495642311122334455667788800092651E00020800000004019026927109C427107FFF",
+    "kind": "external-voltage",
+    "source": "1122334455667788",
+    "channel": 2,
+    "interval": 30,
+    "rows": [
+      {
+        "index": 0,
+        "epoch": 1704067200,
+        "status": "Missing",
+        "rawCode": 0,
+        "millivolts": null
+      },
+      {
+        "index": 1,
+        "epoch": 1704069000,
+        "status": "Value",
+        "rawCode": 1,
+        "millivolts": 20
+      },
+      {
+        "index": 2,
+        "epoch": 1704070800,
+        "status": "Value",
+        "rawCode": 50,
+        "millivolts": 1000
+      },
+      {
+        "index": 3,
+        "epoch": 1704072600,
+        "status": "Value",
+        "rawCode": 617,
+        "millivolts": 12340
+      },
+      {
+        "index": 4,
+        "epoch": 1704074400,
+        "status": "Value",
+        "rawCode": 5000,
+        "millivolts": 100000
+      },
+      {
+        "index": 5,
+        "epoch": 1704076200,
+        "status": "Value",
+        "rawCode": 10000,
+        "millivolts": 200000
+      },
+      {
+        "index": 6,
+        "epoch": 1704078000,
+        "status": "Value",
+        "rawCode": 20000,
+        "millivolts": 400000
+      },
+      {
+        "index": 7,
+        "epoch": 1704079800,
+        "status": "Value",
+        "rawCode": 32767,
+        "millivolts": 655340
+      }
+    ]
+  },
+  "temperature": {
+    "input": "> EUDUcWoeMAVZVVVVUVVVVVXVVQACTJlSwEyZMmTJkuXKkyZEeNFARIcOFChQoUOHDiRY0aPI/ypUuXMmTA==",
+    "kind": "temperature",
+    "source": null,
+    "channel": null,
+    "interval": 30,
+    "rows": [
+      {
+        "index": 0,
+        "epoch": 1785844800,
+        "status": "Missing",
+        "statusCode": 0,
+        "rawCode": 0,
+        "valueC": null
+      },
+      {
+        "index": 1,
+        "epoch": 1785846600,
+        "status": "Missing",
+        "statusCode": 0,
+        "rawCode": 0,
+        "valueC": null
+      },
+      {
+        "index": 2,
+        "epoch": 1785848400,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 73,
+        "valueC": 23
+      },
+      {
+        "index": 3,
+        "epoch": 1785850200,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 73,
+        "valueC": 23
+      },
+      {
+        "index": 4,
+        "epoch": 1785852000,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 74,
+        "valueC": 24
+      },
+      {
+        "index": 5,
+        "epoch": 1785853800,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 75,
+        "valueC": 25
+      },
+      {
+        "index": 6,
+        "epoch": 1785855600,
+        "status": "Below range",
+        "statusCode": 2,
+        "rawCode": 0,
+        "valueC": null
+      },
+      {
+        "index": 7,
+        "epoch": 1785857400,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 76,
+        "valueC": 26
+      },
+      {
+        "index": 8,
+        "epoch": 1785859200,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 76,
+        "valueC": 26
+      },
+      {
+        "index": 9,
+        "epoch": 1785861000,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 76,
+        "valueC": 26
+      },
+      {
+        "index": 10,
+        "epoch": 1785862800,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 76,
+        "valueC": 26
+      },
+      {
+        "index": 11,
+        "epoch": 1785864600,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 76,
+        "valueC": 26
+      },
+      {
+        "index": 12,
+        "epoch": 1785866400,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 76,
+        "valueC": 26
+      },
+      {
+        "index": 13,
+        "epoch": 1785868200,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 75,
+        "valueC": 25
+      },
+      {
+        "index": 14,
+        "epoch": 1785870000,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 75,
+        "valueC": 25
+      },
+      {
+        "index": 15,
+        "epoch": 1785871800,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 74,
+        "valueC": 24
+      },
+      {
+        "index": 16,
+        "epoch": 1785873600,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 73,
+        "valueC": 23
+      },
+      {
+        "index": 17,
+        "epoch": 1785875400,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 73,
+        "valueC": 23
+      },
+      {
+        "index": 18,
+        "epoch": 1785877200,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 72,
+        "valueC": 22
+      },
+      {
+        "index": 19,
+        "epoch": 1785879000,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 71,
+        "valueC": 21
+      },
+      {
+        "index": 20,
+        "epoch": 1785880800,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 70,
+        "valueC": 20
+      },
+      {
+        "index": 21,
+        "epoch": 1785882600,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 69,
+        "valueC": 19
+      },
+      {
+        "index": 22,
+        "epoch": 1785884400,
+        "status": "Missing",
+        "statusCode": 0,
+        "rawCode": 0,
+        "valueC": null
+      },
+      {
+        "index": 23,
+        "epoch": 1785886200,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 68,
+        "valueC": 18
+      },
+      {
+        "index": 24,
+        "epoch": 1785888000,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 67,
+        "valueC": 17
+      },
+      {
+        "index": 25,
+        "epoch": 1785889800,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 67,
+        "valueC": 17
+      },
+      {
+        "index": 26,
+        "epoch": 1785891600,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 66,
+        "valueC": 16
+      },
+      {
+        "index": 27,
+        "epoch": 1785893400,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 66,
+        "valueC": 16
+      },
+      {
+        "index": 28,
+        "epoch": 1785895200,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 66,
+        "valueC": 16
+      },
+      {
+        "index": 29,
+        "epoch": 1785897000,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 66,
+        "valueC": 16
+      },
+      {
+        "index": 30,
+        "epoch": 1785898800,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 66,
+        "valueC": 16
+      },
+      {
+        "index": 31,
+        "epoch": 1785900600,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 67,
+        "valueC": 17
+      },
+      {
+        "index": 32,
+        "epoch": 1785902400,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 67,
+        "valueC": 17
+      },
+      {
+        "index": 33,
+        "epoch": 1785904200,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 67,
+        "valueC": 17
+      },
+      {
+        "index": 34,
+        "epoch": 1785906000,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 68,
+        "valueC": 18
+      },
+      {
+        "index": 35,
+        "epoch": 1785907800,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 69,
+        "valueC": 19
+      },
+      {
+        "index": 36,
+        "epoch": 1785909600,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 70,
+        "valueC": 20
+      },
+      {
+        "index": 37,
+        "epoch": 1785911400,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 70,
+        "valueC": 20
+      },
+      {
+        "index": 38,
+        "epoch": 1785913200,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 71,
+        "valueC": 21
+      },
+      {
+        "index": 39,
+        "epoch": 1785915000,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 72,
+        "valueC": 22
+      },
+      {
+        "index": 40,
+        "epoch": 1785916800,
+        "status": "Above range",
+        "statusCode": 3,
+        "rawCode": 127,
+        "valueC": null
+      },
+      {
+        "index": 41,
+        "epoch": 1785918600,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 74,
+        "valueC": 24
+      },
+      {
+        "index": 42,
+        "epoch": 1785920400,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 74,
+        "valueC": 24
+      },
+      {
+        "index": 43,
+        "epoch": 1785922200,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 75,
+        "valueC": 25
+      },
+      {
+        "index": 44,
+        "epoch": 1785924000,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 75,
+        "valueC": 25
+      },
+      {
+        "index": 45,
+        "epoch": 1785925800,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 76,
+        "valueC": 26
+      },
+      {
+        "index": 46,
+        "epoch": 1785927600,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 76,
+        "valueC": 26
+      },
+      {
+        "index": 47,
+        "epoch": 1785929400,
+        "status": "Value",
+        "statusCode": 1,
+        "rawCode": 76,
+        "valueC": 26
+      }
+    ]
+  },
+  "voltage": {
+    "input": "> EkDUcWoeMAAB5+bl5eTj4uLh4ODf3t7d3Nvb2tnZ2NfX1tXU1NPS0tHQ0M/Ozc3My8vKycnI/w==",
+    "kind": "voltage",
+    "source": null,
+    "channel": null,
+    "interval": 30,
+    "rows": [
+      {
+        "index": 0,
+        "epoch": 1785844800,
+        "status": "Missing",
+        "rawCode": 0,
+        "millivolts": null
+      },
+      {
+        "index": 1,
+        "epoch": 1785846600,
+        "status": "Below range",
+        "rawCode": 1,
+        "millivolts": null
+      },
+      {
+        "index": 2,
+        "epoch": 1785848400,
+        "status": "Value",
+        "rawCode": 231,
+        "millivolts": 4170
+      },
+      {
+        "index": 3,
+        "epoch": 1785850200,
+        "status": "Value",
+        "rawCode": 230,
+        "millivolts": 4160
+      },
+      {
+        "index": 4,
+        "epoch": 1785852000,
+        "status": "Value",
+        "rawCode": 229,
+        "millivolts": 4150
+      },
+      {
+        "index": 5,
+        "epoch": 1785853800,
+        "status": "Value",
+        "rawCode": 229,
+        "millivolts": 4150
+      },
+      {
+        "index": 6,
+        "epoch": 1785855600,
+        "status": "Value",
+        "rawCode": 228,
+        "millivolts": 4140
+      },
+      {
+        "index": 7,
+        "epoch": 1785857400,
+        "status": "Value",
+        "rawCode": 227,
+        "millivolts": 4130
+      },
+      {
+        "index": 8,
+        "epoch": 1785859200,
+        "status": "Value",
+        "rawCode": 226,
+        "millivolts": 4120
+      },
+      {
+        "index": 9,
+        "epoch": 1785861000,
+        "status": "Value",
+        "rawCode": 226,
+        "millivolts": 4120
+      },
+      {
+        "index": 10,
+        "epoch": 1785862800,
+        "status": "Value",
+        "rawCode": 225,
+        "millivolts": 4110
+      },
+      {
+        "index": 11,
+        "epoch": 1785864600,
+        "status": "Value",
+        "rawCode": 224,
+        "millivolts": 4100
+      },
+      {
+        "index": 12,
+        "epoch": 1785866400,
+        "status": "Value",
+        "rawCode": 224,
+        "millivolts": 4100
+      },
+      {
+        "index": 13,
+        "epoch": 1785868200,
+        "status": "Value",
+        "rawCode": 223,
+        "millivolts": 4090
+      },
+      {
+        "index": 14,
+        "epoch": 1785870000,
+        "status": "Value",
+        "rawCode": 222,
+        "millivolts": 4080
+      },
+      {
+        "index": 15,
+        "epoch": 1785871800,
+        "status": "Value",
+        "rawCode": 222,
+        "millivolts": 4080
+      },
+      {
+        "index": 16,
+        "epoch": 1785873600,
+        "status": "Value",
+        "rawCode": 221,
+        "millivolts": 4070
+      },
+      {
+        "index": 17,
+        "epoch": 1785875400,
+        "status": "Value",
+        "rawCode": 220,
+        "millivolts": 4060
+      },
+      {
+        "index": 18,
+        "epoch": 1785877200,
+        "status": "Value",
+        "rawCode": 219,
+        "millivolts": 4050
+      },
+      {
+        "index": 19,
+        "epoch": 1785879000,
+        "status": "Value",
+        "rawCode": 219,
+        "millivolts": 4050
+      },
+      {
+        "index": 20,
+        "epoch": 1785880800,
+        "status": "Value",
+        "rawCode": 218,
+        "millivolts": 4040
+      },
+      {
+        "index": 21,
+        "epoch": 1785882600,
+        "status": "Value",
+        "rawCode": 217,
+        "millivolts": 4030
+      },
+      {
+        "index": 22,
+        "epoch": 1785884400,
+        "status": "Value",
+        "rawCode": 217,
+        "millivolts": 4030
+      },
+      {
+        "index": 23,
+        "epoch": 1785886200,
+        "status": "Value",
+        "rawCode": 216,
+        "millivolts": 4020
+      },
+      {
+        "index": 24,
+        "epoch": 1785888000,
+        "status": "Value",
+        "rawCode": 215,
+        "millivolts": 4010
+      },
+      {
+        "index": 25,
+        "epoch": 1785889800,
+        "status": "Value",
+        "rawCode": 215,
+        "millivolts": 4010
+      },
+      {
+        "index": 26,
+        "epoch": 1785891600,
+        "status": "Value",
+        "rawCode": 214,
+        "millivolts": 4000
+      },
+      {
+        "index": 27,
+        "epoch": 1785893400,
+        "status": "Value",
+        "rawCode": 213,
+        "millivolts": 3990
+      },
+      {
+        "index": 28,
+        "epoch": 1785895200,
+        "status": "Value",
+        "rawCode": 212,
+        "millivolts": 3980
+      },
+      {
+        "index": 29,
+        "epoch": 1785897000,
+        "status": "Value",
+        "rawCode": 212,
+        "millivolts": 3980
+      },
+      {
+        "index": 30,
+        "epoch": 1785898800,
+        "status": "Value",
+        "rawCode": 211,
+        "millivolts": 3970
+      },
+      {
+        "index": 31,
+        "epoch": 1785900600,
+        "status": "Value",
+        "rawCode": 210,
+        "millivolts": 3960
+      },
+      {
+        "index": 32,
+        "epoch": 1785902400,
+        "status": "Value",
+        "rawCode": 210,
+        "millivolts": 3960
+      },
+      {
+        "index": 33,
+        "epoch": 1785904200,
+        "status": "Value",
+        "rawCode": 209,
+        "millivolts": 3950
+      },
+      {
+        "index": 34,
+        "epoch": 1785906000,
+        "status": "Value",
+        "rawCode": 208,
+        "millivolts": 3940
+      },
+      {
+        "index": 35,
+        "epoch": 1785907800,
+        "status": "Value",
+        "rawCode": 208,
+        "millivolts": 3940
+      },
+      {
+        "index": 36,
+        "epoch": 1785909600,
+        "status": "Value",
+        "rawCode": 207,
+        "millivolts": 3930
+      },
+      {
+        "index": 37,
+        "epoch": 1785911400,
+        "status": "Value",
+        "rawCode": 206,
+        "millivolts": 3920
+      },
+      {
+        "index": 38,
+        "epoch": 1785913200,
+        "status": "Value",
+        "rawCode": 205,
+        "millivolts": 3910
+      },
+      {
+        "index": 39,
+        "epoch": 1785915000,
+        "status": "Value",
+        "rawCode": 205,
+        "millivolts": 3910
+      },
+      {
+        "index": 40,
+        "epoch": 1785916800,
+        "status": "Value",
+        "rawCode": 204,
+        "millivolts": 3900
+      },
+      {
+        "index": 41,
+        "epoch": 1785918600,
+        "status": "Value",
+        "rawCode": 203,
+        "millivolts": 3890
+      },
+      {
+        "index": 42,
+        "epoch": 1785920400,
+        "status": "Value",
+        "rawCode": 203,
+        "millivolts": 3890
+      },
+      {
+        "index": 43,
+        "epoch": 1785922200,
+        "status": "Value",
+        "rawCode": 202,
+        "millivolts": 3880
+      },
+      {
+        "index": 44,
+        "epoch": 1785924000,
+        "status": "Value",
+        "rawCode": 201,
+        "millivolts": 3870
+      },
+      {
+        "index": 45,
+        "epoch": 1785925800,
+        "status": "Value",
+        "rawCode": 201,
+        "millivolts": 3870
+      },
+      {
+        "index": 46,
+        "epoch": 1785927600,
+        "status": "Value",
+        "rawCode": 200,
+        "millivolts": 3860
+      },
+      {
+        "index": 47,
+        "epoch": 1785929400,
+        "status": "Above range",
+        "rawCode": 255,
+        "millivolts": null
+      }
+    ]
+  },
+  "externalVoltage": {
+    "input": "> FIAAkmUeMAIAAAAEE0gfcD8AfkD9AfsD+Af0D/Af8EAAgEEBAgMECAgUEDAgcEEAgkEFAgsEGAg0EHAg8EIAhEEJAhMEKAhUELAhcEMAhkENAhsEOAh0EPAh8EQAiEERf/8=",
+    "kind": "external-voltage",
+    "source": null,
+    "channel": 2,
+    "interval": 30,
+    "rows": [
+      {
+        "index": 0,
+        "epoch": 1704067200,
+        "status": "Missing",
+        "rawCode": 0,
+        "millivolts": null
+      },
+      {
+        "index": 1,
+        "epoch": 1704069000,
+        "status": "Value",
+        "rawCode": 1,
+        "millivolts": 20
+      },
+      {
+        "index": 2,
+        "epoch": 1704070800,
+        "status": "Value",
+        "rawCode": 617,
+        "millivolts": 12340
+      },
+      {
+        "index": 3,
+        "epoch": 1704072600,
+        "status": "Value",
+        "rawCode": 503,
+        "millivolts": 10060
+      },
+      {
+        "index": 4,
+        "epoch": 1704074400,
+        "status": "Value",
+        "rawCode": 504,
+        "millivolts": 10080
+      },
+      {
+        "index": 5,
+        "epoch": 1704076200,
+        "status": "Value",
+        "rawCode": 505,
+        "millivolts": 10100
+      },
+      {
+        "index": 6,
+        "epoch": 1704078000,
+        "status": "Value",
+        "rawCode": 506,
+        "millivolts": 10120
+      },
+      {
+        "index": 7,
+        "epoch": 1704079800,
+        "status": "Value",
+        "rawCode": 507,
+        "millivolts": 10140
+      },
+      {
+        "index": 8,
+        "epoch": 1704081600,
+        "status": "Value",
+        "rawCode": 508,
+        "millivolts": 10160
+      },
+      {
+        "index": 9,
+        "epoch": 1704083400,
+        "status": "Value",
+        "rawCode": 509,
+        "millivolts": 10180
+      },
+      {
+        "index": 10,
+        "epoch": 1704085200,
+        "status": "Value",
+        "rawCode": 510,
+        "millivolts": 10200
+      },
+      {
+        "index": 11,
+        "epoch": 1704087000,
+        "status": "Value",
+        "rawCode": 511,
+        "millivolts": 10220
+      },
+      {
+        "index": 12,
+        "epoch": 1704088800,
+        "status": "Value",
+        "rawCode": 512,
+        "millivolts": 10240
+      },
+      {
+        "index": 13,
+        "epoch": 1704090600,
+        "status": "Value",
+        "rawCode": 513,
+        "millivolts": 10260
+      },
+      {
+        "index": 14,
+        "epoch": 1704092400,
+        "status": "Value",
+        "rawCode": 514,
+        "millivolts": 10280
+      },
+      {
+        "index": 15,
+        "epoch": 1704094200,
+        "status": "Value",
+        "rawCode": 515,
+        "millivolts": 10300
+      },
+      {
+        "index": 16,
+        "epoch": 1704096000,
+        "status": "Value",
+        "rawCode": 516,
+        "millivolts": 10320
+      },
+      {
+        "index": 17,
+        "epoch": 1704097800,
+        "status": "Value",
+        "rawCode": 517,
+        "millivolts": 10340
+      },
+      {
+        "index": 18,
+        "epoch": 1704099600,
+        "status": "Value",
+        "rawCode": 518,
+        "millivolts": 10360
+      },
+      {
+        "index": 19,
+        "epoch": 1704101400,
+        "status": "Value",
+        "rawCode": 519,
+        "millivolts": 10380
+      },
+      {
+        "index": 20,
+        "epoch": 1704103200,
+        "status": "Value",
+        "rawCode": 520,
+        "millivolts": 10400
+      },
+      {
+        "index": 21,
+        "epoch": 1704105000,
+        "status": "Value",
+        "rawCode": 521,
+        "millivolts": 10420
+      },
+      {
+        "index": 22,
+        "epoch": 1704106800,
+        "status": "Value",
+        "rawCode": 522,
+        "millivolts": 10440
+      },
+      {
+        "index": 23,
+        "epoch": 1704108600,
+        "status": "Value",
+        "rawCode": 523,
+        "millivolts": 10460
+      },
+      {
+        "index": 24,
+        "epoch": 1704110400,
+        "status": "Value",
+        "rawCode": 524,
+        "millivolts": 10480
+      },
+      {
+        "index": 25,
+        "epoch": 1704112200,
+        "status": "Value",
+        "rawCode": 525,
+        "millivolts": 10500
+      },
+      {
+        "index": 26,
+        "epoch": 1704114000,
+        "status": "Value",
+        "rawCode": 526,
+        "millivolts": 10520
+      },
+      {
+        "index": 27,
+        "epoch": 1704115800,
+        "status": "Value",
+        "rawCode": 527,
+        "millivolts": 10540
+      },
+      {
+        "index": 28,
+        "epoch": 1704117600,
+        "status": "Value",
+        "rawCode": 528,
+        "millivolts": 10560
+      },
+      {
+        "index": 29,
+        "epoch": 1704119400,
+        "status": "Value",
+        "rawCode": 529,
+        "millivolts": 10580
+      },
+      {
+        "index": 30,
+        "epoch": 1704121200,
+        "status": "Value",
+        "rawCode": 530,
+        "millivolts": 10600
+      },
+      {
+        "index": 31,
+        "epoch": 1704123000,
+        "status": "Value",
+        "rawCode": 531,
+        "millivolts": 10620
+      },
+      {
+        "index": 32,
+        "epoch": 1704124800,
+        "status": "Value",
+        "rawCode": 532,
+        "millivolts": 10640
+      },
+      {
+        "index": 33,
+        "epoch": 1704126600,
+        "status": "Value",
+        "rawCode": 533,
+        "millivolts": 10660
+      },
+      {
+        "index": 34,
+        "epoch": 1704128400,
+        "status": "Value",
+        "rawCode": 534,
+        "millivolts": 10680
+      },
+      {
+        "index": 35,
+        "epoch": 1704130200,
+        "status": "Value",
+        "rawCode": 535,
+        "millivolts": 10700
+      },
+      {
+        "index": 36,
+        "epoch": 1704132000,
+        "status": "Value",
+        "rawCode": 536,
+        "millivolts": 10720
+      },
+      {
+        "index": 37,
+        "epoch": 1704133800,
+        "status": "Value",
+        "rawCode": 537,
+        "millivolts": 10740
+      },
+      {
+        "index": 38,
+        "epoch": 1704135600,
+        "status": "Value",
+        "rawCode": 538,
+        "millivolts": 10760
+      },
+      {
+        "index": 39,
+        "epoch": 1704137400,
+        "status": "Value",
+        "rawCode": 539,
+        "millivolts": 10780
+      },
+      {
+        "index": 40,
+        "epoch": 1704139200,
+        "status": "Value",
+        "rawCode": 540,
+        "millivolts": 10800
+      },
+      {
+        "index": 41,
+        "epoch": 1704141000,
+        "status": "Value",
+        "rawCode": 541,
+        "millivolts": 10820
+      },
+      {
+        "index": 42,
+        "epoch": 1704142800,
+        "status": "Value",
+        "rawCode": 542,
+        "millivolts": 10840
+      },
+      {
+        "index": 43,
+        "epoch": 1704144600,
+        "status": "Value",
+        "rawCode": 543,
+        "millivolts": 10860
+      },
+      {
+        "index": 44,
+        "epoch": 1704146400,
+        "status": "Value",
+        "rawCode": 544,
+        "millivolts": 10880
+      },
+      {
+        "index": 45,
+        "epoch": 1704148200,
+        "status": "Value",
+        "rawCode": 545,
+        "millivolts": 10900
+      },
+      {
+        "index": 46,
+        "epoch": 1704150000,
+        "status": "Value",
+        "rawCode": 546,
+        "millivolts": 10920
+      },
+      {
+        "index": 47,
+        "epoch": 1704151800,
+        "status": "Value",
+        "rawCode": 32767,
+        "millivolts": 655340
+      }
+    ]
+  },
+  "gps": {
+    "input": "> EwB9cmoeGIChAxwAR0i3AgAAAAAAAAAAAAAAAAKAAAAAAIAAAAD/9ABAAX/+AAgAYAAAB//wAD/+gAAAA/+wAP/8ABwAEAEABgAAAA//gAX/7AAv/3/8AAf/oAF//QAYACAAgAc=",
+    "kind": "gps",
+    "source": null,
+    "channel": null,
+    "interval": 30,
+    "rows": [
+      {
+        "index": 0,
+        "epoch": 1785888000,
+        "status": "No fix",
+        "latitude": null,
+        "longitude": null,
+        "northMeters": 0,
+        "eastMeters": 0,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 1,
+        "epoch": 1785889800,
+        "status": "No fix",
+        "latitude": null,
+        "longitude": null,
+        "northMeters": 0,
+        "eastMeters": 0,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 2,
+        "epoch": 1785891600,
+        "status": "Origin fix",
+        "latitude": 47,
+        "longitude": -122,
+        "northMeters": 0,
+        "eastMeters": 0,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 3,
+        "epoch": 1785893400,
+        "status": "Fix",
+        "latitude": 47.00089831117499,
+        "longitude": -122,
+        "northMeters": 100,
+        "eastMeters": 0,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 4,
+        "epoch": 1785895200,
+        "status": "Fix",
+        "latitude": 47.00089831117499,
+        "longitude": -121.99894624230042,
+        "northMeters": 0,
+        "eastMeters": 80,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 5,
+        "epoch": 1785897000,
+        "status": "Unchanged / no fix",
+        "latitude": null,
+        "longitude": null,
+        "northMeters": 0,
+        "eastMeters": 0,
+        "ambiguous": true,
+        "possiblyClipped": false
+      },
+      {
+        "index": 6,
+        "epoch": 1785898800,
+        "status": "Fix",
+        "latitude": 47.000628817822495,
+        "longitude": -121.99841936610824,
+        "northMeters": -30,
+        "eastMeters": 40,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 7,
+        "epoch": 1785900600,
+        "status": "Fix",
+        "latitude": 47.00107797340999,
+        "longitude": -121.99868280641901,
+        "northMeters": 50,
+        "eastMeters": -20,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 8,
+        "epoch": 1785902400,
+        "status": "Fix",
+        "latitude": 47.00125763564499,
+        "longitude": -121.99789248282903,
+        "northMeters": 20,
+        "eastMeters": 60,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 9,
+        "epoch": 1785904200,
+        "status": "Fix",
+        "latitude": 47.00125763564499,
+        "longitude": -121.99697043864072,
+        "northMeters": 0,
+        "eastMeters": 70,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 10,
+        "epoch": 1785906000,
+        "status": "Fix",
+        "latitude": 47.00089831117499,
+        "longitude": -121.99657527950338,
+        "northMeters": -40,
+        "eastMeters": 30,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 11,
+        "epoch": 1785907800,
+        "status": "Fix",
+        "latitude": 47.00035932447,
+        "longitude": -121.99657527950338,
+        "northMeters": -60,
+        "eastMeters": 0,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 12,
+        "epoch": 1785909600,
+        "status": "Fix",
+        "latitude": 47.00035932447,
+        "longitude": -121.99723387142164,
+        "northMeters": 0,
+        "eastMeters": -50,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 13,
+        "epoch": 1785911400,
+        "status": "Fix",
+        "latitude": 47.000628817822495,
+        "longitude": -121.99776074761382,
+        "northMeters": 30,
+        "eastMeters": -40,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 14,
+        "epoch": 1785913200,
+        "status": "Fix",
+        "latitude": 47.00125763564499,
+        "longitude": -121.99762902701549,
+        "northMeters": 70,
+        "eastMeters": 10,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 15,
+        "epoch": 1785915000,
+        "status": "Fix",
+        "latitude": 47.00161696011499,
+        "longitude": -121.9968386981101,
+        "northMeters": 40,
+        "eastMeters": 60,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 16,
+        "epoch": 1785916800,
+        "status": "Unchanged / no fix",
+        "latitude": null,
+        "longitude": null,
+        "northMeters": 0,
+        "eastMeters": 0,
+        "ambiguous": true,
+        "possiblyClipped": false
+      },
+      {
+        "index": 17,
+        "epoch": 1785918600,
+        "status": "Fix",
+        "latitude": 47.00143729787999,
+        "longitude": -121.9961800929037,
+        "northMeters": -20,
+        "eastMeters": 50,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 18,
+        "epoch": 1785920400,
+        "status": "Fix",
+        "latitude": 47.00098814229249,
+        "longitude": -121.99591665303586,
+        "northMeters": -50,
+        "eastMeters": 20,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 19,
+        "epoch": 1785922200,
+        "status": "Fix",
+        "latitude": 47.000718648939994,
+        "longitude": -121.99644353011391,
+        "northMeters": -30,
+        "eastMeters": -40,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 20,
+        "epoch": 1785924000,
+        "status": "Fix",
+        "latitude": 47.00080848005749,
+        "longitude": -121.99723384705977,
+        "northMeters": 10,
+        "eastMeters": -60,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 21,
+        "epoch": 1785925800,
+        "status": "Fix",
+        "latitude": 47.00125763564499,
+        "longitude": -121.99762900885477,
+        "northMeters": 50,
+        "eastMeters": -30,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 22,
+        "epoch": 1785927600,
+        "status": "Fix",
+        "latitude": 47.001796622349985,
+        "longitude": -121.9973655650004,
+        "northMeters": 60,
+        "eastMeters": 20,
+        "ambiguous": false,
+        "possiblyClipped": false
+      },
+      {
+        "index": 23,
+        "epoch": 1785929400,
+        "status": "Fix",
+        "latitude": 47.001976284584984,
+        "longitude": -121.99644350840934,
+        "northMeters": 20,
+        "eastMeters": 70,
+        "ambiguous": false,
+        "possiblyClipped": false
+      }
+    ]
+  }
+}

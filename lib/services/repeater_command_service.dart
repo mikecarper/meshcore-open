@@ -20,7 +20,11 @@ class RepeaterCommandService {
   final Map<String, Timer> _commandTimeouts = {};
   final Map<String, String> _commandPrefixes = {};
   final Map<String, String> _pendingByPrefix = {};
-  int _prefixCounter = 0;
+  // Editors and batch endpoints share a Companion. Do not reset tags to 00|
+  // on every new service or let live commands in different services collide.
+  static final Expando<_RepeaterReplyTags> _tagPools = Expando();
+  late final _RepeaterReplyTags _tags = _tagPools[_connector] ??=
+      _RepeaterReplyTags();
 
   static const int maxRetries = 5;
   static final RegExp _prefixPattern = RegExp(r'^[0-9A-Fa-f]{2}\|');
@@ -201,6 +205,7 @@ class RepeaterCommandService {
     final prefix = _commandPrefixes.remove(commandId);
     if (prefix != null) {
       _pendingByPrefix.remove(prefix);
+      _tags.live.remove(prefix);
     }
   }
 
@@ -210,15 +215,18 @@ class RepeaterCommandService {
     }
     _commandTimeouts.clear();
     _pendingCommands.clear();
+    for (final prefix in _commandPrefixes.values) {
+      _tags.live.remove(prefix);
+    }
     _commandPrefixes.clear();
     _pendingByPrefix.clear();
   }
 
   String _nextPrefixToken() {
     for (var i = 0; i < 256; i++) {
-      final value = _prefixCounter++ & 0xFF;
+      final value = _tags.counter++ & 0xFF;
       final token = '${value.toRadixString(16).padLeft(2, '0').toUpperCase()}|';
-      if (!_pendingByPrefix.containsKey(token)) {
+      if (_tags.live.add(token)) {
         return token;
       }
     }
@@ -230,4 +238,9 @@ class RepeaterCommandService {
     // owner of 00| and misrouting one of the replies.
     throw StateError('All repeater command correlation prefixes are in use');
   }
+}
+
+class _RepeaterReplyTags {
+  int counter = 0;
+  final Set<String> live = {};
 }

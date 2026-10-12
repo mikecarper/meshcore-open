@@ -26,6 +26,7 @@ class CompanionFirmwareInspector {
     if (name.contains('nrf52') ||
         name.contains('rak4631') ||
         name.contains('rak3401') ||
+        name.contains('t096') ||
         name.contains('t114') ||
         name.contains('techo') ||
         name.contains('t1000') ||

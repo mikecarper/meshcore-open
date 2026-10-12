@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'secondary_radio_screen.dart';
+import 'node_notifications_screen.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -368,11 +370,35 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
             onSelected: (value) {
               if (value == 'clearChat') {
                 _confirmClearChat();
+              } else if (value == 'radioRoute') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        SecondaryRadioScreen(channel: widget.channel),
+                  ),
+                );
+              } else if (value == 'nodeAlerts') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        NodeNotificationsScreen(channel: widget.channel),
+                  ),
+                );
               } else if (value == 'messageAge') {
                 _changeMessageAge();
               }
             },
             itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'radioRoute',
+                child: Text('Channel radio routing'),
+              ),
+              const PopupMenuItem(
+                value: 'nodeAlerts',
+                child: Text('Node alert rule'),
+              ),
               PopupMenuItem(
                 value: 'messageAge',
                 child: Row(

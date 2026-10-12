@@ -2,7 +2,7 @@
 
 These are real screenshots from the Android 5.1.1 phone and two Full Companions on the Mercerwood Pi Zero bench: a RAK4631 (nRF52) and a Heltec V4.3 OLED (ESP32-S3). Use **Settings > Update Companion** on the phone. This updates the Companion the phone is directly connected to, not a remote repeater over LoRa.
 
-**Test status:** The ESP32 update from `v1.17.1.5` to `v1.17.1.6` completed, the phone reconnected, and the app displayed the new version. The nRF52 Bluetooth DFU transfer reached 100%, and the radio booted the selected `v1.17.1.6` image as verified on its USB service port. Its phone-side reconnection after this lab downgrade was **not** verified: the older build requested Bluetooth pairing again. Do not treat the DFU completion screen alone as end-to-end proof. Details are at the end.
+**Test status:** The ESP32 update from `v1.17.1.5` to `v1.17.1.6` completed, the phone reconnected, and the app displayed the new version. The original RAK4631 nRF52 lab downgrade reached 100% and was verified over USB, but its phone-side reconnection was not verified. A later **T096 Bluetooth upgrade to 1.17.1.9 was verified both over USB and on the reconnected Android 5.1.1 phone**; see the T096 test below. Do not treat the DFU completion screen alone as end-to-end proof.
 
 Keep the Companion powered and the phone charged. Choose an image for the **exact board and role** shown by the app. Do not use a repeater image for a Companion, or an image for a similarly named board. The examples below use the [MeshCore v1.17.1.6 release](https://github.com/mikecarper/MeshCore/releases/tag/v1.17.1.6-halo-keymind-cascade-dev-306feebe); normally select a release newer than the firmware already installed on *your* Companion. If the app's GitHub lookup is unavailable, download the exact release asset into the phone's Downloads and use **Phone Downloads** or **Browse files**. No command line is needed for the normal phone procedure.
 
@@ -20,13 +20,49 @@ Keep the Companion powered and the phone charged. Choose an image for the **exac
 
    ![The Bluetooth DFU confirmation includes board and battery voltage](screenshots/companion-update/nrf-03-confirm.png)
 
-4. Wait for the transfer to reach 100%. Do not leave the app, disconnect Bluetooth, or remove power. If Android loses the bootloader connection, keep the radio powered and use the app's **Retry bootloader** control if offered.
+4. Wait for the transfer to reach 100%. Do not leave the app, disconnect Bluetooth, or remove power. The app releases the normal Companion connection before DFU and checks for the radio's bootloader, including its expected changed Bluetooth address. After a connection timeout before transfer/validation progress, it scans again and makes at most one additional attempt against an identified bootloader. It does not select a different nearby radio just because its name matches.
 
    ![Nordic DFU progressing over Bluetooth](screenshots/companion-update/nrf-04-progress.png)
 
    ![The phone reports the Bluetooth transfer finished](screenshots/companion-update/nrf-05-transfer-finished.png)
 
 5. After the Companion reboots, use **Connect** and select the same radio in the scanner. If Android asks to pair again, use the PIN shown by your device or provided by its administrator; do not put the PIN into firmware files, screenshots, or this guide. Return to **Settings > Update Companion**, expand **Installed firmware**, and confirm the new version. A 100% DFU screen without this last check is not sufficient verification.
+
+### T096 or other nRF52: recovering a GATT connection timeout
+
+If the app reports `GATT CONN TIMEOUT`, keep the radio powered. If automatic recovery cannot find the bootloader, enter **BT OTA** mode using the board's controls, then tap **Retry bootloader** in the same Companion update screen. The retry performs a new scan rather than reusing an old scan result. For the Oltaco T096 bootloader the advertised name is `T096_DFU`; the app checks both the original address and the expected bootloader address. If it finds neither, or finds two matching candidates, it stops without making another firmware attempt.
+
+An installed bootloader and the running Companion application are separate. Older applications may fail to switch into DFU even with a working bootloader; installing another bootloader UF2 does not replace the application's handoff callback. Manual BT OTA entry bypasses that handoff. A board-matched application update containing the corrected handoff may be needed once. Do not erase the radio's settings, delete Bluetooth bonds, or install a SoftDevice just to troubleshoot this timeout.
+
+The recovery change has automated coverage in both Android profiles. The RAK4631 screenshots earlier in this guide are from the earlier bench test. The later physical T096 run is described separately below. Verify the installed version after every update.
+
+### T096 physical upgrade test - 12-Oct-2026
+
+The Mercerwood Pi Zero T096, USB serial `651F8E496197F882`, started on `Companion v1.17.1-t096-full-head-fdd67ce1` (build 30-Sep-2026). Android 5.1.1 phone `LGL51AL2814ba19` installed the MC Open DFU-recovery APK and connected to `MeshCore-B861B9C8` at `CF:A8:18:36:DE:8B`. Its current pairing PIN was read privately from the radio; no credentials were added to the app or this guide.
+
+The phone selected the exact `Heltec_t096_companion_radio_full_femon-v1.17.1.9-halo-keymind-cascade-dev-88c85108.zip` application package from the [1.17.1.9 Companion release](https://github.com/mikecarper/MeshCore/releases/tag/v1.17.1.9-halo-keymind-cascade-dev-88c85108). The manifest contained only `application`, with SoftDevice requirement 182. The confirmation showed the intended board/address and 4.23 V battery reading.
+
+![T096 application DFU confirmation](screenshots/companion-update/t096-01-confirm.png)
+
+Android logged GATT status 8 during handoff at 16:16:13 phone-local time. The Nordic SDK recovered using the same address and the transfer continued. This physically tests the SDK's same-address timeout recovery, not the additional app-side changed-address scan/retry; that selection and manual-entry path have automated regression coverage. The transfer finished at 16:17:47.
+
+![T096 transfer in progress](screenshots/companion-update/t096-02-progress.png)
+
+![T096 Bluetooth DFU completed](screenshots/companion-update/t096-03-finished.png)
+
+The initial APK required pairing again after DFU because the native SDK's default removes the phone bond. After normal Android pairing, the phone reconnected and **Installed firmware** displayed `Companion v1.17.1.9-halo-keymind-cascade-dev-88c85108` (build 07-Oct-2026), matching the Pi's USB query. The same node name and Bluetooth address remained. No erase, bootloader replacement, SoftDevice replacement, or settings reset was performed.
+
+![T096 installed version verified on the reconnected phone](screenshots/companion-update/t096-04-version-verified.png)
+
+Testing also exposed an omitted T096 board-format entry; the follow-up code now identifies this board as Nordic DFU ZIP over Bluetooth. Application-only updates also request native bond retention. System-component updates do not request that retention. [Nordic documents the supported legacy bootloader requirements and limitations](https://github.com/nordicsemi/Android-DFU-Library/blob/2.11.0/lib/dfu/src/main/java/no/nordicsemi/android/dfu/DfuServiceInitiator.java); retaining a bond is not proof that the DFU link is encrypted.
+
+The same-version follow-up application transfer completed at 16:38:23 phone-local time with bond retention enabled. Android retained the pairing but cached the bootloader's GATT services, preventing a normal NUS connection. The final app now inspects services before subscribing to Service Changed. On Android, if it finds legacy DFU but no NUS, it refreshes only that radio's service cache, waits one second, and rediscovers once. A device still genuinely in DFU is not treated as a Companion. No bond is removed.
+
+Installing the final APK into that existing cached state physically verified recovery: Android logged `BluetoothGatt.refresh()` at 16:59:51, rediscovered the application services, and subscribed to NUS at 16:59:53. The phone reconnected without another PIN prompt and read the installed 1.17.1.9 version again. This follow-up preserved the same node identity/name and Bluetooth address. It did not erase storage, reset settings, or replace the bootloader.
+
+![Final T096 reconnection with retained pairing and correct Bluetooth ZIP hint](screenshots/companion-update/t096-05-retained-bond-version.png)
+
+Both Android profiles passed 1,045 tests with two optional skips, and the new service-cache policy has regression coverage for ordinary devices, non-Android platforms, real bootloader mode, and failed refreshes. All three connected Android 5.1.1 phones answered ADB at the final check. Their USB configuration was already 2; reconnecting only the stalled `LGL51AL2814a411` transport restored command responses, without phone reboots or changing other transports.
 
 ## ESP32: Wi-Fi application BIN
 

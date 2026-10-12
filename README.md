@@ -70,6 +70,237 @@ MeshCore Open is a cross-platform mobile application for communicating with Mesh
 - **Statistics Dashboard**: View repeater traffic, connected clients, and system health
 - **Remote Management**: Administer repeaters from anywhere on the mesh network
 
+### Node monitoring dashboard
+
+Open **Contacts > Node dashboard > Select nodes** to build a searchable
+watchlist. Selections and refresh intervals are saved separately for each
+Companion's full public key. Choose manual refresh or automatic 12, 24, or 48
+hour cycles; the minimum and default are 12 hours. Older shorter saved intervals
+are migrated to 12 hours; manual-only settings are preserved. Opening a saved
+watchlist or saving a selection does not send a request. Use **Refresh all** or
+**Refresh node** for an immediate read. Each refresh finishes before the next
+full interval starts, including after a manual read. Pause and Stop refresh
+are available.
+
+Repeater and room cards show battery voltage when greater than zero, uptime,
+last-received signal, packet counters, queue/errors, route hops, last response,
+and last advertisement. Chat and sensor cards show allowed telemetry, including
+battery voltage and temperature when supplied. Readings are kept in memory
+while the dashboard is open; the watchlist persists after restarting the app.
+Unavailable contacts remain removable from the picker.
+
+Monitoring is read-only and sequential, with no automatic request retries.
+It stops when the dashboard closes, the app goes into the background, or the
+Companion changes/disconnects. There are no background alerts. Login from
+Contacts first when a repeater/room requires it; other nodes must allow
+telemetry. A missed response is not proof that a node is offline. Older values
+remain visible with their response age and become marked stale. Unknown or
+ambiguous six-byte contact prefixes are not queried or attributed to a node.
+
+The Android 5.1.1 phone selected and read the Pi-connected Heltec Tower
+repeater using the dashboard, without changing node configuration. Screenshots:
+[node selection](docs/screenshots/firmware-controls/android-5.1-monitor-selection.png)
+and [live dashboard](docs/screenshots/firmware-controls/android-5.1-node-dashboard.png).
+Multi-node sequencing, telemetry decoding, zero-voltage suppression, scoped
+watchlists, stale readings after a timeout, cancellation, Companion changes,
+foreground-only automatic refresh, and small-screen layout have automated tests.
+
+### Private-channel fleet management
+
+Open **Contacts > Fleet management**. This uses the signed private-channel
+protocol in the local MeshCore head (`f62cc7b5`), not repeated chat commands or
+the filter playground. Both the publishing Companion and infrastructure
+receivers must include fleet support; released firmware without those commands
+is not assumed compatible. Fixed-size STM32 builds omit fleet control.
+
+Choose an existing private random-key channel, or explicitly create one using a
+secure random key generated on the phone. Channel creation waits for a complete
+channel-slot read and never overwrites an occupied slot. Check publisher support
+explicitly; opening the screen sends nothing. The Companion signs with its own
+identity, so the signing private key is never exported to the phone or receivers.
+
+Log into receivers as admin from Contacts, then **Read enrollment** before
+enrolling or removing them. Enrollment uses individually authenticated commands
+to save the channel key and publisher public key. Separate writes may partially
+succeed; read enrollment again after success or a lost reply. Channel state and
+publisher identity are readable, but the receiver does not reveal its channel
+key. A channel-hash summary is not proof of the complete key. Guest logins,
+ambiguous contact prefixes, unhealthy stores, disconnects, and changed Companion
+identities cannot authorize enrollment writes.
+
+Target selected nodes by full public identity (default), optionally use compact
+12-character prefixes, choose configured regions/home ancestry, select a GPS
+center and radius, or explicitly choose all enrolled nodes. Prefixes can match
+unknown nodes with the same prefix. Regions are receiver-side selectors, not
+routing scopes, and unknown regions never become an all-fleet request. Oversized
+target lists are rejected as a whole under both the two-packet firmware budget
+and the app's correlated command-frame limit; they are never silently truncated
+or split into broader broadcasts.
+
+The GUI exposes the firmware's filtering, blacklist, channel moderation, scope,
+hop-limit, Radio 2, scheduled primary/secondary radio, and forward-only clock
+controls. **Packet filters > Send rule over fleet channel** copies a validated
+rule as an unnumbered insert, without its node-local slot. The Radio 2 editor can
+copy saved or temporary profile drafts into fleet review. No draft is sent until
+the targets, private channel, control, and packet count are confirmed. Receivers
+still validate their own supported settings. Use absolute UTC timestamps for
+coordinated schedules; relative starts vary with receiver acceptance time.
+
+There are no automatic sends, background polls, or write retries. Sends are
+limited to at most one per second per Companion, including uncertain queue
+attempts. A queue acknowledgement only means the Companion queued the command.
+Matching receiver reports are shown as **unverified channel reports**: ordinary
+channel text, sender names, and identity prefixes are not authenticated receipts.
+Confirm critical results through existing individual admin access. Preserve a
+recovery route before deploying filters or radio schedules.
+
+Firmware installation/OTA, reboot, credentials, identity export, ACL edits,
+filesystem operations, arbitrary CLI, authenticated fleet inventory, background
+alerts, and multi-day history collection are not supplied by this channel.
+Continue using the existing individual-node tools for those operations.
+
+Protocol reference: [MeshCore fleet management](https://github.com/mikecarper/MeshCore/blob/f62cc7b52759e4cfa52f8b739e9fecea3a6deeb2/docs/fleet_management.md).
+
+### Native firmware controls
+
+The app now provides controls for firmware features that previously required
+typing commands. These screens read support and saved values from the device;
+opening a screen never changes the radio.
+
+- **Settings > Node alerts** edits the radio's programmable notifications, not
+  Android notifications. Configure supported hardware outputs, all-message,
+  contact/room, or channel rules, connection conditions, pulse patterns, RTTTL
+  sound, repeat/gap/stop behavior, and approved GPIOs. Presets, a local duration
+  preview, saved-rule hardware tests, and Stop are included. Remote `!notify`
+  permission is opt-in for an individual contact/room, never a channel. Turning
+  the engine off restores legacy alerts; it is not an all-alert mute.
+- **Settings > Radio 2 and channel routing**, or a channel's action menu,
+  configures the permanent/temporary second LoRa profile and saved per-channel
+  automatic, primary, Radio 2, both, or disabled transmit routing. Active routing,
+  crossing, and timing are read back. There is still only one time-shared radio;
+  a Radio 2-only channel cannot send while that profile is off or receive-only.
+- **Repeater/room admin hub > Packet filters** reads individual compact FPF7
+  forwarding rows and edits payload, hop, channel, path, incoming scope, action,
+  rate, priority, retry, stop, timing, and temporary-radio conditions. Repeaters
+  also expose separate scope-rewrite, shared blacklist, and sender-moderation
+  editors. Full room-server builds expose forwarding rows only. Unknown/legacy
+  row formats are not rewritten, and an empty table alone is not treated as
+  proof that the firmware supports generalized FPF7 fields.
+- **Contacts > Repeater filters** lists repeaters with an observed admin login
+  for the current Companion. Open a filter editor, build or load a forwarding
+  rule, then choose **Apply to selected repeaters**. Select nodes, check their
+  compact-filter support, and confirm the named destinations. Each receives an
+  unnumbered insert into a free slot or an identical existing row; another
+  node's slot number is never copied and different saved rules are not replaced.
+  Each result distinguishes acknowledged, unconfirmed, and unsent operations.
+  A failed node does not hide the others' results. Stop waits for the current
+  node, then skips the remaining ones. Read-only checks can be cancelled.
+  Remote controls wait at least 30 seconds for delayed replies, or longer when
+  the calculated route timeout requires it. There are no automatic write retries.
+  Logins are remembered in app memory across reconnects to the same Companion;
+  changing Companions or restarting the app requires logging in again. Guest
+  logins and saved passwords do not qualify. Permission changes and ambiguous
+  contact-key prefixes invalidate selection. Remote permissions may still
+  change, so checks and acknowledgements remain necessary.
+  Shared blacklist contents and region definitions remain local to each node;
+  inserting a rule does not copy those definitions.
+
+Writes require confirmation, fit the Companion/LoRa frame limits, bind to the
+connected device (and the selected channel key), and stop a single-node save at
+the first failure. Selected-repeater batches report each node independently.
+Multi-setting saves are not an atomic transaction: earlier acknowledgements
+remain saved, and a timed-out write may have applied. Remote inserts are not
+automatically retried. Read the device before retrying. Scope/moderation saves
+without an explicit slot can update an existing matching row, as the firmware
+specifies; the confirmation explains this. A scope getter does not distinguish
+direct scope from region targets, so editing requires an explicit target-kind
+choice. Path hashes and sender labels are not authenticated identities.
+
+The [filter playground](https://mikecarper.github.io/MeshCore/filter_tool/) is a
+design/simulation tool. Its readable policy language, JSON, and Base64 bundle
+are not accepted by current firmware. This app uses the actual `notify`,
+`radio2`/`tx.channel`, `fr`, `flood.channel.scope`, `flood.filter.blacklist`, and
+`flood.moderation` command families instead. It does not claim to implement
+prototype shadow-mode, burst, or proposed whole-policy features.
+
+References: [node notifications](https://mikecarper.github.io/MeshCore/notifications/),
+[Radio 2](https://mikecarper.github.io/MeshCore/radio_profiles/), and
+[firmware filtering](https://mikecarper.github.io/MeshCore/flood_filtering/).
+
+Phone verification used the connected LG Android 5.1.1 handset: live notification
+capabilities and approved GPIOs, Radio 2 diagnostics, and saving/read-back of
+Public's existing Automatic route. The phone also authenticated directly over
+LoRa to the Pi-connected Heltec Tower repeater and read its compact forwarding
+rule and other filter tables. The selected-repeater flow checked its firmware,
+confirmed the destination, and received an acknowledgement for inserting its
+identical existing OTA rule. Read-back verified the same two saved rows, with
+no extra slot and no change to the filtering policy. Alert hardware was not
+triggered. This live batch test used one repeater; multi-node selection, setter
+failures, partial results, cancellation, permission changes, and no automatic
+write retries are covered by automated tests.
+
+Phone screenshots: [node alerts](docs/screenshots/firmware-controls/android-5.1-node-alerts.png),
+[channel routing](docs/screenshots/firmware-controls/android-5.1-radio2.png),
+[filter inventory](docs/screenshots/firmware-controls/android-5.1-filters.png),
+[loaded forwarding rule](docs/screenshots/firmware-controls/android-5.1-filter-rule.png),
+[logged-in repeater list](docs/screenshots/firmware-controls/android-5.1-repeater-filter-list.png),
+[selected repeater check](docs/screenshots/firmware-controls/android-5.1-repeater-filter-ready.png),
+[apply confirmation](docs/screenshots/firmware-controls/android-5.1-repeater-filter-confirm.png), and
+[acknowledged result](docs/screenshots/firmware-controls/android-5.1-repeater-filter-result.png).
+
+### Packet tools
+
+Open **Packet tools** from the scanner toolbar or **Settings > Debug**. These
+native tools work without a radio or a browser, including on Android 5.1.1:
+
+- Decode raw `TTB1`, `TVB1`, and `IVB1` telemetry snapshots, or CLI Base64
+  temperature, battery, I2C voltage, and GPS history pages. Compatible pages merge
+  by timestamp; **Copy CSV** exports the decoded samples to the clipboard.
+- Inspect raw MeshCore packet headers, routes, hop hashes, transport fields, and
+  payload bytes. Encrypted content is not guessed or silently treated as plaintext.
+- Decode `MGR1` management reports. Public fields are explicitly unauthenticated
+  until a management password verifies the AES-SIV tag. Multi-page ACLs and an
+  optional candidate administrator public key can be checked locally.
+- Select an analyzer IATA region code (for example `SEA`), then **Pull packets**
+  to request up to 50 recent packets from the Let's Mesh API. This selection
+  is separate from a radio's LoRa flood scope. Tap a packet to select its decoder.
+  If API access is blocked, **Open analyzer** and paste its Raw Data instead.
+- **Radio packets** opens recent companion RX captures. Companion and repeater CLI
+  replies expose **Decode reply** when they contain supported data; history command
+  shortcuts are available in both CLI screens.
+
+Reports, management passwords, and candidate keys are never uploaded by these
+tools. Only the selected analyzer region is saved; management credentials are
+memory-only and cleared by **Clear local data** or by leaving the tool.
+
+Wire-format references: [telemetry decoder](https://mikecarper.github.io/MeshCore/telemetry_decoder/)
+and [management decoder](https://mikecarper.github.io/MeshCore/management_decoder/).
+Tests include checked-in golden samples generated by the MeshCore JavaScript
+decoders, authenticated multi-page ACLs, tampering/wrong-password rejection,
+API failure handling, and compact-screen layouts.
+
+Verification on an LG LGL51AL running Android 5.1.1 covered telemetry samples,
+raw packet headers, authenticated management reports, region selection, and the
+CLI entry point. Wrong management passwords were rejected on the phone. Both
+Android profile test suites passed 909 tests (two optional
+fixture tests skipped per profile). The phone's live analyzer request returned
+HTTP 401; automatic retrieval still needs permitted API access. No challenge or
+authentication bypass is used. Browser/paste import remains available.
+The phone connected to companion `C93F220A`, executed `ver`, and decoded a live
+RX packet with nine hops and two-byte path hashes. That companion's installed
+firmware returned `Unknown command` for temperature/battery history; the app
+does not add history support to firmware that lacks it.
+
+Phone screenshots: [telemetry](docs/screenshots/packet-tools/telemetry-android-5.1.1.png),
+[raw packet](docs/screenshots/packet-tools/raw-android-5.1.1.png), and
+[management](docs/screenshots/packet-tools/management-android-5.1.1.png),
+[authenticated report](docs/screenshots/packet-tools/management-auth-android-5.1.1.png),
+[password rejection](docs/screenshots/packet-tools/management-rejected-android-5.1.1.png),
+and [CLI](docs/screenshots/packet-tools/cli-android-5.1.1.png).
+Live checks: [CLI replies](docs/screenshots/packet-tools/cli-live-android-5.1.1.png),
+[radio packet](docs/screenshots/packet-tools/radio-raw-android-5.1.1.png), and
+[analyzer access failure](docs/screenshots/packet-tools/analyzer-access-android-5.1.1.png).
+
 ## Technical Details
 
 ### Architecture

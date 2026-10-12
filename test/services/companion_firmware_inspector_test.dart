@@ -31,6 +31,10 @@ void main() {
       'zip',
     );
     expect(
+      CompanionFirmwareInspector.updateExtensionForBoard('Heltec T096'),
+      'zip',
+    );
+    expect(
       CompanionFirmwareInspector.updateExtensionForBoard('Unknown board'),
       isNull,
     );

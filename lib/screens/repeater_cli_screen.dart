@@ -11,6 +11,7 @@ import '../widgets/debug_frame_viewer.dart';
 import '../services/repeater_command_service.dart';
 import '../widgets/routing_sheet.dart';
 import '../helpers/snack_bar_builder.dart';
+import 'packet_tools_screen.dart';
 
 class RepeaterCliScreen extends StatefulWidget {
   final Contact repeater;
@@ -47,6 +48,10 @@ class _RepeaterCliScreenState extends State<RepeaterCliScreen> {
     {'labelKey': 'version', 'command': 'ver'},
     {'labelKey': 'clock', 'command': 'clock'},
     {'labelKey': 'clock sync', 'command': 'clock sync'},
+    {'labelKey': 'Temperature history', 'command': 'get telemetry.temp'},
+    {'labelKey': 'Battery history', 'command': 'get telemetry.volt'},
+    {'labelKey': 'I2C channels', 'command': 'get telemetry.volt.i2c'},
+    {'labelKey': 'GPS history', 'command': 'get telemetry.gps'},
   ];
 
   @override
@@ -588,6 +593,9 @@ class _RepeaterCliScreenState extends State<RepeaterCliScreen> {
       itemBuilder: (context, index) {
         final entry = _commandHistory[index];
         final isCommand = entry['type'] == 'command';
+        final decodeMode = isCommand
+            ? null
+            : detectPacketToolMode(entry['text']!);
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 2),
@@ -608,12 +616,31 @@ class _RepeaterCliScreenState extends State<RepeaterCliScreen> {
               ),
               const SizedBox(width: 6),
               Expanded(
-                child: SelectableText(
-                  entry['text']!,
-                  style: MeshTheme.mono(
-                    fontSize: 12.5,
-                    color: isCommand ? MeshPalette.blue : MeshPalette.ink,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SelectableText(
+                      entry['text']!,
+                      style: MeshTheme.mono(
+                        fontSize: 12.5,
+                        color: isCommand ? MeshPalette.blue : MeshPalette.ink,
+                      ),
+                    ),
+                    if (decodeMode != null)
+                      TextButton.icon(
+                        icon: const Icon(Icons.analytics_outlined, size: 16),
+                        label: const Text('Decode reply'),
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => PacketToolsScreen(
+                              initialInput: entry['text']!,
+                              initialMode: decodeMode,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],

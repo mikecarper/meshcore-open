@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:nordic_dfu/nordic_dfu.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
@@ -14,13 +13,15 @@ import '../services/esp32_wifi_ota_service.dart';
 import '../services/github_mota_release_service.dart';
 import '../services/local_mota_builder.dart';
 import '../services/nrf_dfu_package.dart';
+import '../services/nrf_dfu_recovery.dart';
 import '../widgets/mesh_ui.dart';
 import '../widgets/update_status_card.dart';
 
 class CompanionUpdateScreen extends StatefulWidget {
-  const CompanionUpdateScreen({super.key, this.pickFirmware});
+  const CompanionUpdateScreen({super.key, this.pickFirmware, this.dfuRecovery});
 
   final Future<XFile?> Function()? pickFirmware;
+  final NrfDfuRecovery? dfuRecovery;
 
   @override
   State<CompanionUpdateScreen> createState() => _CompanionUpdateScreenState();
@@ -37,6 +38,10 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
   String? _filename;
   String? _dfuPath;
   String? _dfuAddress;
+  String? _dfuBootloaderAddress;
+  String? _companionKey;
+  String? _companionAddress;
+  late final NrfDfuRecovery _dfuRecovery;
   NrfDfuPackage? _dfu;
   Uint8List? _espImage;
   FirmwareImageIdentity? _imageIdentity;
@@ -61,11 +66,13 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
   @override
   void initState() {
     super.initState();
+    _dfuRecovery = widget.dfuRecovery ?? NrfDfuRecovery();
     WidgetsBinding.instance.addPostFrameCallback((_) => _readDevice());
   }
 
   @override
   void dispose() {
+    _dfuRecovery.dispose();
     _dfuConnector?.setPreserveUpdateScreenOnDisconnect(false);
     _wifi.dispose();
     _releases.dispose();
@@ -127,6 +134,8 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
     if (!connector.isConnected) {
       throw StateError('Connect to a Companion first.');
     }
+    final identity = connector.selfPublicKeyHex;
+    final address = connector.deviceIdLabel;
     String board;
     String version;
     try {
@@ -137,14 +146,24 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
       version = connector.firmwareVersionString ?? 'Unknown firmware';
     }
     if (!mounted) return;
+    if (!connector.isConnected ||
+        connector.selfPublicKeyHex != identity ||
+        connector.deviceIdLabel != address) {
+      throw StateError(
+        'Companion changed while reading device info. Reopen the updater.',
+      );
+    }
     final previous = _dfuPath;
     setState(() {
       _board = board;
+      _companionKey = identity;
+      _companionAddress = address;
       _version = version;
       _partition = null;
       _filename = null;
       _dfuPath = null;
       _dfuAddress = null;
+      _dfuBootloaderAddress = null;
       _dfu = null;
       _espImage = null;
       _imageIdentity = null;
@@ -437,6 +456,15 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
       );
       return;
     }
+    if (!retryBootloader &&
+        (connector.selfPublicKeyHex != _companionKey ||
+            connector.deviceIdLabel != _companionAddress)) {
+      setState(
+        () => _status =
+            'The Companion changed. Read its device info and choose matching firmware again.',
+      );
+      return;
+    }
     final address = retryBootloader ? _dfuAddress! : connector.deviceIdLabel;
     final bootMessage = retryBootloader
         ? 'The bootloader must still be advertising. Keep it powered.'
@@ -444,12 +472,25 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
     if (!await _confirm(
       retryBootloader ? 'Retry bootloader?' : 'Update Companion?',
       'Send $_filename to $_board at $address. '
+      '${retryBootloader && _dfuBootloaderAddress != null ? 'Last discovered bootloader: $_dfuBootloaderAddress. It will be checked again. ' : ''}'
       'The ZIP must match this exact board and bootloader. '
       '$bootMessage',
     )) {
       return;
     }
     if (!mounted) return;
+    if ((retryBootloader && connector.isConnected) ||
+        (!retryBootloader &&
+            (!connector.isConnected ||
+                connector.activeTransport != MeshCoreTransportType.bluetooth ||
+                connector.selfPublicKeyHex != _companionKey ||
+                connector.deviceIdLabel != address))) {
+      setState(
+        () => _status =
+            'Connection changed during confirmation. Reopen the updater.',
+      );
+      return;
+    }
     _dfuAddress = address;
     connector.setPreserveUpdateScreenOnDisconnect(true);
     _dfuConnector = connector;
@@ -457,58 +498,44 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
       () async {
         setState(() {
           _status = retryBootloader
-              ? 'Retrying the nearby DFU bootloader…'
-              : 'Releasing Companion Bluetooth for Nordic DFU…';
+              ? 'Finding this radio Bluetooth OTA bootloader...'
+              : 'Releasing Companion Bluetooth for Nordic DFU...';
           _progress = 0;
         });
-        if (retryBootloader) {
-          await Future<void>.delayed(const Duration(seconds: 5));
-        } else {
+        // Do not let the normal Companion scanner compete with the native
+        // DFU service. Manual disconnect also disables auto-reconnection.
+        await connector.stopScan();
+        if (!mounted) return;
+        if ((retryBootloader && connector.isConnected) ||
+            (!retryBootloader &&
+                (!connector.isConnected ||
+                    connector.deviceIdLabel != address ||
+                    connector.selfPublicKeyHex != _companionKey))) {
+          throw StateError('Connection changed. Reopen the updater.');
+        }
+        if (!retryBootloader) {
           await connector.disconnect(manual: true);
-          await Future<void>.delayed(const Duration(seconds: 2));
         }
-        Future<void> transfer({required bool forceBootloader}) async {
-          await NordicDfu().startDfu(
-            address,
-            path,
-            name: _board,
-            forceDfu: forceBootloader,
-            androidParameters: const AndroidParameters(
-              startAsForegroundService: true,
-              packetReceiptNotificationsEnabled: true,
-              rebootTime: 5000,
-              numberOfRetries: 5,
-            ),
-            dfuEventHandler: DfuEventHandler(
-              onProgressChanged:
-                  (_, percent, speed, avgSpeed, currentPart, partsTotal) {
-                    if (mounted) setState(() => _progress = percent);
-                  },
-              onError: (_, error, errorType, message) {
-                if (mounted) {
-                  setState(() => _status = 'Bluetooth DFU error: $message');
-                }
-              },
-            ),
-          );
-        }
-
-        try {
-          await transfer(forceBootloader: retryBootloader);
-        } on PlatformException catch (error) {
-          if (retryBootloader || (error.code != '62' && error.code != '4101')) {
-            rethrow;
-          }
-          if (mounted) {
-            setState(() {
-              _status =
-                  'Android lost the bootloader connection. Retrying once…';
-              _progress = 0;
-            });
-          }
-          await Future<void>.delayed(const Duration(seconds: 5));
-          await transfer(forceBootloader: true);
-        }
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (!mounted) return;
+        await _dfuRecovery.update(
+          originalAddress: address,
+          path: path,
+          board: _board ?? '',
+          applicationOnly:
+              package.components.length == 1 &&
+              package.components.single == 'application',
+          retryBootloader: retryBootloader,
+          onStatus: (message) {
+            if (mounted) setState(() => _status = message);
+          },
+          onProgress: (percent) {
+            if (mounted) setState(() => _progress = percent);
+          },
+          onBootloader: (found) {
+            if (mounted) setState(() => _dfuBootloaderAddress = found);
+          },
+        );
         if (mounted) {
           setState(() {
             _progress = 100;

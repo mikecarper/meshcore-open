@@ -32,6 +32,9 @@ import '../widgets/sync_progress_overlay.dart';
 import '../widgets/unread_badge.dart';
 import '../helpers/snack_bar_builder.dart';
 import 'channels_screen.dart';
+import 'repeater_filter_batch_screen.dart';
+import 'node_monitor_screen.dart';
+import 'fleet_management_screen.dart';
 import 'chat_screen.dart';
 import 'discovery_screen.dart';
 import 'map_screen.dart';
@@ -378,6 +381,51 @@ class _ContactsScreenState extends State<ContactsScreen> {
                     ],
                   ),
                   onTap: () => _contactImport(),
+                ),
+                PopupMenuItem(
+                  child: const Row(
+                    children: [
+                      Icon(Icons.filter_alt_outlined),
+                      SizedBox(width: 8),
+                      Text('Repeater filters'),
+                    ],
+                  ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LoggedInRepeaterFiltersScreen(),
+                    ),
+                  ),
+                ),
+                PopupMenuItem(
+                  child: const Row(
+                    children: [
+                      Icon(Icons.monitor_heart_outlined),
+                      SizedBox(width: 8),
+                      Text('Node dashboard'),
+                    ],
+                  ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NodeMonitorScreen(),
+                    ),
+                  ),
+                ),
+                PopupMenuItem(
+                  child: const Row(
+                    children: [
+                      Icon(Icons.hub_outlined),
+                      SizedBox(width: 8),
+                      Text('Fleet management'),
+                    ],
+                  ),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const FleetManagementScreen(),
+                    ),
+                  ),
                 ),
                 const PopupMenuDivider(),
                 PopupMenuItem(
