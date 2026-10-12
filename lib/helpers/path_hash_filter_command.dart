@@ -26,7 +26,7 @@ String buildPathHashFilterCommand({
     throw ArgumentError.value(
       ratePerMinute,
       'ratePerMinute',
-      'Must be 1–65534',
+      'Must be 1-65534',
     );
   }
   final width = orMore
