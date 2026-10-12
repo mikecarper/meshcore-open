@@ -42,6 +42,7 @@ import '../services/background_service.dart';
 import '../services/timeout_prediction_service.dart';
 import '../services/translation_service.dart';
 import '../services/notification_service.dart';
+import '../services/repeater_admin_sessions.dart';
 import 'meshcore_connector_usb.dart';
 import 'meshcore_connector_tcp.dart';
 import '../storage/channel_message_store.dart';
@@ -363,6 +364,7 @@ class MeshCoreConnector extends ChangeNotifier {
   /// repeater's RTC clock at the moment of the most recent successful login.
   /// Reported by firmware in the login-success push frame at byte offset 8.
   final Map<String, DateTime> _repeaterLoginClocks = {};
+  final RepeaterAdminSessions repeaterAdminSessions = RepeaterAdminSessions();
 
   // Channel syncing state (sequential pattern)
   bool _isSyncingChannels = false;
@@ -4975,6 +4977,9 @@ class MeshCoreConnector extends ChangeNotifier {
         _handleLoginSuccess(frame);
         break;
       case pushCodeLoginFail:
+        repeaterAdminSessions.observeLogin(frame, contacts, selfPublicKeyHex);
+        notifyListeners();
+        break;
       case pushCodeStatusResponse:
         break;
       case pushCodeLogRxData:
@@ -5148,6 +5153,8 @@ class MeshCoreConnector extends ChangeNotifier {
         selfName.isNotEmpty) {
       _usbManager.updateConnectedLabel(selfName);
     }
+
+    repeaterAdminSessions.bindCompanion(selfPublicKeyHex);
 
     // GPS poll responses arrive as RESP_CODE_SELF_INFO but are not the real
     // handshake — only update location and notify, skip store reloads and
@@ -7429,6 +7436,8 @@ class MeshCoreConnector extends ChangeNotifier {
   /// The timestamp is only present in the v7+ "new login response" — older
   /// firmware emits a shorter frame that we silently skip.
   void _handleLoginSuccess(Uint8List frame) {
+    repeaterAdminSessions.observeLogin(frame, contacts, selfPublicKeyHex);
+    notifyListeners();
     if (frame.length < 12) return;
     final prefix = pubKeyToHex(frame.sublist(2, 8));
     final ts = ByteData.sublistView(frame, 8, 12).getUint32(0, Endian.little);

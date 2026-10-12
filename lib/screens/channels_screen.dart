@@ -35,6 +35,8 @@ import 'community_qr_scanner_screen.dart';
 import 'contacts_screen.dart';
 import 'map_screen.dart';
 import 'settings_screen.dart';
+import 'node_notifications_screen.dart';
+import 'secondary_radio_screen.dart';
 
 class ChannelsScreen extends StatefulWidget {
   final bool hideBackButton;
@@ -283,6 +285,8 @@ class _ChannelsScreenState extends State<ChannelsScreen>
                           ),
                           buildDefaultDragHandles: false,
                           itemCount: filteredChannels.length,
+                          // Flutter 3.32 lacks the newer onReorderItem API.
+                          // ignore: deprecated_member_use
                           onReorder: (oldIndex, newIndex) {
                             final reordered = List<Channel>.from(
                               filteredChannels,
@@ -619,65 +623,95 @@ class _ChannelsScreenState extends State<ChannelsScreen>
     showModalBottomSheet(
       context: parentContext,
       builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: Text(sheetContext.l10n.channels_editChannel),
-              onTap: () async {
-                Navigator.pop(sheetContext);
-                await Future.delayed(const Duration(milliseconds: 100));
-                if (parentContext.mounted) {
-                  _showEditChannelDialog(parentContext, connector, channel);
-                }
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                isMuted
-                    ? Icons.notifications_outlined
-                    : Icons.notifications_off_outlined,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.settings_input_antenna),
+                title: const Text('Channel radio routing'),
+                subtitle: const Text('Primary, Radio 2, both, or automatic'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  Navigator.push(
+                    parentContext,
+                    MaterialPageRoute(
+                      builder: (_) => SecondaryRadioScreen(channel: channel),
+                    ),
+                  );
+                },
               ),
-              title: Text(
-                isMuted
-                    ? sheetContext.l10n.channels_unmuteChannel
-                    : sheetContext.l10n.channels_muteChannel,
+              ListTile(
+                leading: const Icon(Icons.notifications_active_outlined),
+                title: const Text('Node alert rule'),
+                subtitle: const Text('Alert hardware on the connected radio'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  Navigator.push(
+                    parentContext,
+                    MaterialPageRoute(
+                      builder: (_) => NodeNotificationsScreen(channel: channel),
+                    ),
+                  );
+                },
               ),
-              onTap: () async {
-                Navigator.pop(sheetContext);
-                if (isMuted) {
-                  await settingsService.unmuteChannel(channel.name);
-                } else {
-                  await settingsService.muteChannel(channel.name);
-                }
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.delete_outline,
-                color: Theme.of(sheetContext).colorScheme.error,
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: Text(sheetContext.l10n.channels_editChannel),
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  await Future.delayed(const Duration(milliseconds: 100));
+                  if (parentContext.mounted) {
+                    _showEditChannelDialog(parentContext, connector, channel);
+                  }
+                },
               ),
-              title: Text(
-                sheetContext.l10n.channels_deleteChannel,
-                style: TextStyle(
+              ListTile(
+                leading: Icon(
+                  isMuted
+                      ? Icons.notifications_outlined
+                      : Icons.notifications_off_outlined,
+                ),
+                title: Text(
+                  isMuted
+                      ? sheetContext.l10n.channels_unmuteChannel
+                      : sheetContext.l10n.channels_muteChannel,
+                ),
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  if (isMuted) {
+                    await settingsService.unmuteChannel(channel.name);
+                  } else {
+                    await settingsService.muteChannel(channel.name);
+                  }
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.delete_outline,
                   color: Theme.of(sheetContext).colorScheme.error,
                 ),
+                title: Text(
+                  sheetContext.l10n.channels_deleteChannel,
+                  style: TextStyle(
+                    color: Theme.of(sheetContext).colorScheme.error,
+                  ),
+                ),
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  await Future.delayed(const Duration(milliseconds: 100));
+                  if (parentContext.mounted) {
+                    _confirmDeleteChannel(
+                      parentContext,
+                      connector,
+                      channelMessageStore,
+                      channel,
+                    );
+                  }
+                },
               ),
-              onTap: () async {
-                Navigator.pop(sheetContext);
-                await Future.delayed(const Duration(milliseconds: 100));
-                if (parentContext.mounted) {
-                  _confirmDeleteChannel(
-                    parentContext,
-                    connector,
-                    channelMessageStore,
-                    channel,
-                  );
-                }
-              },
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -255,6 +255,61 @@ void main() {
     }
     await expectLater(Future.wait(pending), completion(everyElement('OK')));
   });
+
+  test('new service rejects late replies from the previous service', () async {
+    final connector = _CommandConnector();
+    final contact = _contact('Repeater', 0x60);
+    final old = RepeaterCommandService(connector);
+    final first = old.sendCommand(contact, 'get fr');
+    final staleTag = _commandPrefix(await connector.nextFrame());
+    old.handleResponse(contact, '${staleTag}1=ota~radio@all!drop');
+    await first;
+    old.dispose();
+    final next = RepeaterCommandService(connector);
+    addTearDown(next.dispose);
+    final write = next.sendCommand(contact, 'set fr 12 d');
+    final newTag = _commandPrefix(await connector.nextFrame());
+    expect(newTag, isNot(staleTag));
+    var completed = false;
+    write.then((_) => completed = true);
+    next.handleResponse(contact, '${staleTag}OK');
+    await Future<void>.delayed(Duration.zero);
+    expect(completed, false);
+    next.handleResponse(contact, '${newTag}OK');
+    await expectLater(write, completion('OK'));
+  });
+
+  test(
+    'live tags are distinct across services and released by disposal',
+    () async {
+      final connector = _CommandConnector();
+      final contact = _contact('Repeater', 0x60);
+      final left = RepeaterCommandService(connector);
+      final right = RepeaterCommandService(connector);
+      addTearDown(left.dispose);
+      addTearDown(right.dispose);
+      final leftReply = left.sendCommand(contact, 'get fr');
+      final rightReply = right.sendCommand(contact, 'get fr');
+      final a = _commandPrefix(await connector.nextFrame());
+      final b = _commandPrefix(await connector.nextFrame());
+      expect(a, isNot(b));
+      left.handleResponse(contact, '${a}left');
+      right.handleResponse(contact, '${b}right');
+      await expectLater(
+        Future.wait([leftReply, rightReply]),
+        completion(['left', 'right']),
+      );
+      left.dispose();
+      final replacement = RepeaterCommandService(connector);
+      addTearDown(replacement.dispose);
+      final request = replacement.sendCommand(contact, 'ver');
+      final token = _commandPrefix(await connector.nextFrame());
+      expect(token, isNot(a));
+      expect(token, isNot(b));
+      replacement.handleResponse(contact, '${token}version');
+      await expectLater(request, completion('version'));
+    },
+  );
 }
 
 Contact _contact(String name, int seed) {

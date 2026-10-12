@@ -15,6 +15,7 @@ import 'repeater_settings_screen.dart';
 import 'telemetry_screen.dart';
 import 'neighbors_screen.dart';
 import 'lora_ota_screen.dart';
+import 'node_filters_screen.dart';
 
 class RepeaterHubScreen extends StatelessWidget {
   final Contact repeater;
@@ -241,6 +242,20 @@ class RepeaterHubScreen extends StatelessWidget {
               ),
 
             if (isAdmin) ...[
+              _HubActionTile(
+                index: 6,
+                icon: Icons.filter_alt_outlined,
+                title: 'Packet filters',
+                subtitle:
+                    'Forwarding rules, scope rewrites, and path blacklist',
+                accentColor: MeshPalette.warn,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => NodeFiltersScreen(target: repeater),
+                  ),
+                ),
+              ),
               _HubActionTile(
                 index: 3,
                 icon: Icons.system_update_alt,

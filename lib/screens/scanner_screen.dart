@@ -18,6 +18,7 @@ import '../helpers/snack_bar_builder.dart';
 import 'channels_screen.dart';
 import 'tcp_screen.dart';
 import 'usb_screen.dart';
+import 'packet_tools_screen.dart';
 
 /// Screen for scanning and connecting to MeshCore devices
 class ScannerScreen extends StatefulWidget {
@@ -107,6 +108,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
         centerTitle: true,
         automaticallyImplyLeading: false,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.analytics_outlined),
+            tooltip: 'Packet tools',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => const PacketToolsScreen(),
+              ),
+            ),
+          ),
           if (PlatformInfo.supportsUsbSerial)
             IconButton(
               icon: const Icon(Icons.usb),

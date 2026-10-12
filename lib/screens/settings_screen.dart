@@ -20,6 +20,9 @@ import 'app_settings_screen.dart';
 import 'app_debug_log_screen.dart';
 import 'ble_debug_log_screen.dart';
 import 'companion_cli_screen.dart';
+import 'packet_tools_screen.dart';
+import 'node_notifications_screen.dart';
+import 'secondary_radio_screen.dart';
 import '../widgets/radio_stats_entry.dart';
 import '../widgets/sync_progress_overlay.dart';
 import 'region_management_screen.dart';
@@ -499,6 +502,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const Divider(height: 1, indent: 16),
         _tappableTile(
           context,
+          icon: Icons.notifications_active_outlined,
+          title: 'Node alerts',
+          subtitle: 'Radio sound, vibration, LED, screen, and message rules',
+          onTap: connector.isConnected
+              ? () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const NodeNotificationsScreen(),
+                  ),
+                )
+              : null,
+        ),
+        const Divider(height: 1, indent: 16),
+        _tappableTile(
+          context,
+          icon: Icons.settings_input_antenna,
+          title: 'Radio 2 and channel routing',
+          subtitle: 'Second profile and per-channel transmit choices',
+          onTap: connector.isConnected
+              ? () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const SecondaryRadioScreen(),
+                  ),
+                )
+              : null,
+        ),
+        const Divider(height: 1, indent: 16),
+        _tappableTile(
+          context,
           icon: Icons.landscape,
           title: l10n.settings_regionSettings,
           subtitle: l10n.settings_regionSettingsSubtitle,
@@ -692,6 +725,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final l10n = context.l10n;
     return Column(
       children: [
+        _tappableTile(
+          context,
+          icon: Icons.analytics_outlined,
+          title: 'Packet tools',
+          subtitle: 'Telemetry, raw packets, management reports, and analyzer',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(builder: (_) => const PacketToolsScreen()),
+          ),
+        ),
+        const Divider(height: 1, indent: 16),
         _tappableTile(
           context,
           icon: Icons.terminal,

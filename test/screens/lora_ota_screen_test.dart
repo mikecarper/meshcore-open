@@ -898,6 +898,7 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
     void Function()? onPacketSent,
     PathSelection? pathSelection,
     int retries = RepeaterCommandService.maxRetries,
+    int minimumTimeoutMs = 0,
     bool raw = false,
   }) async {
     commands.add(command);

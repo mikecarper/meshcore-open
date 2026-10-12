@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meshcore_open/connector/meshcore_connector.dart';
 import 'package:meshcore_open/l10n/app_localizations.dart';
@@ -9,24 +10,45 @@ import 'package:meshcore_open/screens/settings_screen.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
-void main() {
-  Future<void> pumpCli(WidgetTester tester, _FakeCompanion connector) async {
-    await tester.pumpWidget(
-      ChangeNotifierProvider<MeshCoreConnector>.value(
-        value: connector,
-        child: const MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: CompanionCliScreen(),
-        ),
+Future<void> _pumpCli(WidgetTester tester, _FakeCompanion connector) async {
+  await tester.pumpWidget(
+    ChangeNotifierProvider<MeshCoreConnector>.value(
+      value: connector,
+      child: const MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: CompanionCliScreen(),
       ),
-    );
-  }
+    ),
+  );
+}
 
+void main() {
+  testWidgets('CLI telemetry reply opens the local decoder', (tester) async {
+    final connector = _FakeCompanion();
+    connector.nextReply = Future.value(
+      '> EkDUcWoeMAAB5+bl5eTj4uLh4ODf3t7d3Nvb2tnZ2NfX1tXU1NPS0tHQ0M/Ozc3My8vKycnI/w==',
+    );
+    addTearDown(connector.dispose);
+    await _pumpCli(tester, connector);
+    await tester.enterText(find.byType(TextField), 'get telemetry.volt');
+    await tester.pump();
+    await tester.tap(find.byTooltip('Send command'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Decode reply'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Battery voltage'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Battery voltage'), findsOneWidget);
+    expect(find.text('48 samples - every 30 min'), findsOneWidget);
+  });
   testWidgets('sends a local command and shows the reply', (tester) async {
     final connector = _FakeCompanion();
     addTearDown(connector.dispose);
-    await pumpCli(tester, connector);
+    await _pumpCli(tester, connector);
 
     expect(find.textContaining('not over LoRa'), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'get name');
@@ -50,7 +72,7 @@ void main() {
     addTearDown(connector.dispose);
     final pending = Completer<String>();
     connector.nextReply = pending.future;
-    await pumpCli(tester, connector);
+    await _pumpCli(tester, connector);
 
     await tester.enterText(find.byType(TextField), 'get radio');
     await tester.pump();
@@ -70,7 +92,7 @@ void main() {
   ) async {
     final connector = _FakeCompanion(connected: false);
     addTearDown(connector.dispose);
-    await pumpCli(tester, connector);
+    await _pumpCli(tester, connector);
     expect(
       find.text('Connect to a Companion to send commands.'),
       findsOneWidget,
@@ -94,7 +116,7 @@ void main() {
     final connector = _FakeCompanion();
     addTearDown(connector.dispose);
 
-    await pumpCli(tester, connector);
+    await _pumpCli(tester, connector);
     await tester.enterText(find.byType(TextField), 'get name');
     await tester.pump();
     await tester.tap(find.byTooltip('Send command'));
@@ -102,6 +124,13 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Test Companion'), findsOneWidget);
+    final title = tester.renderObject<RenderParagraph>(
+      find.descendant(
+        of: find.text('Companion CLI'),
+        matching: find.byType(RichText),
+      ),
+    );
+    expect(title.didExceedMaxLines, false);
   });
 
   testWidgets('Settings exposes the direct Companion CLI', (tester) async {
@@ -126,6 +155,9 @@ void main() {
     );
     await tester.pump();
     await tester.scrollUntilVisible(find.text('Companion CLI'), 300);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Companion CLI'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Companion CLI'));
     await tester.pumpAndSettle();
     expect(find.byType(CompanionCliScreen), findsOneWidget);

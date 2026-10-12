@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../connector/meshcore_connector.dart';
 import '../l10n/l10n.dart';
 import '../theme/mesh_theme.dart';
+import 'packet_tools_screen.dart';
 
 class CompanionCliScreen extends StatefulWidget {
   const CompanionCliScreen({super.key});
@@ -79,8 +80,37 @@ class _CompanionCliScreenState extends State<CompanionCliScreen> {
             available && !_sending && _commandController.text.trim().isNotEmpty;
         return Scaffold(
           appBar: AppBar(
-            title: Text(l10n.companionCli_title),
+            title: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(l10n.companionCli_title),
+            ),
             actions: [
+              PopupMenuButton<String>(
+                tooltip: 'Telemetry commands',
+                icon: const Icon(Icons.monitor_heart_outlined),
+                onSelected: (command) {
+                  setState(() => _commandController.text = command);
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'get telemetry.temp',
+                    child: Text('Read temperature history'),
+                  ),
+                  PopupMenuItem(
+                    value: 'get telemetry.volt',
+                    child: Text('Read battery history'),
+                  ),
+                  PopupMenuItem(
+                    value: 'get telemetry.volt.i2c',
+                    child: Text('List I2C voltage channels'),
+                  ),
+                  PopupMenuItem(
+                    value: 'get telemetry.gps',
+                    child: Text('Read GPS history'),
+                  ),
+                ],
+              ),
               if (_history.isNotEmpty)
                 IconButton(
                   tooltip: l10n.common_clear,
@@ -126,20 +156,45 @@ class _CompanionCliScreenState extends State<CompanionCliScreen> {
                           itemCount: _history.length,
                           itemBuilder: (context, index) {
                             final entry = _history[index];
+                            final decodeMode = entry.isCommand || entry.isError
+                                ? null
+                                : detectPacketToolMode(entry.text);
                             return Padding(
                               padding: const EdgeInsets.symmetric(vertical: 5),
-                              child: SelectableText(
-                                entry.isCommand
-                                    ? '> ${entry.text}'
-                                    : entry.text,
-                                style: MeshTheme.mono(
-                                  fontSize: 13,
-                                  color: entry.isError
-                                      ? scheme.error
-                                      : entry.isCommand
-                                      ? scheme.primary
-                                      : scheme.onSurface,
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SelectableText(
+                                    entry.isCommand
+                                        ? '> ${entry.text}'
+                                        : entry.text,
+                                    style: MeshTheme.mono(
+                                      fontSize: 13,
+                                      color: entry.isError
+                                          ? scheme.error
+                                          : entry.isCommand
+                                          ? scheme.primary
+                                          : scheme.onSurface,
+                                    ),
+                                  ),
+                                  if (decodeMode != null)
+                                    TextButton.icon(
+                                      icon: const Icon(
+                                        Icons.analytics_outlined,
+                                        size: 16,
+                                      ),
+                                      label: const Text('Decode reply'),
+                                      onPressed: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => PacketToolsScreen(
+                                            initialInput: entry.text,
+                                            initialMode: decodeMode,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
                             );
                           },
