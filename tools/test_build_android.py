@@ -19,6 +19,11 @@ class AndroidProfileTests(unittest.TestCase):
                         archive.writestr(f"lib/{abi}/{library}", b"fixture")
                     for asset in ("esp32_partition_catalog.json", "github_legacy_roots.pem"):
                         archive.writestr(f"assets/flutter_assets/{asset}", b"fixture")
+                    for asset in (build.ROOT / "android/app/src/main/assets/esptool").iterdir():
+                        archive.writestr("assets/esptool/" + asset.name, asset.read_bytes())
+                    archive.writestr("classes.dex", b"\0".join(
+                        f"Lcom/hoho/android/usbserial/driver/{driver};".encode()
+                        for driver in build.USB_DRIVERS))
             package("armeabi-v7a")
             self.assertFalse(build.verify_apk(apk, "legacy")["onnx"])
             with self.assertRaises(RuntimeError):
@@ -31,6 +36,38 @@ class AndroidProfileTests(unittest.TestCase):
             package("armeabi-v7a", "libonnxruntime.so")
             with self.assertRaises(RuntimeError):
                 build.verify_apk(apk, "legacy")
+
+    def test_usb_packaging_refuses_missing_drivers_and_wrong_bundle(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            apk = Path(temporary) / "test.apk"
+            with zipfile.ZipFile(apk, "w") as archive:
+                archive.writestr("lib/armeabi-v7a/libflutter.so", b"fixture")
+            with self.assertRaisesRegex(RuntimeError, "offline USB asset"):
+                build.verify_apk(apk, "legacy")
+            with zipfile.ZipFile(apk, "w") as archive:
+                for asset in (build.ROOT / "android/app/src/main/assets/esptool").iterdir():
+                    archive.writestr("assets/esptool/" + asset.name,
+                                     b"tampered" if asset.name == "bundle.js" else asset.read_bytes())
+            with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
+                build.verify_apk(apk, "legacy")
+            with zipfile.ZipFile(apk, "w") as archive:
+                for asset in (build.ROOT / "android/app/src/main/assets/esptool").iterdir():
+                    archive.writestr("assets/esptool/" + asset.name, asset.read_bytes())
+            with self.assertRaisesRegex(RuntimeError, "native USB driver"):
+                build.verify_apk(apk, "legacy")
+
+    def test_machine_test_summary_counts_visible_cases_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "tests.jsonl"
+            log.write_text('\n'.join([
+                '{"type":"testDone","testID":0,"result":"success","hidden":true}',
+                '{"type":"testDone","testID":1,"result":"success"}',
+                '{"type":"testDone","testID":2,"result":"success","skipped":true}',
+            ]))
+            self.assertEqual(build.summarize_tests(log), {"passed": 1, "failed": 0, "skipped": 1})
+            log.write_text('{"type":"testDone","testID":1,"result":"failure"}')
+            with self.assertRaisesRegex(RuntimeError, "failures"):
+                build.summarize_tests(log)
 
     def test_profiles_pin_sdk_abi_and_minimum_android(self):
         self.assertEqual(build.PROFILES["legacy"], {

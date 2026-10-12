@@ -1,0 +1,15 @@
+{
+  "package": "esptool-js",
+  "version": "0.7.0",
+  "upstream": "https://github.com/espressif/esptool-js",
+  "source_commit": "4d8e8fe092f3425a4b85d1e883f4cc078a5efdd3",
+  "npm_tarball": "https://registry.npmjs.org/esptool-js/-/esptool-js-0.7.0.tgz",
+  "npm_integrity": "sha512-9wHuW/s9t4Vs6HKcr3pra3gbRVWwaN0eabMWodWH4KEJHEYZxgmWwZ3s0F4xcWVCZOc/L98bGZ4uWoZvR8KBKA==",
+  "tarball_sha256": "9c7797cfbcac3a989ab85c52c9daaa65ffc0d538c273a055757b98bb846fdf1f",
+  "bundle_sha256": "00ebe6fb0b202976d3e2a3c6b9a6bd438c26a81d2af6739c95ac276a64c1a84e",
+  "license": "Apache-2.0; bundled pako MIT AND Zlib; atob-lite MIT",
+  "native_usb_reset_reference": "https://github.com/espressif/esptool/tree/v5.1.0/esptool/targets",
+  "c3_force_download_reference": "https://github.com/espressif/esp-idf/blob/v4.4.7/components/soc/esp32c3/include/soc/rtc_cntl_reg.h",
+  "usb_serial_version": "3.11.0",
+  "usb_serial_commit": "8e694372dee4531d140766df7af3189d3d9531c5"
+}

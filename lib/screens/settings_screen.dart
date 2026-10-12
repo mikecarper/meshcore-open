@@ -28,6 +28,8 @@ import '../widgets/radio_stats_entry.dart';
 import '../widgets/sync_progress_overlay.dart';
 import 'region_management_screen.dart';
 import 'companion_update_screen.dart';
+import 'usb_node_update_screen.dart';
+import '../utils/platform_info.dart';
 
 /// Convert device coding-rate value (1-4 on some firmware, 5-8 on others)
 /// to the UI enum range (always 5-8).
@@ -197,6 +199,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: _buildActionsCardContent(context, connector),
                 ),
 
+                if (PlatformInfo.isAndroid)
+                  MeshCard(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const UsbNodeUpdateScreen(),
+                      ),
+                    ),
+                    child: _buildNavTileContent(
+                      context,
+                      icon: Icons.system_update_alt,
+                      title: 'Update over USB',
+                      subtitle:
+                          'Backup, firmware checks and safe partition migration',
+                    ),
+                  ),
                 // EXPORT section
                 SectionHeader(l10n.settings_gpxExportRepeaters),
                 MeshCard(

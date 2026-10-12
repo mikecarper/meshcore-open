@@ -17,6 +17,27 @@ PROFILES = {
     "legacy": {"flutter": "3.32.8", "target": "android-arm", "min_sdk": 21},
     "modern": {"flutter": "3.47.5", "target": "android-arm64", "min_sdk": 28},
 }
+ESP_BUNDLE_SHA256 = "00ebe6fb0b202976d3e2a3c6b9a6bd438c26a81d2af6739c95ac276a64c1a84e"
+USB_DRIVERS = ("CdcAcmSerialDriver", "Ch34xSerialDriver", "Cp21xxSerialDriver", "FtdiSerialDriver")
+
+
+def summarize_tests(log):
+    """Retain machine-readable evidence and exclude hidden suite-loader tests."""
+    completed = {}
+    for line in log.read_text().splitlines():
+        event = json.loads(line)
+        if event.get("type") == "testDone" and not event.get("hidden", False):
+            completed[event["testID"]] = event
+    if not completed:
+        raise RuntimeError("Flutter test log contains no completed visible tests")
+    summary = {"passed": 0, "failed": 0, "skipped": 0}
+    for event in completed.values():
+        result = "skipped" if event.get("skipped", False) else (
+            "passed" if event.get("result") == "success" else "failed")
+        summary[result] += 1
+    if summary["failed"]:
+        raise RuntimeError(f"Flutter test log contains failures: {summary}")
+    return summary
 
 
 def run(args, cwd, env=None, capture=False):
@@ -60,6 +81,24 @@ def verify_apk(apk, profile):
     """Check real packaged runtimes, not just Dart capability declarations."""
     with zipfile.ZipFile(apk) as archive:
         names = archive.namelist()
+        usb_assets = ROOT / "android/app/src/main/assets/esptool"
+        for asset in sorted(usb_assets.iterdir()):
+            if not asset.is_file():
+                continue
+            packaged = "assets/esptool/" + asset.name
+            if packaged not in names:
+                raise RuntimeError(f"APK is missing offline USB asset: {packaged}")
+            digest = hashlib.sha256(archive.read(packaged)).hexdigest()
+            expected_digest = (ESP_BUNDLE_SHA256 if asset.name == "bundle.js" else
+                               hashlib.sha256(asset.read_bytes()).hexdigest())
+            if digest != expected_digest:
+                raise RuntimeError(f"APK offline USB asset checksum mismatch: {packaged}")
+        dex = b"".join(archive.read(name) for name in names
+                       if name.startswith("classes") and name.endswith(".dex"))
+        for driver in USB_DRIVERS:
+            descriptor = f"Lcom/hoho/android/usbserial/driver/{driver};".encode()
+            if descriptor not in dex:
+                raise RuntimeError(f"APK is missing required native USB driver: {driver}")
     libraries = [name for name in names if name.startswith("lib/") and name.endswith(".so")]
     abis = {name.split("/")[1] for name in libraries}
     expected = {"armeabi-v7a"} if profile == "legacy" else {"arm64-v8a"}
@@ -76,7 +115,9 @@ def verify_apk(apk, profile):
     for asset in ("esp32_partition_catalog.json", "github_legacy_roots.pem"):
         if not any(name.endswith("/" + asset) for name in names):
             raise RuntimeError(f"APK is missing required asset: {asset}")
-    return {"abis": sorted(abis), "onnx": onnx, "llamadart": llama}
+    return {"abis": sorted(abis), "onnx": onnx, "llamadart": llama,
+            "usb_drivers": list(USB_DRIVERS), "esptool_js": "0.7.0",
+            "esptool_bundle_sha256": ESP_BUNDLE_SHA256}
 
 
 def main():
@@ -88,6 +129,8 @@ def main():
     parser.add_argument("--signing-properties", type=Path,
                         help="Private key.properties with an absolute storeFile path")
     parser.add_argument("--test", action="store_true", help="Run the full Flutter test suite")
+    parser.add_argument("--test-only", action="store_true",
+                        help="Run full profile tests and save evidence without building/signing an APK")
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
     flutter = args.flutter.expanduser().resolve()
@@ -95,7 +138,7 @@ def main():
     version = json.loads(run([flutter, "--version", "--machine"], ROOT, capture=True))
     if version["frameworkVersion"] != profile["flutter"]:
         parser.error(f"{args.profile} requires Flutter {profile['flutter']}")
-    if not args.prepare_only and not (args.sideload or args.signing_properties):
+    if not (args.prepare_only or args.test_only) and not (args.sideload or args.signing_properties):
         parser.error("Choose --sideload or --signing-properties; signing is never implicit")
     if args.sideload and args.signing_properties:
         parser.error("Choose only one signing mode")
@@ -127,8 +170,18 @@ def main():
     env["MESHCORE_ALLOW_TEST_SIGNING"] = "1" if args.sideload else "0"
     define = f"--dart-define=LEGACY_ARM32={'true' if args.profile == 'legacy' else 'false'}"
     run([flutter, "pub", "get", "--enforce-lockfile"], workspace, env)
-    if args.test:
-        run([flutter, "test", "--no-pub", define, "--reporter", "expanded"], workspace, env)
+    if args.test or args.test_only:
+        test_log = workspace / "flutter-tests.jsonl"
+        run([flutter, "test", "--no-pub", define, "--reporter", "expanded",
+             "--file-reporter", f"json:{test_log}"], workspace, env)
+        manifest["tests"] = summarize_tests(test_log)
+    if args.test_only:
+        output = workspace / "artifacts"
+        output.mkdir()
+        shutil.copy2(test_log, output / "flutter-tests.jsonl")
+        (output / "build-profile.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        print(f"Test evidence: {output}\nTests: {manifest['tests']}", flush=True)
+        return
     run([flutter, "build", "apk", "--release", "--no-pub", define,
          "--target-platform", profile["target"]], workspace, env)
     output = workspace / "artifacts"
@@ -136,6 +189,8 @@ def main():
     label = "sideload" if args.sideload else "release"
     apk = output / f"meshcore-open-{args.profile}-{label}.apk"
     shutil.copy2(workspace / "build/app/outputs/flutter-apk/app-release.apk", apk)
+    if args.test:
+        shutil.copy2(test_log, output / "flutter-tests.jsonl")
     manifest["packaging"] = verify_apk(apk, args.profile)
     manifest["apk_sha256"] = hashlib.sha256(apk.read_bytes()).hexdigest()
     manifest["apk_bytes"] = apk.stat().st_size
