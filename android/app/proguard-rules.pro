@@ -17,7 +17,5 @@
 # The Flutter plugin's platform-channel handler, reached the same way.
 -keep class com.masicai.flutteronnxruntime.** { *; }
 -dontwarn com.masicai.flutteronnxruntime.**
-# Offline WebView JavaScript calls these annotated methods by name.
--keepclassmembers class com.meshcore.meshcore_open.MeshcoreUsbEspEngine$NativeBridge {
-    @android.webkit.JavascriptInterface <methods>;
-}
+# Native JNI symbols and raw-driver callbacks use these exact names.
+-keep class com.meshcore.meshcore_open.MeshcoreUsbEspEngine { *; }

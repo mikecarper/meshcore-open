@@ -47,6 +47,9 @@ void main() {
               'mac': call.arguments['expectedMac'],
             };
           }
+          if (call.method == 'eraseFlash') {
+            return {'mac': call.arguments['expectedMac'], 'erased': true};
+          }
           return null;
         });
   });
@@ -309,6 +312,56 @@ void main() {
     await expectLater(esp.readFlash(0x9000, 8), throwsStateError);
   });
   test(
+    'ESP whole-chip erase is explicit and bound to the connected MAC',
+    () async {
+      final esp = UsbEspFlashEngine(
+        UsbFlashTransport(channel: rawChannel),
+        channel: espChannel,
+      );
+      await expectLater(
+        esp.eraseFlash(expectedMac: '1234567890ab'),
+        throwsStateError,
+      );
+      await esp.connect(device);
+      expect(calls.where((call) => call.method == 'eraseFlash'), isEmpty);
+      await expectLater(
+        esp.eraseFlash(expectedMac: 'aabbccddeeff'),
+        throwsStateError,
+      );
+      expect(calls.where((call) => call.method == 'eraseFlash'), isEmpty);
+      await esp.eraseFlash(expectedMac: '12:34:56:78:90:ab');
+      expect(calls.last.method, 'eraseFlash');
+      expect(calls.last.arguments, {'expectedMac': '1234567890ab'});
+    },
+  );
+  test(
+    'ESP failed erase verification never triggers application reset',
+    () async {
+      final esp = UsbEspFlashEngine(
+        UsbFlashTransport(channel: rawChannel),
+        channel: espChannel,
+      );
+      await esp.connect(device);
+      for (final response in [
+        {'mac': 'aabbccddeeff', 'erased': true},
+        {'mac': '1234567890ab', 'erased': false},
+        <String, Object>{},
+      ]) {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(espChannel, (call) async {
+              calls.add(call);
+              return response;
+            });
+        await expectLater(
+          esp.eraseFlash(expectedMac: '1234567890ab'),
+          throwsStateError,
+        );
+      }
+      expect(calls.where((call) => call.method == 'runApplication'), isEmpty);
+      expect(calls.where((call) => call.method == 'setSignals'), isEmpty);
+    },
+  );
+  test(
     'passive engine close never requests a reset and migration boot is explicit',
     () async {
       final esp = UsbEspFlashEngine(
@@ -418,12 +471,12 @@ void main() {
     },
   );
   test(
-    'incompatible WebView fails before permission, open, touch or reset',
+    'missing native ESP library fails before permission, open, touch or reset',
     () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(espChannel, (call) async {
             calls.add(call);
-            throw PlatformException(code: 'usb_esp_webview_incompatible');
+            throw PlatformException(code: 'usb_esp_native_unavailable');
           });
       final esp = UsbEspFlashEngine(
         UsbFlashTransport(channel: rawChannel),
@@ -441,7 +494,7 @@ void main() {
           isA<StateError>().having(
             (error) => error.message,
             'actionable message',
-            contains('Update WebView'),
+            contains('APK matching this device architecture'),
           ),
         ),
       );

@@ -3,16 +3,21 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:meshcore_open/services/usb_esp_flash_engine.dart';
+import 'package:meshcore_open/services/usb_esp_install_plan.dart';
 import 'package:meshcore_open/services/usb_firmware_catalog.dart';
 import 'package:meshcore_open/services/usb_firmware_package.dart';
 import 'package:meshcore_open/services/usb_flash_transport.dart';
 import 'package:meshcore_open/services/usb_node_backup.dart';
 import 'package:meshcore_open/services/usb_node_update_service.dart';
+import 'package:meshcore_open/services/usb_nrf_dfu.dart';
 import 'package:meshcore_open/services/usb_partition_expansion.dart';
 
 import 'usb_node_backup_test.dart' as backup_fixture;
 import 'usb_partition_expansion_test.dart' as fixture;
+import 'usb_nrf_dfu_test.dart' as nrf_fixture;
+import 'usb_esp_install_plan_test.dart' as install_fixture;
 
 const _firmwareName =
     'heltec_v4_repeater-full-v1.18.0.1-halo-keymind-cascade-dev-12345678.bin';
@@ -52,6 +57,7 @@ void main() {
   late _FakeEsp esp;
   late _FakeBackup backup;
   late _FakeCatalog catalog;
+  late _FakeNrf nrf;
   late UsbNodeUpdateService service;
   late UsbNodeBackupArchive archive;
 
@@ -69,11 +75,13 @@ void main() {
     esp = _FakeEsp(transport, events);
     backup = _FakeBackup(transport, events, archive);
     catalog = _FakeCatalog();
+    nrf = _FakeNrf(transport, events);
     service = UsbNodeUpdateService(
       transport: transport,
       esp: esp,
       backupService: backup,
       catalog: catalog,
+      nrfUpdater: nrf,
       directory: () async => root,
     );
   });
@@ -126,6 +134,396 @@ void main() {
       expect(service.busy, isFalse);
     },
   );
+
+  const nrfDevice = UsbFlashDevice(
+    deviceName: 'nrf-dfu',
+    vendorId: 0x239a,
+    productId: 0x0029,
+    serialNumber: 'original-nrf',
+    driver: 'CdcAcmSerialDriver',
+  );
+  test('nRF bootloader denial prevents DFU open and writes', () async {
+    await service.update(
+      nrfDevice,
+      'bootloader.zip',
+      nrf_fixture.recoveryFixture(),
+      createBackup: false,
+      confirm: (question) async {
+        if (question.title == 'Replace nRF52 bootloader?') {
+          expect(question.token, 'replace-nrf52-bootloader');
+          expect(question.message, contains('may erase'));
+          expect(question.message, contains('require SWD'));
+          return false;
+        }
+        return true;
+      },
+    );
+    expect(nrf.packages, isEmpty);
+    expect(events, isNot(contains('transport:open')));
+    expect(service.bootloaderTransferCompleted, isFalse);
+    expect(service.succeeded, isFalse);
+  });
+  for (final combined in [false, true]) {
+    test(
+      'nRF recovery transfer is not falsely reported as boot verification (combined=$combined)',
+      () async {
+        await service.update(
+          nrfDevice,
+          'bootloader.zip',
+          nrf_fixture.recoveryFixture(combined: combined),
+          createBackup: false,
+          confirm: (question) async {
+            events.add('confirm:${question.title}');
+            return true;
+          },
+        );
+        expect(nrf.packages.single.isBootloaderUpdate, isTrue);
+        expect(nrf.approvals, [true]);
+        expect(
+          events.indexOf('confirm:Replace nRF52 bootloader?'),
+          lessThan(events.indexOf('transport:open')),
+        );
+        expect(events, isNot(contains('backup:inspect')));
+        expect(service.bootloaderTransferCompleted, isTrue);
+        expect(service.succeeded, isFalse);
+        expect(service.error, isNull);
+        expect(service.stage, contains('not verified'));
+        expect(service.busy, isFalse);
+      },
+    );
+  }
+  test(
+    'failed nRF recovery is not reported as completed or rebooted',
+    () async {
+      nrf.failure = StateError('DFU transfer failed');
+      await service.update(
+        nrfDevice,
+        'bootloader.zip',
+        nrf_fixture.recoveryFixture(),
+        createBackup: false,
+        confirm: consent,
+      );
+      expect(service.bootloaderTransferCompleted, isFalse);
+      expect(service.succeeded, isFalse);
+      expect(service.error, contains('DFU transfer failed'));
+      expect(events, isNot(contains('backup:inspect')));
+      expect(esp.runs, isEmpty);
+    },
+  );
+
+  test(
+    'denied expert acknowledgement prevents ALL ESP resets and writes',
+    () async {
+      await service.update(
+        _device,
+        'anything.bin',
+        Uint8List.fromList([1, 2, 3]),
+        createBackup: false,
+        expertProtocol: UsbExpertProtocol.esp32,
+        expertErase: true,
+        confirm: (question) async =>
+            question.token != 'attempt-unverified-flash',
+      );
+      expect(esp.connects, isEmpty);
+      expect(esp.erases, isEmpty);
+      expect(esp.writes, isEmpty);
+      expect(service.expertTransferCompleted, isFalse);
+    },
+  );
+  test(
+    'expert attempts raw bytes on an unreviewed chip without claiming boot success',
+    () async {
+      esp.connectedChip = const UsbEspChipInfo(
+        chip: 13,
+        flashBytes: 4 << 20,
+        mac: '0123456789ab',
+        name: 'ESP32-C6',
+      );
+      final input = Uint8List.fromList([0x55, 0x46, 0x32, 1, 2, 3]);
+      await service.update(
+        _device,
+        'unreviewed.uf2',
+        input,
+        createBackup: false,
+        expertProtocol: UsbExpertProtocol.esp32,
+        expertOffset: 0x1000,
+        confirm: (question) async {
+          if (question.token == 'attempt-unverified-flash') input[0] = 0;
+          return true;
+        },
+      );
+      expect(esp.unreviewed, [true]);
+      expect(esp.writes.single.offset, 0x1000);
+      expect(esp.writes.single.bytes, [0x55, 0x46, 0x32, 1, 2, 3]);
+      expect(esp.runs, isEmpty);
+      expect(esp.erases, isEmpty);
+      expect(service.expertTransferCompleted, isTrue);
+      expect(service.succeeded, isFalse);
+      expect(service.stage, contains('NOT verified'));
+      expect(service.error, isNull);
+    },
+  );
+  test(
+    'expert raw write needs final MAC-bound confirmation before erase',
+    () async {
+      await service.update(
+        _device,
+        'raw.bin',
+        Uint8List(16),
+        createBackup: false,
+        expertProtocol: UsbExpertProtocol.esp32,
+        expertErase: true,
+        confirm: (question) async =>
+            question.token != 'write-raw-esp32-${_chip.mac}',
+      );
+      expect(esp.unreviewed, [true]);
+      expect(esp.erases, isEmpty);
+      expect(esp.writes, isEmpty);
+    },
+  );
+  test('expert erase is explicit and precedes verified raw write', () async {
+    await service.update(
+      _device,
+      'raw.bin',
+      Uint8List(16),
+      createBackup: false,
+      expertProtocol: UsbExpertProtocol.esp32,
+      expertErase: true,
+      confirm: consent,
+    );
+    expect(esp.erases, [_chip.mac]);
+    expect(
+      events.indexOf('esp:erase'),
+      lessThan(events.indexOf('esp:write:0')),
+    );
+    expect(esp.runs, isEmpty);
+    expect(service.expertTransferCompleted, isTrue);
+  });
+  test('expert overflow is refused before erase or write', () async {
+    await service.update(
+      _device,
+      'raw.bin',
+      Uint8List(8192),
+      createBackup: false,
+      expertProtocol: UsbExpertProtocol.esp32,
+      expertErase: true,
+      expertOffset: _chip.flashBytes - 4096,
+      confirm: consent,
+    );
+    expect(esp.erases, isEmpty);
+    expect(esp.writes, isEmpty);
+    expect(service.error, contains('do not fit'));
+  });
+  test('failed expert write never requests restart', () async {
+    esp.writeFailure = StateError('readback failed');
+    await service.update(
+      _device,
+      'raw.bin',
+      Uint8List(16),
+      createBackup: false,
+      expertProtocol: UsbExpertProtocol.esp32,
+      expertRestart: true,
+      confirm: consent,
+    );
+    expect(esp.runs, isEmpty);
+    expect(service.expertTransferCompleted, isFalse);
+    expect(service.error, contains('readback failed'));
+  });
+  test(
+    'pending recovery needs separate expert abandonment acknowledgement',
+    () async {
+      final image = UsbFirmwareImage.fromBytes(
+        _firmwareName,
+        fixture.usbUpdateTestImage(),
+      );
+      await _seedJournal(root, image);
+      final journal = File(
+        '${root.path}/usb-updater/recovery/${_chip.mac}/plan.json',
+      );
+      await service.update(
+        _device,
+        'raw.bin',
+        Uint8List(16),
+        createBackup: false,
+        expertProtocol: UsbExpertProtocol.esp32,
+        expertErase: true,
+        confirm: (question) async =>
+            question.token != 'abandon-esp32-migration-${_chip.mac}',
+      );
+      expect(await journal.exists(), isTrue);
+      expect(esp.erases, isEmpty);
+      expect(esp.writes, isEmpty);
+      await service.update(
+        _device,
+        'raw.bin',
+        Uint8List(16),
+        createBackup: false,
+        expertProtocol: UsbExpertProtocol.esp32,
+        expertErase: true,
+        confirm: consent,
+      );
+      expect(await journal.exists(), isFalse);
+      final archived = await journal.parent
+          .list()
+          .where((entry) => entry.path.contains('.abandoned.'))
+          .toList();
+      expect(archived, hasLength(1));
+      expect(service.expertTransferCompleted, isTrue);
+    },
+  );
+  test(
+    'expert nRF permits unverified CRC but never claims application verification',
+    () async {
+      await service.update(
+        nrfDevice,
+        'custom.zip',
+        nrf_fixture.fixture(corruptCrc: true),
+        createBackup: false,
+        expertProtocol: UsbExpertProtocol.nrf52,
+        confirm: consent,
+      );
+      expect(nrf.unverifiedApprovals, [true]);
+      expect(nrf.packages.single.warnings, isNotEmpty);
+      expect(service.expertTransferCompleted, isTrue);
+      expect(service.succeeded, isFalse);
+      expect(events, isNot(contains('backup:inspect')));
+    },
+  );
+
+  test('denied ESP bootloader confirmation prevents sector writes', () async {
+    await service.update(
+      _device,
+      'bootloader.bin',
+      install_fixture.usbEspInstallTestImage(),
+      espInstallMode: UsbEspInstallMode.bootloader,
+      createBackup: false,
+      confirm: (question) async => question.token != 'replace-esp32-bootloader',
+    );
+    expect(esp.erases, isEmpty);
+    expect(esp.writes, isEmpty);
+    expect(esp.runs, isEmpty);
+  });
+  test(
+    'ESP bootloader replacement preserves settings and reports readback separately from boot compatibility',
+    () async {
+      await service.update(
+        _device,
+        'bootloader.bin',
+        install_fixture.usbEspInstallTestImage(),
+        espInstallMode: UsbEspInstallMode.bootloader,
+        createBackup: false,
+        confirm: consent,
+      );
+      expect(esp.erases, isEmpty);
+      expect(esp.writes.map((write) => write.offset), [0]);
+      expect(service.bootloaderTransferCompleted, isTrue);
+      expect(service.succeeded, isFalse);
+      expect(service.error, isNull);
+      expect(service.stage, contains('readback verified'));
+    },
+  );
+  test(
+    'smaller-capacity ESP bootloader cannot strand the existing layout in reviewed mode',
+    () async {
+      esp.tableOverride = UsbPartitionExpansion.canonicalTable(16 << 20);
+      final boot = install_fixture.usbEspInstallTestImage();
+      boot[3] = 0x20;
+      boot.setRange(
+        boot.length - 32,
+        boot.length,
+        crypto.sha256.convert(boot.sublist(0, boot.length - 32)).bytes,
+      );
+      await service.update(
+        _device,
+        'bootloader.bin',
+        boot,
+        espInstallMode: UsbEspInstallMode.bootloader,
+        createBackup: false,
+        confirm: consent,
+      );
+      expect(esp.writes, isEmpty);
+      expect(service.error, contains('less flash'));
+    },
+  );
+  test(
+    'pending migration blocks reviewed ESP recovery before mutations with a passive connection',
+    () async {
+      final image = UsbFirmwareImage.fromBytes(
+        _firmwareName,
+        fixture.usbUpdateTestImage(),
+      );
+      await _seedJournal(root, image);
+      await service.update(
+        _device,
+        'bootloader.bin',
+        install_fixture.usbEspInstallTestImage(),
+        espInstallMode: UsbEspInstallMode.bootloader,
+        createBackup: false,
+        confirm: consent,
+      );
+      expect(esp.connects, [false]);
+      expect(esp.writes, isEmpty);
+      expect(esp.erases, isEmpty);
+      expect(service.error, contains('migration is pending'));
+    },
+  );
+  test('denied ESP full-install token prevents whole-chip erase', () async {
+    await service.update(
+      _device,
+      'full.bin',
+      install_fixture.usbEspInstallTestMerged(),
+      espInstallMode: UsbEspInstallMode.fullInstall,
+      createBackup: false,
+      confirm: (question) async => question.token != 'erase-esp32-full-install',
+    );
+    expect(esp.erases, isEmpty);
+    expect(esp.writes, isEmpty);
+  });
+  test(
+    'ESP full install erases explicitly and verifies app without requiring the erased private identity',
+    () async {
+      backup.after = const UsbNodeInfo(
+        publicKey: 'newly-generated-identity',
+        role: 'companion',
+        hardwareModel: 'heltec-v4',
+        firmwareVersion: 'v1.18.0.1',
+      );
+      await service.update(
+        _device,
+        'full.bin',
+        install_fixture.usbEspInstallTestMerged(),
+        espInstallMode: UsbEspInstallMode.fullInstall,
+        createBackup: false,
+        confirm: consent,
+      );
+      expect(esp.erases, [_chip.mac]);
+      expect(esp.writes.map((write) => write.offset), [0x10000, 0x8000, 0]);
+      expect(
+        events.indexOf('esp:erase'),
+        lessThan(events.indexOf('esp:write:65536')),
+      );
+      expect(service.succeeded, isTrue, reason: service.error);
+      expect(service.bootloaderTransferCompleted, isFalse);
+    },
+  );
+  test('wrong ESP family rejects full install before erase', () async {
+    esp.connectedChip = const UsbEspChipInfo(
+      chip: 5,
+      flashBytes: 16 << 20,
+      mac: '0123456789ab',
+    );
+    await service.update(
+      _device,
+      'full.bin',
+      install_fixture.usbEspInstallTestMerged(),
+      espInstallMode: UsbEspInstallMode.fullInstall,
+      createBackup: false,
+      confirm: consent,
+    );
+    expect(esp.erases, isEmpty);
+    expect(esp.writes, isEmpty);
+    expect(service.succeeded, isFalse);
+  });
 
   test(
     'backup saves and verifies before prepare consent and ROM connection',
@@ -652,6 +1050,33 @@ void main() {
   });
 }
 
+class _FakeNrf extends UsbNrfDfuUpdater {
+  _FakeNrf(super.transport, this.events);
+  final List<String> events;
+  final packages = <UsbNrfDfuPackage>[];
+  final approvals = <bool>[];
+  final unverifiedApprovals = <bool>[];
+  Object? failure;
+  @override
+  Future<UsbNrfDfuResult> flash(
+    UsbNrfDfuPackage package, {
+    UsbFlashDevice? expectedDevice,
+    bool allowBootloaderUpdate = false,
+    bool allowUnverified = false,
+    void Function(double progress, String stage)? onProgress,
+  }) async {
+    if (package.isBootloaderUpdate && !allowBootloaderUpdate) {
+      throw StateError('Bootloader writes need explicit approval');
+    }
+    if (failure != null) throw failure!;
+    events.add('nrf:flash');
+    packages.add(package);
+    approvals.add(allowBootloaderUpdate);
+    unverifiedApprovals.add(allowUnverified);
+    return UsbNrfDfuResult(package.payload.length, package.sha256);
+  }
+}
+
 class _Write {
   _Write(this.offset, this.bytes, this.expectedMac);
   final int offset;
@@ -665,6 +1090,9 @@ class _FakeEsp extends UsbEspFlashEngine {
   UsbEspChipInfo connectedChip = _chip;
   UsbEspChipInfo? recoveredChip;
   final connects = <bool>[], runs = <bool>[];
+  final unreviewed = <bool>[];
+  final erases = <String>[];
+  Object? writeFailure;
   final writes = <_Write>[];
   final reads = <(int, int)>[];
   UsbEspChipInfo? activeChip;
@@ -677,9 +1105,11 @@ class _FakeEsp extends UsbEspFlashEngine {
   Future<UsbEspChipInfo> connect(
     UsbFlashDevice device, {
     bool reset = true,
+    bool allowUnreviewed = false,
   }) async {
     events.add('esp:connect:$reset');
     connects.add(reset);
+    unreviewed.add(allowUnreviewed);
     activeChip = connects.length > 1
         ? recoveredChip ?? connectedChip
         : connectedChip;
@@ -708,6 +1138,7 @@ class _FakeEsp extends UsbEspFlashEngine {
     Uint8List bytes, {
     required String expectedMac,
   }) async {
+    if (writeFailure != null) throw writeFailure!;
     if (expectedMac != activeChip?.mac) {
       throw StateError('Connected chip identity changed');
     }
@@ -721,6 +1152,15 @@ class _FakeEsp extends UsbEspFlashEngine {
     runs.add(migrationBridge);
     if (migrationBridge) expanded = true;
     activeChip = null;
+  }
+
+  @override
+  Future<void> eraseFlash({required String expectedMac}) async {
+    if (expectedMac != activeChip?.mac) {
+      throw StateError('Connected chip identity changed');
+    }
+    events.add('esp:erase');
+    erases.add(expectedMac);
   }
 
   @override

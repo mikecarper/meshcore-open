@@ -1,0 +1,20 @@
+Espressif esp-serial-flasher v2.1.0
+Copyright 2020-2026 Espressif Systems (Shanghai) CO LTD
+Licensed under Apache-2.0. See LICENSE.esp-serial-flasher.
+
+Bundled esp-flasher-stub v1.3.0
+Copyright 2026 Espressif Systems (Shanghai) CO LTD
+Licensed under Apache-2.0 OR MIT; this distribution selects Apache-2.0.
+Source: https://github.com/espressif/esp-flasher-stub/releases/tag/v1.3.0
+
+MD5 hash implementation/interface
+Copyright 2003-2005 Jouni Malinen <j@w1.fi>; BSD license, see LICENSE.md5.
+Embedded Colin Plumb (1993) MD5 implementation is public domain.
+
+usb-serial-for-android 3.11.0
+Licensed under MIT. See LICENSE.usb-serial.
+
+The official library sources are vendored unmodified. The application wrapper
+reads the raw ROM flash_crypt_cnt for its plaintext-write security gate because
+the pinned public helper derives that field from key_purposes. eFuse burning
+and arbitrary register writes are not exposed through the application channel.

@@ -42,9 +42,9 @@ class UsbEspChipInfo {
   }
 }
 
-/// Runs pinned Espressif esptool-js offline in an isolated Android WebView.
-/// Its SerialPort shim uses the same native driver as [transport]. No remote
-/// JavaScript, Python runtime, or web flasher is needed.
+/// Runs Espressif's pinned native serial-flasher through Android JNI.
+/// The engine shares the native USB drivers with [transport]; no browser,
+/// WebView, JavaScript, or Python runtime is involved.
 class UsbEspFlashEngine {
   UsbEspFlashEngine(this.transport, {MethodChannel? channel})
     : _channel = channel ?? const MethodChannel('meshcore_open/usb_esp');
@@ -59,17 +59,17 @@ class UsbEspFlashEngine {
   Future<UsbEspChipInfo> connect(
     UsbFlashDevice device, {
     bool reset = true,
+    bool allowUnreviewed = false,
   }) async {
-    // Runtime capability, not OS version: updated Lollipop WebView supports
-    // the offline engine. A failed preflight must not open/reset any USB node.
+    // Check native library availability before opening/resetting any USB node.
     try {
       await _channel.invokeMethod<void>('preflight');
     } on PlatformException catch (error) {
-      if (error.code != 'usb_esp_webview_incompatible') rethrow;
+      if (error.code != 'usb_esp_native_unavailable') rethrow;
       throw StateError(
-        'ESP32 USB flashing needs an updated Android System WebView '
-        '(61 or newer; WebView 95 supports Android 5.1). Update WebView '
-        'before continuing. Backup and nRF52 USB DFU remain available.',
+        'The native ESP32 USB flashing library is unavailable. Install the '
+        'Android APK matching this device architecture before continuing. '
+        'Backup and nRF52 USB DFU remain available.',
       );
     }
     var endpoint = device;
@@ -106,6 +106,7 @@ class UsbEspFlashEngine {
     final info = await _channel.invokeMapMethod<Object?, Object?>('connect', {
       ...endpoint.toMap(),
       'reset': shouldReset,
+      'allowUnreviewed': allowUnreviewed,
     });
     if (info == null) throw StateError('ESP ROM did not return chip identity');
     final connected = UsbEspChipInfo.fromMap(info);
@@ -155,7 +156,7 @@ class UsbEspFlashEngine {
     if (offset % 4096 != 0) {
       throw ArgumentError('Flash writes must begin at a sector boundary');
     }
-    // esptool writes 4-byte padding; verify exactly the payload bytes after it
+    // The loader writes 4-byte padding; verify exactly the payload bytes after it
     // completes, rather than accepting the block acknowledgement as proof.
     final expected = md5.convert(bytes).toString();
     final result = await _channel.invokeMapMethod<Object?, Object?>(
@@ -179,6 +180,22 @@ class UsbEspFlashEngine {
       'migrationBridge': migrationBridge,
     });
     _chip = null;
+  }
+
+  /// Destructive full-install operation. The controller must obtain explicit
+  /// erase/settings-loss consent first; never used for an application update.
+  Future<void> eraseFlash({required String expectedMac}) async {
+    final chip = _chip;
+    if (chip == null) throw StateError('ESP32 bootloader is not connected');
+    final mac = UsbEspChipInfo.normalizeMac(expectedMac);
+    if (mac != chip.mac) throw StateError('Connected chip identity changed');
+    final result = await _channel.invokeMapMethod<Object?, Object?>(
+      'eraseFlash',
+      {'expectedMac': mac},
+    );
+    if (result?['mac'] != mac || result?['erased'] != true) {
+      throw StateError('ESP flash erase did not verify; do not reboot');
+    }
   }
 
   Future<void> close() async {

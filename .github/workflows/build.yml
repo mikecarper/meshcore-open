@@ -38,11 +38,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
       - run: python3 -m unittest discover -s tools -p 'test_build_android.py'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Verify the offline Android USB flashing engine
-        run: node --experimental-vm-modules tools/test_android_usb_flash.mjs
+      - name: Verify the native ESP flashing backend
+        run: |
+          cmake -S android/app/src/main/cpp -B .build/esp-native-host -DMESHCORE_ESP_HOST_TESTS=ON
+          cmake --build .build/esp-native-host
+          ctest --test-dir .build/esp-native-host --output-on-failure
       - name: Test and build the selected Android profile
         run: python3 tools/build_android.py ${{ matrix.profile }} --flutter "$(command -v flutter)" --sideload --test
       - uses: actions/upload-artifact@v4

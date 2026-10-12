@@ -1,33 +1,37 @@
-cmake_minimum_required(VERSION 3.13)
-project(meshcore_codec2 C)
-
-set(CODEC2_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../../../../third_party/codec2)
-
-include(${CMAKE_CURRENT_LIST_DIR}/codec2_sources.cmake)
-
-set(CODEC2_SRC_DIR ${CODEC2_ROOT}/src)
-
-set(CODEC2_SOURCE_FILES "")
-foreach(src ${CODEC2_SOURCES})
-    list(APPEND CODEC2_SOURCE_FILES ${CODEC2_SRC_DIR}/${src})
-endforeach()
-
-add_library(codec2 SHARED ${CODEC2_SOURCE_FILES})
-
-set_target_properties(codec2 PROPERTIES
-    OUTPUT_NAME "codec2"
-)
-
-target_include_directories(codec2 PUBLIC
-    ${CODEC2_ROOT}/src
-    ${CODEC2_ROOT}/include
-)
-
-target_compile_definitions(codec2 PRIVATE GIT_HASH="Unknown")
-
+cmake_minimum_required(VERSION 3.22)
+project(meshcore_esp_flasher LANGUAGES C CXX)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_C_VISIBILITY_PRESET hidden)
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+set(PORT USER_DEFINED)
+set(SERIAL_FLASHER_LOG_LEVEL NONE)
+add_subdirectory(vendor/esp-serial-flasher)
+add_library(meshcore_esp_core STATIC esp_native_core.cpp)
+target_include_directories(meshcore_esp_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} vendor/esp-serial-flasher/include
+    PRIVATE vendor/esp-serial-flasher/private_include)
 if(ANDROID)
-    target_compile_options(codec2 PRIVATE -std=gnu11)
+    find_library(ZLIB_NATIVE z REQUIRED)
+else()
+    find_package(ZLIB REQUIRED)
+    set(ZLIB_NATIVE ZLIB::ZLIB)
 endif()
-
-# Math library required on some platforms.
-target_link_libraries(codec2 m)
+target_link_libraries(meshcore_esp_core PUBLIC flasher ${ZLIB_NATIVE})
+if(ANDROID)
+    add_library(meshcore_esp_flasher SHARED esp_native_jni.cpp)
+    target_link_libraries(meshcore_esp_flasher PRIVATE meshcore_esp_core)
+    target_compile_options(meshcore_esp_flasher PRIVATE -Wall -Wextra)
+    # Keep the statically linked C++ runtime private: the modern app also
+    # contains inference libraries, and must not interpose their C++ symbols.
+    target_link_options(meshcore_esp_flasher PRIVATE "-Wl,-z,max-page-size=16384" "-Wl,--exclude-libs,ALL")
+endif()
+option(MESHCORE_ESP_HOST_TESTS "Run hermetic native flasher transport/guard tests" OFF)
+if(MESHCORE_ESP_HOST_TESTS)
+    enable_testing()
+    add_executable(meshcore_esp_native_test tests/esp_native_test.cpp)
+    target_link_libraries(meshcore_esp_native_test PRIVATE meshcore_esp_core)
+    target_include_directories(meshcore_esp_native_test PRIVATE vendor/esp-serial-flasher/private_include)
+    add_test(NAME esp_native_guard_protocol COMMAND meshcore_esp_native_test)
+endif()

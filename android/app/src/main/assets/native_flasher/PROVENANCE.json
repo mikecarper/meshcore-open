@@ -1,0 +1,16 @@
+{
+  "backend": "esp-serial-flasher",
+  "version": "2.1.0",
+  "source_commit": "24997fe693ff17e6598d7eb1d37af312752100aa",
+  "upstream": "https://github.com/espressif/esp-serial-flasher",
+  "archive_url": "https://codeload.github.com/espressif/esp-serial-flasher/tar.gz/24997fe693ff17e6598d7eb1d37af312752100aa",
+  "archive_sha256": "4e798bd2de98e595addda3064eeaf190b09843a45ed83ffb968279bfd4b05242",
+  "source_inventory_sha256": "c81abf3598a4e20cdad0ef8dbcda64dc9bbaf466be8c9c89aa69d9d04492e259",
+  "source_inventory_format": "SHA256SUMS.source: UTF-8 LF, sorted relative paths, lowercase SHA256 + two spaces + relative path + LF; hashes unmodified selected upstream files",
+  "stub_version": "1.3.0",
+  "source_license": "Apache-2.0",
+  "stub_license": "Apache-2.0 OR MIT",
+  "usb_serial_version": "3.11.0",
+  "native_library": "libmeshcore_esp_flasher.so",
+  "jni_class": "com.meshcore.meshcore_open.MeshcoreUsbEspEngine"
+}

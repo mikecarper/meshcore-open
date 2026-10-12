@@ -1,215 +1,167 @@
 package com.meshcore.meshcore_open
 
-import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
-import android.webkit.JavascriptInterface
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
-import java.io.ByteArrayInputStream
+import java.io.IOException
 import java.security.MessageDigest
 
-/** Offline-only official esptool engine; never loads remote JavaScript. */
+/** Pinned official Espressif C library over the existing native USB drivers. */
 class MeshcoreUsbEspEngine(private val activity: FlutterActivity, private val usb: MeshcoreUsbFunctions) {
     private val main = Handler(Looper.getMainLooper())
-    private var page: WebView? = null
-    @Volatile private var ready = false
-    private var sequence = 1
+    private val operations = UsbEspOperationGuard()
     private var active: MethodChannel.Result? = null
-    private var activeId = 0
-    private var startWhenReady: (() -> Unit)? = null
+    @Volatile private var sequence = 0
+    // Only usb's single I/O executor accesses nativeContext/JNI callbacks.
+    private var nativeContext = 0L
+    @Volatile private var loaded = false
+    private var opening = false
     @Volatile private var ownsUsb = false
-    private var openingUsb = false
-    @Volatile private var pageGeneration = 0
     private val watchdog = Runnable {
-        val wasReady = ready
-        val result = active
-        active = null
-        startWhenReady = null
-        // Destroying the engine cancels stale callbacks. USB is closed without
-        // resetting a potentially mid-migration node.
-        destroyPage()
-        if (openingUsb || ownsUsb) {
-            openingUsb = false; ownsUsb = false
-            usb.cancelPendingRaw(); usb.submit { usb.closeRaw() }
-        }
-        if (!wasReady) result?.error("usb_esp_webview_incompatible", incompatibleWebViewMessage, null)
-        else result?.error("usb_esp_timeout", "ESP operation timed out; USB was closed without reset", null)
+        operations.cancel()
+        val result = active; active = null
+        if (opening) usb.cancelPendingRaw()
+        usb.submit { destroyContext(); if (ownsUsb) usb.closeRaw(); ownsUsb = false }
+        result?.error("usb_esp_timeout", "Native ESP operation timed out; no reset was requested", null)
     }
-    private val incompatibleWebViewMessage = "ESP32 USB flashing requires an updated Android System WebView with ES module support (61 or newer; 95 supports Android 5.1). Update WebView. Backup and nRF52 USB DFU remain available."
 
     fun configureFlutterEngine(engine: FlutterEngine) {
         MethodChannel(engine.dartExecutor.binaryMessenger, "meshcore_open/usb_esp")
             .setMethodCallHandler { call, result ->
-                if (call.method !in listOf("preflight", "connect", "readFlash", "writeFlash", "runApplication", "close")) {
+                if (call.method !in listOf("preflight", "connect", "readFlash", "writeFlash", "eraseFlash", "runApplication", "close")) {
                     result.notImplemented(); return@setMethodCallHandler
                 }
-                if (active != null) { result.error("usb_busy", "ESP operation already in progress", null); return@setMethodCallHandler }
-                // Do not first wrap the firmware ByteArray in a giant JSON
-                // numeric array; only its one base64 representation crosses JS.
-                val arguments = ((call.arguments as? Map<*, *>) ?: emptyMap<Any, Any>()).filterKeys { it != "data" }
-                val args = JSONObject(arguments)
-                if (call.method == "writeFlash") {
-                    val data = call.argument<ByteArray>("data")
-                    if (data == null || data.isEmpty() || data.size > 32 * 1024 * 1024) {
-                        result.error("usb_esp_invalid_image", "Firmware size is invalid", null); return@setMethodCallHandler
+                if (active != null) { result.error("usb_busy", "Native ESP operation already in progress", null); return@setMethodCallHandler }
+                val id = try { operations.begin() } catch (error: IllegalStateException) {
+                    result.error("usb_esp_closed", "USB update activity closed", null); return@setMethodCallHandler
+                }
+                active = result; sequence = id
+                main.postDelayed(watchdog, 15 * 60 * 1000L)
+                if (call.method == "preflight") {
+                    usb.submit {
+                        if (!operations.bind(id)) return@submit
+                        try { prepareNative(); finish(id, null) }
+                        catch (error: Throwable) { finishError(id, "usb_esp_native_unavailable", "Native ESP flashing engine is unavailable for this APK/device. Backup and nRF52 DFU remain available.") }
                     }
-                    args.put("data", Base64.encodeToString(data, Base64.NO_WRAP))
-                }
-                active = result
-                activeId = sequence++
-                val operationId = activeId
-                // Slow CH340/UART links may legitimately take several minutes
-                // for multi-megabyte images. Runtime remains foreground-owned.
-                main.postDelayed(watchdog, if (ready) 15 * 60 * 1000L else 10000L)
-                val invoke = {
-                    try {
-                        ensurePage()
-                        val dispatch = { page?.evaluateJavascript("window.meshUsbDispatch(${JSONObject().put("id", activeId).put("op", call.method).put("args", args)});", null); Unit }
-                        val start = {
-                            main.removeCallbacks(watchdog)
-                            if (call.method == "preflight") finish(null)
-                            else {
-                                main.postDelayed(watchdog, 15 * 60 * 1000L)
-                                if (call.method == "connect") {
-                                    val expected = args.keys().asSequence().associateWith { key -> args.opt(key).takeUnless { it == JSONObject.NULL } }
-                                    openingUsb = true
-                                    usb.openAsync(args.optString("deviceName"), args.optInt("portNumber"), 115200, expected = expected) { error ->
-                                        openingUsb = false
-                                        if (active == null || activeId != operationId) { if (error == null) usb.submit { usb.closeRaw() } }
-                                        else if (error != null) finishError(error.message ?: "USB open failed")
-                                        else { ownsUsb = true; dispatch() }
-                                    }
-                                } else dispatch()
-                            }
-                            Unit
-                        }
-                        if (ready) start() else startWhenReady = start
-                    } catch (error: Throwable) { finishError(error.message ?: "Unable to initialize offline ESP engine") }
-                }
-                if (call.method == "close" && page == null) {
-                    if (ownsUsb) usb.submit { usb.closeRaw(); main.post { ownsUsb = false; finish(null) } }
-                    else finish(null)
-                } else invoke()
-            }
-    }
-
-    @SuppressLint("SetJavaScriptEnabled")
-    private fun ensurePage() {
-        if (page != null) return
-        val bundle = activity.assets.open("esptool/bundle.js").use { it.readBytes() }
-        val hash = MessageDigest.getInstance("SHA-256").digest(bundle).joinToString("") { "%02x".format(it) }
-        check(hash == "00ebe6fb0b202976d3e2a3c6b9a6bd438c26a81d2af6739c95ac276a64c1a84e") { "Offline esptool bundle checksum failed" }
-        val generation = ++pageGeneration
-        page = WebView(activity).apply {
-            settings.javaScriptEnabled = true
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-            settings.domStorageEnabled = false
-            settings.databaseEnabled = false
-            settings.blockNetworkLoads = true
-            settings.javaScriptCanOpenWindowsAutomatically = false
-            settings.setSupportMultipleWindows(false)
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = true
-                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
-                    val uri = request.url
-                    val name = uri.path?.removePrefix("/")
-                    if (uri.scheme == "https" && uri.host == "meshcore-usb.invalid" &&
-                        name in listOf("index.html", "bootstrap.js", "bridge.js", "bundle.js")) {
-                        val mime = if (name == "index.html") "text/html" else "text/javascript"
-                        return WebResourceResponse(mime, "UTF-8", activity.assets.open("esptool/$name"))
+                } else if (call.method == "connect") {
+                    // Gate readiness before permission/open, independently of
+                    // Dart's gate before its deliberate TinyUSB1200-baud touch.
+                    try { prepareNative() } catch (error: Throwable) {
+                        finishError(id, "usb_esp_native_unavailable", "Native ESP flashing engine is unavailable for this APK/device.")
+                        return@setMethodCallHandler
                     }
-                    return WebResourceResponse("text/plain", "UTF-8", 403, "Forbidden", emptyMap(), ByteArrayInputStream(ByteArray(0)))
-                }
-            }
-            addJavascriptInterface(NativeBridge(generation), "MeshUsb")
-            loadUrl("https://meshcore-usb.invalid/index.html")
-        }
-    }
-
-    private fun destroyPage() {
-        ++pageGeneration
-        page?.destroy(); page = null; ready = false
-    }
-
-    private inner class NativeBridge(private val generation: Int) {
-        @JavascriptInterface fun incompatible(message: String) {
-            main.post {
-                if (generation == pageGeneration && page != null && !ready) {
-                    destroyPage()
-                    finishError(incompatibleWebViewMessage, "usb_esp_webview_incompatible")
-                }
-            }
-        }
-        @JavascriptInterface fun ready() { main.post {
-            if (generation != pageGeneration || page == null) return@post
-            ready = true; val launch = startWhenReady; startWhenReady = null; launch?.invoke()
-        } }
-        @JavascriptInterface fun request(encoded: String) {
-            if (generation != pageGeneration || !ready || !ownsUsb) return
-            val request = try { JSONObject(encoded) } catch (_: Exception) { return }
-            val id = request.optInt("id")
-            val args = request.optJSONObject("args") ?: JSONObject()
-            val originPage = page
-            usb.submit {
-                if (generation != pageGeneration || !ready || !ownsUsb) return@submit
-                val response = JSONObject().put("id", id)
-                try {
-                    val value: Any? = when (request.optString("op")) {
-                        "read" -> Base64.encodeToString(usb.readRaw(args.optInt("maxBytes", 4096), args.optInt("timeoutMs", 50)), Base64.NO_WRAP)
-                        "write" -> { usb.writeRaw(Base64.decode(args.getString("data"), Base64.NO_WRAP)); null }
-                        "setSignals" -> { usb.setSignals(args.getBoolean("dtr"), args.getBoolean("rts")); null }
-                        "setBaudRate" -> { usb.setBaudRate(args.getInt("baudRate")); null }
-                        "close" -> { usb.closeRaw(); main.post { ownsUsb = false }; null }
-                        else -> error("Unsupported native USB operation")
+                    opening = true
+                    val expected = (call.arguments as? Map<*, *>)?.entries?.associate { it.key.toString() to it.value }
+                    usb.openAsync(call.argument<String>("deviceName") ?: "", call.argument<Int>("portNumber") ?: 0,
+                        115200, expected = expected) { error ->
+                        opening = false
+                        if (active == null || !operations.isCurrent(id)) { if (error == null) usb.submit { usb.closeRaw() } }
+                        else if (error != null) finishError(id, "usb_esp_failed", error.message ?: "USB open failed")
+                        else { ownsUsb = true; execute(id, call) }
                     }
-                    response.put("value", value ?: JSONObject.NULL)
-                } catch (error: Throwable) { response.put("error", error.message ?: "USB I/O failed") }
-                main.post { if (generation == pageGeneration && page === originPage) page?.evaluateJavascript("window.meshUsbNativeReply($response);", null) }
+                } else execute(id, call)
+            }
+    }
+    private fun prepareNative() {
+        if (!loaded) { System.loadLibrary("meshcore_esp_flasher"); loaded = true }
+        check(nativeVersion() == "esp-serial-flasher/2.1.0/24997fe693ff17e6598d7eb1d37af312752100aa") { "Native ESP version does not match pinned source" }
+    }
+    private fun execute(id: Int, call: MethodCall) {
+        usb.submit {
+            if (!operations.bind(id)) return@submit
+            try {
+                val value: Any? = when (call.method) {
+                    "connect" -> {
+                        destroyContext(); usb.purge()
+                        nativeContext = nativeCreate()
+                        check(nativeContext != 0L) { "Native ESP context was not initialized" }
+                        val vendor = call.argument<Int>("vendorId") ?: 0
+                        val pid = call.argument<Int>("productId") ?: 0
+                        val nativeUsb = call.argument<String>("driver") == "CdcAcmSerialDriver" && vendor !in listOf(0x1a86, 0x0403, 0x10c4, 0x067b)
+                        val info = JSONObject(nativeConnect(nativeContext, call.argument<Boolean>("reset") ?: true,
+                            nativeUsb, vendor == 0x303a && pid == 0x1001, call.argument<Boolean>("allowUnreviewed") ?: false))
+                        info.keys().asSequence().associateWith { key -> info.get(key) }
+                    }
+                    "readFlash" -> {
+                        val data = nativeReadFlash(nativeContext, required(call, "offset"), required(call, "length"), required(call, "expectedMac"))
+                        mapOf("data" to data, "md5" to digest(data))
+                    }
+                    "writeFlash" -> {
+                        val data: ByteArray = required(call, "data")
+                        val mac: String = required(call, "expectedMac")
+                        val md5: String = required(call, "expectedMd5")
+                        nativeWriteFlash(nativeContext, required(call, "offset"), data, mac, md5)
+                        mapOf("mac" to mac, "md5" to md5)
+                    }
+                    "eraseFlash" -> {
+                        val mac: String = required(call, "expectedMac")
+                        nativeEraseFlash(nativeContext, mac)
+                        mapOf("mac" to mac, "erased" to true)
+                    }
+                    "runApplication" -> {
+                        nativeRunApplication(nativeContext, required(call, "expectedMac"))
+                        destroyContext(); if (ownsUsb) usb.closeRaw(); ownsUsb = false
+                        null
+                    }
+                    "close" -> { destroyContext(); if (ownsUsb) usb.closeRaw(); ownsUsb = false; null }
+                    else -> error("Unsupported native ESP operation")
+                }
+                finish(id, value)
+            } catch (error: Throwable) {
+                // Failed writes stay in loader; cleanup never resets.
+                val message = error.message ?: "Native ESP operation failed"
+                val code = if (message.startsWith("Manual reset required:")) "usb_esp_manual_reset_required" else "usb_esp_failed"
+                finishError(id, code, message)
             }
         }
-        @JavascriptInterface fun result(encoded: String) {
-            val response = try { JSONObject(encoded) } catch (_: Exception) { return }
-            main.post {
-                if (generation != pageGeneration || page == null) return@post
-                if (response.optInt("id") != activeId || active == null) return@post
-                if (response.has("error")) finishError(response.getString("error"))
-                else finish(toFlutter(response.opt("value")))
-            }
-        }
     }
-
-    private fun toFlutter(value: Any?): Any? = when (value) {
-        null, JSONObject.NULL -> null
-        is JSONObject -> value.keys().asSequence().associateWith { key ->
-            if (key == "data") Base64.decode(value.getString(key), Base64.NO_WRAP) else toFlutter(value.opt(key))
-        }
-        else -> value
-    }
-    private fun finish(value: Any?) {
-        main.removeCallbacks(watchdog)
-        val result = active; active = null
-        result?.success(value)
-    }
-    private fun finishError(message: String, code: String = "usb_esp_failed") {
-        main.removeCallbacks(watchdog)
-        val result = active; active = null; startWhenReady = null
-        result?.error(code, message, null)
-    }
+    private inline fun <reified T> required(call: MethodCall, key: String): T =
+        call.argument<T>(key) ?: throw IllegalArgumentException("Missing $key")
+    private fun digest(data: ByteArray) = MessageDigest.getInstance("MD5").digest(data).joinToString("") { "%02x".format(it) }
+    private fun destroyContext() { if (nativeContext != 0L) { nativeDestroy(nativeContext); nativeContext = 0L } }
+    private fun finish(id: Int, value: Any?) { main.post {
+        if (!operations.isCurrent(id) || active == null) return@post
+        main.removeCallbacks(watchdog); val result = active; active = null; result?.success(value)
+    } }
+    private fun finishError(id: Int, code: String, message: String) { main.post {
+        if (!operations.isCurrent(id) || active == null) return@post
+        main.removeCallbacks(watchdog); val result = active; active = null; result?.error(code, message, null)
+    } }
     fun dispose() {
-        main.removeCallbacks(watchdog)
-        active?.error("usb_esp_closed", "USB update activity closed", null)
-        active = null; startWhenReady = null
-        if (openingUsb || ownsUsb) usb.cancelPendingRaw()
-        openingUsb = false; ownsUsb = false
-        destroyPage()
+        operations.dispose(); main.removeCallbacks(watchdog)
+        active?.error("usb_esp_closed", "Native USB update activity closed", null); active = null
+        if (opening) usb.cancelPendingRaw()
+        usb.submit { destroyContext(); if (ownsUsb) usb.closeRaw(); ownsUsb = false }
     }
+
+    // JNI invokes callbacks synchronously on the same I/O worker. A nested
+    // usb.submit here would deadlock. No callback asserts reset implicitly.
+    private fun checkOperation() { if (operations.isCancelled()) throw IOException("USB operation cancelled") }
+    private fun nativeUsbRead(size: Int, timeout: Int): ByteArray { checkOperation(); return usb.readRaw(size, timeout.coerceIn(1, 30000)) }
+    private fun nativeUsbWrite(data: ByteArray) { checkOperation(); usb.writeRaw(data) }
+    private fun nativeUsbSignals(dtr: Boolean, rts: Boolean) {
+        checkOperation()
+        usb.setSignals(dtr, rts)
+    }
+    private fun nativeUsbBaud(baud: Int) { checkOperation(); usb.setBaudRate(baud) }
+    private fun nativeUsbCancelled() = operations.isCancelled()
+    private fun nativeUsbDelay(ms: Int) {
+        var remaining = ms
+        while (remaining > 0) {
+            checkOperation()
+            val step = remaining.coerceAtMost(10); Thread.sleep(step.toLong()); remaining -= step
+        }
+    }
+    private external fun nativeVersion(): String
+    private external fun nativeCreate(): Long
+    private external fun nativeConnect(handle: Long, reset: Boolean, nativeUsb: Boolean, usbJtag: Boolean, allowUnreviewed: Boolean): String
+    private external fun nativeReadFlash(handle: Long, offset: Int, length: Int, mac: String): ByteArray
+    private external fun nativeWriteFlash(handle: Long, offset: Int, data: ByteArray, mac: String, md5: String)
+    private external fun nativeEraseFlash(handle: Long, mac: String)
+    private external fun nativeRunApplication(handle: Long, mac: String)
+    private external fun nativeDestroy(handle: Long)
 }

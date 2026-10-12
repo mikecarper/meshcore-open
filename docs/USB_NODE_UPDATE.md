@@ -8,20 +8,20 @@ prove which radio board is connected.
 
 Both Android build profiles include the USB updater. Android 5.1.1 uses the
 legacy ARMv7 APK; the modern ARM64 APK requires Android 9/API 28 or later.
-ESP32 flashing requires an updated Android System WebView that can run the
-bundled JavaScript module. Stock Android 5.1.1 WebView is too old; update it
-before using ESP32 flashing. Runtime readiness is checked before bootloader
-preparation, and failure stops with an explanation rather than resetting the
-node. Backup/restore and nRF52 DFU do not use WebView.
+ESP32 flashing uses a native C/JNI engine built for each APK's ABI, not
+WebView or browser JavaScript. It therefore does not require updating the
+Android 5.1.1 System WebView. Native engine readiness is checked before
+bootloader preparation; a missing or incompatible engine stops before USB
+is opened or reset. Backup/restore and nRF52 DFU retain their native workflows.
 
 ## Updating an application
 
 1. Select the physical USB node explicitly. Android asks for USB permission;
    permission may need to be granted again after a bootloader re-enumeration.
 2. Choose an application file, a Keymind release asset, or an HTTPS URL.
-   ESP32 uses an application-only BIN. nRF52 uses an application-only legacy
-   Adafruit serial-DFU ZIP. Merged installs, UF2s, bootloaders, SoftDevices and
-   full-chip erase are intentionally not offered by this updater.
+   The default application action accepts an ESP32 application-only BIN or a
+   legacy Adafruit nRF52 serial-DFU ZIP. Bootloader/full-install actions are
+   separate, as described below. A UF2 is not a serial-DFU package.
 3. Leave **Create and verify a backup first** enabled. This happens before
    bootloader preparation and final write confirmation. DFU cannot expose
    running MeshCore configuration; the app explains this and requires explicit
@@ -43,6 +43,52 @@ raw USB session. Native TinyUSB bootloader touch is explicit; hardware USB/JTAG
 and UART reset use their appropriate mechanisms. If a stable USB identity is
 unavailable, the app stops for explicit selection of the original physical
 node. Matching VID/PID or a recycled Android bus address is not proof.
+
+## Bootloader and full installation
+
+Select the explicit firmware action before selecting its file. The ordinary
+application action does not silently reinterpret a recognized bootloader or
+merged BIN as an application.
+
+**ESP32 bootloader only** accepts a validated plaintext bootloader BIN for a
+reviewed chip, at that chip's fixed bootloader address. It checks image headers,
+segments, checksum/hash, flash capacity and the bootloader boundary. The exact
+`replace-esp32-bootloader` acknowledgement is required. Existing application,
+partition table and settings are preserved, but an incompatible bootloader can
+still prevent the node from starting. Readback proves the bytes transferred;
+it does not prove a bootloader version or successful application boot.
+
+**ESP32 full installation** accepts a reviewed zero-based merged BIN containing
+the matching bootloader, partition table and initially bootable application.
+Unknown provisioned data, conflicting chips, invalid partition/OTA selection
+and arbitrary extra bytes are rejected. The exact `erase-esp32-full-install`
+acknowledgement permits whole-chip erase: private identity, settings, messages,
+files and logs are lost. A logical backup is not a complete flash image. App/data
+and the partition table are verified before the bootloader is written last.
+The new app is then checked without expecting the erased node's old identity.
+
+**nRF52 bootloader/SoftDevice** uses a legacy Adafruit serial-DFU ZIP with the
+appropriate manifest and init metadata. It remains distinct from an ordinary
+application update and requires explicit acknowledgement of bootloader recovery
+risks. The connected bootloader must support the selected package; completion
+cannot make mismatched hardware or an incompatible SoftDevice safe.
+
+## Acknowledged expert attempts
+
+The expert action is an unverified, dangerous attempt, not a promise that every
+file format or firmware can be flashed successfully. It requires choosing the
+ESP32 or nRF52 protocol and accepting the displayed exact risk token. ESP32
+expert writes use the supplied raw bytes at an explicitly chosen sector-aligned
+flash offset; whole-chip erase is a separate explicit option. nRF52 expert
+attempts still require a structurally usable serial-DFU package.
+
+Normal chip/image/board qualification may be bypassed only in this expert
+action. USB permission, physical-device/MAC binding, transfer bounds and
+readback/protocol checks remain. An unfinished partition migration cannot be
+silently discarded: abandoning it requires a separate acknowledgement bound to
+the original device. A completed transfer is not verified application success;
+the node may not start and may require manual bootloader reset or physical
+recovery. Keep the original recovery artifacts and any private backup securely.
 
 ## Automatic partition expansion
 
@@ -98,19 +144,23 @@ whole-chip wipe or to contain every unread message/filesystem file.
 
 ## Verification status and dependencies
 
-Software tests cover raw transport, true pinned serial drivers, actual
-Espressif transport APIs, legacy nRF HCI/SLIP vectors, canonical backup
+Software qualification covers raw transport, pinned serial drivers, native
+Espressif ROM/stub protocol operations, legacy nRF HCI/SLIP vectors, canonical backup
 interoperability, exact real release packages, malformed inputs and interrupted
 migration gates. Physical tablet/radio flashing remains to be validated.
 
-Android uses pinned `usb-serial-for-android` 3.11.0 and an offline, licensed,
-checksum-recorded Espressif esptool-js 0.7.0 bundle. It never downloads and
-executes browser code at runtime. Secure boot, encryption and unsupported
-recovery modes are refused before flashing. The new screen is Android-only;
+Android uses pinned `usb-serial-for-android` 3.11.0 and Espressif's native
+`esp-serial-flasher` 2.1.0 at commit
+`24997fe693ff17e6598d7eb1d37af312752100aa`, including its licensed RAM stubs.
+The engine is compiled into each APK; no browser flashing engine, downloaded
+executable, Python runtime or WebView is needed. Normal actions refuse secure
+boot, encryption and unsupported recovery modes before flashing; expert mode
+does not claim to overcome hardware security or recovery limitations. The new screen is Android-only;
 Windows/Linux still use their normal meshfirmware scripts.
-The Android backend currently supports ordinary ESP32, ESP32-S2, ESP32-C2,
-ESP32-C3 and ESP32-S3 application updates. ESP32-C6 and other unreviewed chip
-families are refused before any flash write. Migration is narrower: only the
+The reviewed Android backend supports ESP32, ESP32-S2, ESP32-C2,
+ESP32-C3 and ESP32-S3 application, bootloader and full-install plans. ESP32-C6
+and other unreviewed chip families have no normal install plan. Expert attempts
+are limited by the native engine's actual chip/protocol support. Migration is narrower: only the
 reviewed ESP32/C3/S3 board/role packages qualify.
 
 ## Building and installing
@@ -123,5 +173,7 @@ bypass a signing mismatch: that removes its private data and backups.
 
 These are explicit sideload candidates, not production-store releases. Each
 release includes build manifests and checksums identifying the exact source,
-SDK, signing mode and APK. Native AI remains unavailable in the legacy build;
+SDK, signing mode, native flashing library and APK. Packaging checks require
+the correct native engine ABI and reject the retired browser flashing assets.
+Native AI remains unavailable in the legacy build;
 ordinary messaging, USB backups and supported firmware workflows remain present.

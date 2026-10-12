@@ -18,6 +18,45 @@ class _Transport extends UsbFlashTransport {
 }
 
 void main() {
+  testWidgets(
+    'expert controls fit a narrow Android phone without opening USB',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final transport = _Transport([]);
+      final service = UsbNodeUpdateService(transport: transport);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: UsbNodeUpdateScreen(service: service, nativeUsbSupported: true),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      tester
+          .widget<DropdownButtonFormField<String>>(
+            find.byKey(const Key('usb-install-mode')),
+          )
+          .onChanged!('expert');
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('usb-expert-protocol')),
+      150,
+      scrollable: find.byType(Scrollable).first,
+    );
+      tester
+          .widget<DropdownButtonFormField<UsbExpertProtocol>>(
+            find.byKey(const Key('usb-expert-protocol')),
+          )
+          .onChanged!(UsbExpertProtocol.nrf52);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(transport.opens, 0);
+    },
+  );
+
   for (final newHardware in [false, true]) {
     for (final choice in [
       'Cancel restore',
@@ -66,6 +105,10 @@ void main() {
   testWidgets('Android offers native USB update and safe default backup', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(1000, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final transport = _Transport([
       const UsbFlashDevice(
         deviceName: '/dev/bus/usb/001/002',
@@ -86,7 +129,9 @@ void main() {
     expect(find.text('Firmware URL'), findsOneWidget);
     expect(find.text('Keymind releases'), findsOneWidget);
     expect(
-      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+      tester
+          .widget<CheckboxListTile>(find.byKey(const Key('usb-backup-first')))
+          .value,
       true,
     );
     expect(transport.opens, 0);
@@ -138,7 +183,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     final chooser = tester.widget<DropdownButtonFormField<String>>(
-      find.byType(DropdownButtonFormField<String>),
+      find.byKey(const Key('usb-node-picker')),
     );
     expect(chooser.onChanged, isNotNull);
     chooser.onChanged!.call('/dev/bus/usb/001/3:0');

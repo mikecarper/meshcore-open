@@ -2,7 +2,8 @@
 
 Both APKs contain the same mesh, messaging, mapping, on-phone mOTA delta and key
 generation, admin key backup, GitHub release discovery, companion Bluetooth/Wi-Fi
-updates, and supported two-step ESP32 partition expansion workflows. Hardware and
+updates, native USB backup/restore and firmware installation, and supported
+two-step ESP32 partition expansion workflows. Hardware and
 target firmware still determine which update transports are available.
 
 | Profile | Flutter | Android | CPU | Native AI |
@@ -40,6 +41,25 @@ The APK and a JSON build manifest (SDK, source digest, ABI, signing mode, and AP
 SHA256) are placed in that workspace's `artifacts/` directory. Generated Flutter
 files cannot dirty the original checkout. `--prepare-only` prepares a workspace
 for manual diagnostics without building it.
+
+Both profiles compile the same pinned Espressif `esp-serial-flasher` 2.1.0
+native USB flashing engine: ARMv7/API 21 for legacy and ARM64/API 28 for
+modern. This backend does not depend on Android System WebView, browser
+JavaScript or a Python runtime. The existing serial drivers still provide
+CH340/CH341, CP210x, FTDI and CDC/ACM access. Install the pinned Android NDK
+29.0.14206865 and CMake 3.22.1 required by `android/app/build.gradle.kts`
+before building.
+
+The APK verifier requires the native engine for the selected ABI, checks its
+ELF architecture and pinned provenance, and records the library SHA-256 in
+the build manifest. Retired `assets/esptool/` browser-engine assets are
+rejected. This packaging evidence complements the host protocol tests; it
+does not prove that a physical radio was flashed successfully.
+
+Both profiles offer strict application updates, explicit ESP32 bootloader/full
+installs and nRF52 bootloader/SoftDevice serial DFU. An acknowledged expert
+action permits an unverified attempt; it is not a claim of universal file-format,
+board or security compatibility. See [USB update safety and limitations](USB_NODE_UPDATE.md).
 
 `--sideload` explicitly uses the build machine's existing Android debug
 certificate. This is suitable for these private test installs, not a public

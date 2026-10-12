@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../connector/meshcore_connector.dart';
 import '../services/usb_firmware_catalog.dart';
+import '../services/usb_esp_install_plan.dart';
 import '../services/usb_flash_transport.dart';
 import '../services/usb_node_backup.dart';
 import '../services/usb_node_update_service.dart';
@@ -36,6 +37,11 @@ class _UsbNodeUpdateScreenState extends State<UsbNodeUpdateScreen> {
   String? _uiError;
   bool _working = false;
   bool _makeBackup = true;
+  UsbEspInstallMode? _espInstallMode;
+  UsbExpertProtocol? _expertProtocol;
+  final _expertOffset = TextEditingController(text: '0x0');
+  bool _expertErase = false;
+  bool _expertRestart = false;
   bool get _busy => _working || _service.busy;
   bool get _nativeSupported =>
       widget.nativeUsbSupported ?? PlatformInfo.isAndroid;
@@ -56,6 +62,7 @@ class _UsbNodeUpdateScreenState extends State<UsbNodeUpdateScreen> {
 
   @override
   void dispose() {
+    _expertOffset.dispose();
     _service.removeListener(_changed);
     if (widget.service == null && !_service.busy) _service.dispose();
     super.dispose();
@@ -118,9 +125,14 @@ class _UsbNodeUpdateScreenState extends State<UsbNodeUpdateScreen> {
 
   Future<void> _pickFirmware() => _action(() async {
     final file = await openFile(
-      acceptedTypeGroups: const [
-        XTypeGroup(label: 'Application firmware', extensions: ['bin', 'zip']),
-      ],
+      acceptedTypeGroups: _expertProtocol == UsbExpertProtocol.esp32
+          ? const []
+          : const [
+              XTypeGroup(
+                label: 'Firmware / nRF52 recovery',
+                extensions: ['bin', 'zip'],
+              ),
+            ],
     );
     if (file == null) return;
     if (await file.length() > UsbFirmwareCatalog.maxArtifactBytes) {
@@ -159,7 +171,7 @@ class _UsbNodeUpdateScreenState extends State<UsbNodeUpdateScreen> {
     final url = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Application firmware URL'),
+        title: const Text('Firmware URL'),
         content: TextField(
           controller: input,
           keyboardType: TextInputType.url,
@@ -187,7 +199,8 @@ class _UsbNodeUpdateScreenState extends State<UsbNodeUpdateScreen> {
       throw const FormatException('Missing firmware filename.');
     }
     final name = UsbNodeUpdateService.safeName(uri.pathSegments.last);
-    if (!RegExp(r'\.(bin|zip)$', caseSensitive: false).hasMatch(name)) {
+    if (_expertProtocol != UsbExpertProtocol.esp32 &&
+        !RegExp(r'\.(bin|zip)$', caseSensitive: false).hasMatch(name)) {
       throw const FormatException('Use an application BIN or serial DFU ZIP.');
     }
     final bytes = await _service.catalog.download(uri);
@@ -276,6 +289,18 @@ class _UsbNodeUpdateScreenState extends State<UsbNodeUpdateScreen> {
   Future<void> _update() => _action(() async {
     final device = _selected;
     if (device == null || _firmware == null || _filename == null) return;
+    final offset = _expertProtocol == UsbExpertProtocol.esp32
+        ? int.tryParse(
+            _expertOffset.text.trim().replaceFirst(
+              RegExp(r'^0x', caseSensitive: false),
+              '',
+            ),
+            radix: 16,
+          )
+        : 0;
+    if (offset == null) {
+      throw const FormatException('Enter a hexadecimal flash offset.');
+    }
     await _disconnectCompanion();
     await _service.update(
       device,
@@ -286,6 +311,11 @@ class _UsbNodeUpdateScreenState extends State<UsbNodeUpdateScreen> {
       createBackup: _makeBackup,
       localMigrationZip: _migrationZip,
       localUsbSetZip: _usbSetZip,
+      espInstallMode: _espInstallMode,
+      expertProtocol: _expertProtocol,
+      expertOffset: offset,
+      expertErase: _expertErase,
+      expertRestart: _expertRestart,
     );
   });
 
@@ -364,12 +394,15 @@ class _UsbNodeUpdateScreenState extends State<UsbNodeUpdateScreen> {
                   'APK. Windows/Linux can use meshfirmware scripts.',
                 ),
               const Text(
-                'Use a data cable and stable power. This updater writes '
-                'applications, not bootloaders or merged install images. '
-                'CH340, CP210x, FTDI and native USB use Android drivers.',
+                'Use a data cable and stable power. Application updates and '
+                'nRF52 bootloader recovery ZIPs use native USB flashing. '
+                'Select ESP32 bootloader or full-install mode explicitly for '
+                'recovery. Full installs erase all settings and files. '
+                'CH340, CP210x, FTDI and CDC/ACM use Android drivers.',
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
+                key: const Key('usb-node-picker'),
                 // Compatible with the legacy Flutter 3.32.8 build profile.
                 // ignore: deprecated_member_use
                 value: _selected == null ? null : _deviceKey(_selected!),
@@ -401,6 +434,104 @@ class _UsbNodeUpdateScreenState extends State<UsbNodeUpdateScreen> {
                   label: const Text('Refresh USB devices'),
                 ),
               ),
+              DropdownButtonFormField<String>(
+                key: const Key('usb-install-mode'),
+                isExpanded: true,
+                // ignore: deprecated_member_use
+                value: _expertProtocol != null
+                    ? 'expert'
+                    : _espInstallMode?.name ?? 'application',
+                decoration: const InputDecoration(labelText: 'Firmware action'),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'application',
+                    child: Text('Application / nRF52 DFU ZIP'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'bootloader',
+                    child: Text('ESP32 bootloader BIN'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'fullInstall',
+                    child: Text('ESP32 merged full install (erase all)'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'expert',
+                    child: Text('Expert: attempt unverified firmware'),
+                  ),
+                ],
+                onChanged: enabled
+                    ? (mode) => setState(() {
+                        _expertProtocol = mode == 'expert'
+                            ? UsbExpertProtocol.esp32
+                            : null;
+                        _espInstallMode =
+                            mode == 'application' ||
+                                mode == 'expert' ||
+                                mode == null
+                            ? null
+                            : UsbEspInstallMode.values.byName(mode);
+                      })
+                    : null,
+              ),
+              if (_expertProtocol != null) ...[
+                const Text(
+                  'Expert attempts can disable the node or destroy settings. '
+                  'An exact risk acknowledgement is required before resetting or writing. '
+                  'Raw ESP files are written as-is: no HEX, UF2 or ZIP conversion.',
+                ),
+                DropdownButtonFormField<UsbExpertProtocol>(
+                  key: const Key('usb-expert-protocol'),
+                  isExpanded: true,
+                  // ignore: deprecated_member_use
+                  value: _expertProtocol,
+                  decoration: const InputDecoration(
+                    labelText: 'Flashing protocol',
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: UsbExpertProtocol.esp32,
+                      child: Text('ESP serial loader — raw bytes'),
+                    ),
+                    DropdownMenuItem(
+                      value: UsbExpertProtocol.nrf52,
+                      child: Text('nRF52 legacy serial DFU — ZIP'),
+                    ),
+                  ],
+                  onChanged: enabled
+                      ? (protocol) => setState(() => _expertProtocol = protocol)
+                      : null,
+                ),
+                if (_expertProtocol == UsbExpertProtocol.esp32) ...[
+                  TextField(
+                    controller: _expertOffset,
+                    enabled: enabled,
+                    decoration: const InputDecoration(
+                      labelText: 'Flash offset (hex; 4096-byte aligned)',
+                      hintText: '0x1000',
+                    ),
+                  ),
+                  CheckboxListTile(
+                    value: _expertErase,
+                    onChanged: enabled
+                        ? (value) => setState(() => _expertErase = value!)
+                        : null,
+                    title: const Text(
+                      'Erase ALL flash before the expert write',
+                    ),
+                  ),
+                  CheckboxListTile(
+                    value: _expertRestart,
+                    onChanged: enabled
+                        ? (value) => setState(() => _expertRestart = value!)
+                        : null,
+                    title: const Text(
+                      'Request restart after verified raw write',
+                    ),
+                  ),
+                ],
+              ],
+              const SizedBox(height: 12),
               Wrap(
                 spacing: 12,
                 runSpacing: 8,
@@ -408,7 +539,7 @@ class _UsbNodeUpdateScreenState extends State<UsbNodeUpdateScreen> {
                   OutlinedButton.icon(
                     onPressed: enabled ? _pickFirmware : null,
                     icon: const Icon(Icons.folder_open),
-                    label: const Text('Custom application file'),
+                    label: const Text('Custom firmware file'),
                   ),
                   OutlinedButton.icon(
                     onPressed: enabled ? _downloadFirmware : null,
@@ -428,6 +559,7 @@ class _UsbNodeUpdateScreenState extends State<UsbNodeUpdateScreen> {
                   child: Text(_filename!),
                 ),
               CheckboxListTile(
+                key: const Key('usb-backup-first'),
                 value: _makeBackup,
                 onChanged: enabled
                     ? (v) => setState(() => _makeBackup = v!)

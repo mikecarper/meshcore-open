@@ -9,29 +9,76 @@ import 'usb_firmware_package.dart';
 
 /// Legacy Adafruit USB serial DFU, not Nordic's BLE/secure DFU protocol.
 /// Wire format follows adafruit-nrfutil's published HCI/SLIP protocol.
+enum UsbNrfDfuKind { application, bootloader, softdeviceBootloader, softdevice }
+
 class UsbNrfDfuPackage {
   UsbNrfDfuPackage._(
     this.name,
-    this.application,
+    this.payload,
     this.initPacket,
     this.sha256,
     this.hardwareId,
     this.firmwareVersion,
-  ) : _applicationSha256 = crypto.sha256.convert(application).toString(),
-      _initSha256 = crypto.sha256.convert(initPacket).toString();
+    this.kind,
+    this.softdeviceSize,
+    this.bootloaderSize,
+    this.applicationSize,
+    this.deviceType,
+    this.deviceRevision,
+    this.requiredSoftdevices,
+    this.isUnverified,
+    List<String> warnings,
+  ) : _payloadSha256 = crypto.sha256.convert(payload).toString(),
+      _initSha256 = crypto.sha256.convert(initPacket).toString(),
+      warnings = List.unmodifiable(warnings);
 
   final String name;
-  final Uint8List application;
+  final Uint8List payload;
+  // Retained for existing application-only callers. New code uses payload.
+  Uint8List get application => payload;
   final Uint8List initPacket;
   final String sha256;
   final String? hardwareId;
   final String? firmwareVersion;
-  final String _applicationSha256;
+  final UsbNrfDfuKind kind;
+  final int softdeviceSize;
+  final int bootloaderSize;
+  final int applicationSize;
+  final int deviceType;
+  final int deviceRevision;
+  final List<int> requiredSoftdevices;
+  final bool isUnverified;
+  final List<String> warnings;
+  final String _payloadSha256;
   final String _initSha256;
+  bool get isBootloaderUpdate => kind != UsbNrfDfuKind.application;
+  int get dfuMode => switch (kind) {
+    UsbNrfDfuKind.application => 4,
+    UsbNrfDfuKind.bootloader => 2,
+    UsbNrfDfuKind.softdeviceBootloader => 3,
+    UsbNrfDfuKind.softdevice => 1,
+  };
+  String get displayName => switch (kind) {
+    UsbNrfDfuKind.application => 'Application',
+    UsbNrfDfuKind.bootloader => 'Bootloader',
+    UsbNrfDfuKind.softdeviceBootloader => 'SoftDevice + bootloader',
+    UsbNrfDfuKind.softdevice => 'SoftDevice',
+  };
 
-  factory UsbNrfDfuPackage.fromBytes(String name, Uint8List bytes) {
+  factory UsbNrfDfuPackage.fromBytes(
+    String name,
+    Uint8List bytes, {
+    bool allowUnverified = false,
+  }) {
+    final warnings = <String>[];
+    void verify(bool valid, String message) {
+      if (valid) return;
+      if (!allowUnverified) throw FormatException(message);
+      warnings.add(message);
+    }
+
     if (bytes.isEmpty || bytes.length > 4 * 1024 * 1024) {
-      throw const FormatException('Invalid nRF52 application ZIP size');
+      throw const FormatException('Invalid nRF52 DFU ZIP size');
     }
     final files = checkedZipEntries(
       bytes,
@@ -48,21 +95,32 @@ class UsbNrfDfuPackage {
       throw const FormatException('Invalid nRF52 manifest');
     }
     final manifest = decoded['manifest'] as Map;
+    final components = {
+      'application': UsbNrfDfuKind.application,
+      'bootloader': UsbNrfDfuKind.bootloader,
+      'softdevice_bootloader': UsbNrfDfuKind.softdeviceBootloader,
+      if (allowUnverified) 'softdevice': UsbNrfDfuKind.softdevice,
+    };
+    final present = components.keys.where(manifest.containsKey).toList();
     if (manifest.keys.any(
-          (key) => key != 'application' && key != 'dfu_version',
+          (key) => key != 'dfu_version' && !components.containsKey(key),
         ) ||
-        manifest['application'] is! Map ||
+        present.length != 1 ||
+        manifest[present.single] is! Map ||
         (manifest['dfu_version'] != null && manifest['dfu_version'] != 0.5)) {
       throw const FormatException(
-        'Only legacy application-only DFU is supported; bootloader and SoftDevice packages are prohibited',
+        'Only one legacy application, bootloader, or combined SoftDevice/bootloader image is supported; mixed images and secure DFU are refused',
       );
     }
-    final app = manifest['application'] as Map;
-    final binName = app['bin_file'];
-    final datName = app['dat_file'];
+    final kind = components[present.single]!;
+    final image = manifest[present.single] as Map;
+    final binName = image['bin_file'];
+    final datName = image['dat_file'];
     if (binName is! String ||
         datName is! String ||
         binName == datName ||
+        binName == 'manifest.json' ||
+        datName == 'manifest.json' ||
         files.length != 3 ||
         !files.containsKey(binName) ||
         !files.containsKey(datName)) {
@@ -70,69 +128,163 @@ class UsbNrfDfuPackage {
         'nRF52 ZIP inventory does not match manifest',
       );
     }
-    final application = Uint8List.fromList(files[binName]!);
-    final init = Uint8List.fromList(files[datName]!);
-    if (application.isEmpty ||
-        application.length > 900 * 1024 ||
+    final payload = Uint8List.fromList(files[binName]!).asUnmodifiableView();
+    final init = Uint8List.fromList(files[datName]!).asUnmodifiableView();
+    if (payload.isEmpty ||
+        payload.length > 900 * 1024 ||
+        payload.length % 4 != 0 ||
         init.length < 12) {
       throw const FormatException(
-        'Invalid nRF52 application/init packet length',
+        'Invalid nRF52 firmware/init packet length or word alignment',
       );
+    }
+    var softdeviceSize = 0;
+    var bootloaderSize = 0;
+    var applicationSize = 0;
+    switch (kind) {
+      case UsbNrfDfuKind.application:
+        applicationSize = payload.length;
+      case UsbNrfDfuKind.bootloader:
+        bootloaderSize = payload.length;
+      case UsbNrfDfuKind.softdevice:
+        softdeviceSize = payload.length;
+        warnings.add(
+          'Standalone SoftDevice replacement is an expert-only DFU attempt.',
+        );
+      case UsbNrfDfuKind.softdeviceBootloader:
+        final sd = image['sd_size'];
+        final bl = image['bl_size'];
+        if (sd is! int ||
+            bl is! int ||
+            sd <= 0 ||
+            bl <= 0 ||
+            sd % 4 != 0 ||
+            bl % 4 != 0 ||
+            sd + bl != payload.length) {
+          throw const FormatException(
+            'Combined DFU requires word-aligned sd_size and bl_size matching the complete BIN',
+          );
+        }
+        softdeviceSize = sd;
+        bootloaderSize = bl;
+    }
+    if (kind != UsbNrfDfuKind.softdeviceBootloader &&
+        (image.containsKey('sd_size') || image.containsKey('bl_size'))) {
+      throw const FormatException('Component sizes do not match the DFU kind');
     }
     final data = ByteData.sublistView(init);
     final requiredCount = data.getUint16(8, Endian.little);
     final crcOffset = 10 + requiredCount * 2;
-    if (requiredCount > 32 ||
-        init.length != crcOffset + 2 ||
-        data.getUint16(crcOffset, Endian.little) != nrfDfuCrc16(application)) {
-      throw const FormatException(
-        'nRF52 init packet CRC does not match application',
+    if (requiredCount > 32 || init.length != crcOffset + 2) {
+      throw const FormatException('Invalid legacy DFU init packet structure');
+    }
+    verify(
+      data.getUint16(crcOffset, Endian.little) == nrfDfuCrc16(payload),
+      'DFU init CRC does not match the provided firmware; the device may reject it.',
+    );
+    final required = List<int>.unmodifiable([
+      for (var index = 0; index < requiredCount; index++)
+        data.getUint16(10 + index * 2, Endian.little),
+    ]);
+    final deviceType = data.getUint16(0, Endian.little);
+    final deviceRevision = data.getUint16(2, Endian.little);
+    verify(
+      deviceType == 0x52 || deviceType == 0xffff,
+      'Legacy DFU init packet is not declared for an nRF52 device.',
+    );
+    final initMetadata = image['init_packet_data'];
+    if (initMetadata != null) {
+      verify(
+        initMetadata is Map &&
+            !initMetadata.keys.any(
+              (key) => !const {
+                'device_type',
+                'device_revision',
+                'application_version',
+                'softdevice_req',
+                'firmware_crc16',
+              }.contains(key),
+            ),
+        'Unsupported or inconsistent legacy DFU manifest metadata.',
       );
     }
-    final initMetadata = app['init_packet_data'];
-    if (initMetadata is Map &&
-        initMetadata['firmware_crc16'] != null &&
-        initMetadata['firmware_crc16'] != nrfDfuCrc16(application)) {
-      throw const FormatException(
-        'nRF52 manifest CRC does not match application',
+    if (initMetadata is Map) {
+      final expected = <String, int>{
+        'device_type': deviceType,
+        'device_revision': deviceRevision,
+        'application_version': data.getUint32(4, Endian.little),
+        'firmware_crc16': data.getUint16(crcOffset, Endian.little),
+      };
+      verify(
+        !expected.entries.any(
+          (entry) =>
+              initMetadata.containsKey(entry.key) &&
+              (initMetadata[entry.key] is! int ||
+                  initMetadata[entry.key] != entry.value),
+        ),
+        'nRF52 manifest and provided DAT metadata disagree.',
       );
+      if (initMetadata.containsKey('softdevice_req')) {
+        final declared = initMetadata['softdevice_req'];
+        verify(
+          declared is List &&
+              !declared.any((value) => value is! int) &&
+              _same(declared.cast<int>(), required),
+          'Manifest and provided DAT SoftDevice requirements disagree.',
+        );
+      }
     }
     String? hardware;
     String? version;
-    if (application.length >= 56) {
-      final tail = application.sublist(application.length - 56);
+    if (kind == UsbNrfDfuKind.application && payload.length >= 56) {
+      final tail = payload.sublist(payload.length - 56);
       if (ascii.decode(tail.sublist(0, 4), allowInvalid: true) == 'EndF') {
         final tailData = ByteData.sublistView(tail);
-        final body = application.sublist(0, application.length - 56);
-        if (tailData.getUint32(4, Endian.little) != body.length ||
-            !_same(
+        final body = payload.sublist(0, payload.length - 56);
+        final validIdentity =
+            tailData.getUint32(4, Endian.little) == body.length &&
+            _same(
               tail.sublist(8, 16),
               crypto.sha256.convert(body).bytes.sublist(0, 8),
-            ) ||
-            tailData.getUint32(16, Endian.little) == 0) {
-          throw const FormatException(
-            'MeshCore EndF identity verification failed',
-          );
-        }
-        hardware = ascii
-            .decode(tail.sublist(24), allowInvalid: false)
-            .split('\x00')
-            .first;
-        final packed = tailData.getUint32(16, Endian.little);
-        version =
-            '${packed >> 24}.${(packed >> 16) & 255}.${(packed >> 8) & 255}.${packed & 255}';
-        if (!RegExp(r'^[A-Za-z0-9_-]{1,32}$').hasMatch(hardware)) {
-          throw const FormatException('Invalid MeshCore hardware identity');
+            ) &&
+            tailData.getUint32(16, Endian.little) != 0;
+        verify(validIdentity, 'MeshCore EndF identity verification failed.');
+        if (validIdentity) {
+          final field = tail
+              .sublist(24)
+              .takeWhile((byte) => byte != 0)
+              .toList();
+          final validHardware =
+              tail.sublist(24).every((byte) => byte <= 0x7f) &&
+              RegExp(
+                r'^[A-Za-z0-9_-]{1,32}$',
+              ).hasMatch(ascii.decode(field, allowInvalid: true));
+          verify(validHardware, 'Invalid MeshCore hardware identity.');
+          if (validHardware) {
+            hardware = ascii.decode(field);
+            final packed = tailData.getUint32(16, Endian.little);
+            version =
+                '${packed >> 24}.${(packed >> 16) & 255}.${(packed >> 8) & 255}.${packed & 255}';
+          }
         }
       }
     }
     return UsbNrfDfuPackage._(
       name,
-      application,
+      payload,
       init,
       crypto.sha256.convert(bytes).toString(),
       hardware,
       version,
+      kind,
+      softdeviceSize,
+      bootloaderSize,
+      applicationSize,
+      deviceType,
+      deviceRevision,
+      required,
+      allowUnverified,
+      warnings,
     );
   }
 }
@@ -160,8 +312,18 @@ class UsbNrfDfuUpdater {
   Future<UsbNrfDfuResult> flash(
     UsbNrfDfuPackage package, {
     UsbFlashDevice? expectedDevice,
+    bool allowBootloaderUpdate = false,
+    bool allowUnverified = false,
     void Function(double progress, String stage)? onProgress,
   }) async {
+    if (package.isUnverified && !allowUnverified) {
+      throw StateError('Unverified DFU requires explicit expert authorization');
+    }
+    if (package.isBootloaderUpdate && !allowBootloaderUpdate) {
+      throw StateError(
+        'Bootloader DFU requires explicit recovery authorization',
+      );
+    }
     if (expectedDevice != null &&
         (transport.activeDevice == null ||
             !expectedDevice.matchesAfterReenumeration(
@@ -169,28 +331,36 @@ class UsbNrfDfuUpdater {
             ))) {
       throw StateError('nRF52 DFU USB identity changed before flashing');
     }
-    // Package buffers are mutable; check again immediately before any write.
+    // Immutable private copies still get fresh hash checks before any write.
     final dat = ByteData.sublistView(package.initPacket);
     final crcOffset = 10 + dat.getUint16(8, Endian.little) * 2;
-    if (crypto.sha256.convert(package.application).toString() !=
-            package._applicationSha256 ||
+    if (crypto.sha256.convert(package.payload).toString() !=
+            package._payloadSha256 ||
         crypto.sha256.convert(package.initPacket).toString() !=
             package._initSha256 ||
         crcOffset + 2 != package.initPacket.length ||
-        dat.getUint16(crcOffset, Endian.little) !=
-            nrfDfuCrc16(package.application)) {
+        (!package.isUnverified &&
+            dat.getUint16(crcOffset, Endian.little) !=
+                nrfDfuCrc16(package.payload))) {
       throw StateError('DFU payload changed after validation');
     }
     _sequence = 0;
     _receive.clear();
     await transport.setSignals(dtr: true, rts: false);
     await transport.purge();
-    onProgress?.call(0, 'Preparing application DFU');
-    await _send(_words([3, 4, 0, 0, package.application.length]));
-    final pages = package.application.length ~/ 4096 + 1;
-    await _delay(
-      Duration(milliseconds: (pages * 89.7).ceil().clamp(500, 30000)),
+    onProgress?.call(0, 'Preparing ${package.displayName} DFU');
+    await _send(
+      _words([
+        3,
+        package.dfuMode,
+        package.softdeviceSize,
+        package.bootloaderSize,
+        package.applicationSize,
+      ]),
     );
+    final pages = package.payload.length ~/ 4096 + 1;
+    final eraseWait = (pages * 89.7).ceil().clamp(500, 30000);
+    await _delay(Duration(milliseconds: eraseWait));
     await _send(
       Uint8List.fromList([
         ..._words([1]),
@@ -199,17 +369,17 @@ class UsbNrfDfuUpdater {
         0,
       ]),
     );
-    for (var offset = 0; offset < package.application.length; offset += 512) {
-      final end = (offset + 512).clamp(0, package.application.length);
+    for (var offset = 0; offset < package.payload.length; offset += 512) {
+      final end = (offset + 512).clamp(0, package.payload.length);
       await _send(
         Uint8List.fromList([
           ..._words([4]),
-          ...package.application.sublist(offset, end),
+          ...package.payload.sublist(offset, end),
         ]),
       );
       onProgress?.call(
-        end / package.application.length * .95,
-        'Writing application',
+        end / package.payload.length * .95,
+        'Writing ${package.displayName}',
       );
       // Adafruit bootloaders block during flash writes: never reset meanwhile.
       if ((offset ~/ 512) % 8 == 0) {
@@ -218,14 +388,18 @@ class UsbNrfDfuUpdater {
     }
     await _delay(const Duration(milliseconds: 205));
     await _send(_words([5]));
-    onProgress?.call(.96, 'Activating application; do not unplug');
+    onProgress?.call(.96, 'Activating ${package.displayName}; do not unplug');
     // Dual-bank activation erases bank0 and copies bank1. Keep the port quiet.
-    await _delay(Duration(milliseconds: (pages * (89.7 + 204.8)).ceil()));
+    // Preserve nrfutil's minimum erase delay even for small images. This wait
+    // is deliberately conservative for single-bank application bootloaders.
+    await _delay(Duration(milliseconds: eraseWait + (pages * 204.8).ceil()));
     onProgress?.call(
       1,
-      'DFU transport completed; application verification required',
+      package.isBootloaderUpdate
+          ? 'Bootloader DFU transport completed; installed version remains unverified'
+          : 'DFU transport completed; application verification required',
     );
-    return UsbNrfDfuResult(package.application.length, package.sha256);
+    return UsbNrfDfuResult(package.payload.length, package.sha256);
   }
 
   Future<void> _send(Uint8List payload) async {

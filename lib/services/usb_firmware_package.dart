@@ -18,6 +18,52 @@ Never usbReject(String message, {String? code}) =>
 
 String usbSha256(List<int> bytes) => crypto.sha256.convert(bytes).toString();
 
+/// Recognizes the IDF bootloader descriptor, not merely an absent app trailer.
+/// Older bootloaders have no descriptor; explicit bootloader mode handles them.
+bool usbHasBootloaderDescriptor(Uint8List image) {
+  if (image.length < 112 || image[0] != 0xe9 || image[1] < 1 || image[1] > 16) {
+    return false;
+  }
+  var cursor = 24;
+  for (var i = 0; i < image[1]; i++) {
+    if (cursor + 8 > image.length) return false;
+    final length = usbUint32(image, cursor + 4);
+    cursor += 8;
+    if (cursor + length > image.length) return false;
+    if (length >= 80 &&
+        image[cursor] == 0x50 &&
+        image[cursor + 1] == 0 &&
+        image[cursor + 2] == 0) {
+      final idf = image.sublist(cursor + 8, cursor + 40);
+      final end = idf.indexOf(0);
+      if (end > 0 &&
+          idf.take(end).every((b) => b >= 32 && b <= 126) &&
+          RegExp(r'^v?\d+\.\d+')
+              .hasMatch(String.fromCharCodes(idf.take(end)))) {
+        return true;
+      }
+    }
+    cursor += length;
+  }
+  return false;
+}
+
+/// Shared complete image validation; bootloader mode must opt in explicitly.
+UsbEspImageHeader usbVerifyEspBinary(
+  Uint8List image, {
+  bool allowBootloader = false,
+}) {
+  final header = UsbEspImageHeader.parse(image);
+  final identity = UsbEndfIdentity.inspect(image);
+  _verifyEspSegments(image, identity != null);
+  if (!allowBootloader && usbHasBootloaderDescriptor(image)) {
+    usbReject(
+      'This is an ESP32 bootloader. Select the explicit bootloader action.',
+    );
+  }
+  return header;
+}
+
 bool usbBytesEqual(List<int> a, List<int> b) {
   if (a.length != b.length) return false;
   var difference = 0;
@@ -148,15 +194,15 @@ class UsbFirmwareImage {
       usbReject('The selected firmware is empty or too large.');
     }
     if (!name.toLowerCase().endsWith('.bin') ||
-        name.toLowerCase().endsWith('-merged.bin')) {
+        name.toLowerCase().endsWith('-merged.bin') ||
+        name.toLowerCase().contains('bootloader')) {
       usbReject(
         'Select an application-only ESP32 BIN, not a merged flash image.',
       );
     }
     final frozen = Uint8List.fromList(bytes).asUnmodifiableView();
-    final header = UsbEspImageHeader.parse(frozen);
+    final header = usbVerifyEspBinary(frozen);
     final endf = UsbEndfIdentity.inspect(frozen);
-    _verifyEspSegments(frozen, endf != null);
     return UsbFirmwareImage._(
       name,
       frozen,
@@ -278,9 +324,8 @@ class UsbVerifiedPackage {
     }
     final sums = <String, String>{};
     for (final line in const LineSplitter().convert(_ascii(sumsBytes))) {
-      final match = RegExp(
-        r'^([0-9a-f]{64})  ([A-Za-z0-9_.-]+)$',
-      ).firstMatch(line);
+      final match = RegExp(r'^([0-9a-f]{64})  ([A-Za-z0-9_.-]+)$')
+          .firstMatch(line);
       if (match == null || sums.containsKey(match[2])) {
         usbReject('Migration archive checksum inventory is invalid.');
       }
@@ -556,9 +601,8 @@ class _UniqueJsonParser {
         return jsonDecode(literal);
       }
     }
-    final number = RegExp(
-      r'-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?',
-    ).matchAsPrefix(source, cursor);
+    final number = RegExp(r'-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?')
+        .matchAsPrefix(source, cursor);
     if (number == null) usbReject('Invalid migration JSON value.');
     cursor = number.end;
     final value = jsonDecode(number[0]!);

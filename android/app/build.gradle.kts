@@ -61,6 +61,9 @@ android {
             abiFilters += if (legacyArm32) listOf("armeabi-v7a")
                 else listOf("arm64-v8a")
         }
+        externalNativeBuild {
+            cmake { arguments += "-DMESHCORE_ESP_HOST_TESTS=OFF" }
+        }
     }
 
     signingConfigs {
@@ -94,12 +97,12 @@ android {
         }
     }
 
-    // Codec2 native build removed - no longer needed
-    // externalNativeBuild {
-    //     cmake {
-    //         path = file("src/main/cpp/CMakeLists.txt")
-    //     }
-    // }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 }
 
 // Do not silently label a debug-signed APK as a distributable release.
