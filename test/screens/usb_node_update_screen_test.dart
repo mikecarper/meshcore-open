@@ -91,7 +91,11 @@ void main() {
     );
     expect(transport.opens, 0);
     final button = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Backup, check and update'),
+      // Flutter 3.32's icon constructor uses a private FilledButton subtype.
+      find.ancestor(
+        of: find.text('Backup, check and update'),
+        matching: find.byWidgetPredicate((widget) => widget is FilledButton),
+      ),
     );
     expect(button.onPressed, isNull);
     expect(tester.takeException(), isNull);
