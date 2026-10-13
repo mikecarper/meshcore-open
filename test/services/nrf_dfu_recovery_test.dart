@@ -15,10 +15,11 @@ Future<String> update(
   bool applicationOnly = true,
   bool retryBootloader = false,
   String address = original,
+  String board = 'Heltec T096',
 }) => recovery.update(
   originalAddress: address,
   path: '/test/companion.zip',
-  board: 'Heltec T096',
+  board: board,
   applicationOnly: applicationOnly,
   retryBootloader: retryBootloader,
 );
@@ -132,6 +133,276 @@ void main() {
     },
   );
 
+  test(
+    'Tower full and shortened names require its known address and DFU UUID',
+    () {
+      for (final board in [
+        'Heltec Tower V2',
+        'Heltec MeshTower V2 SD',
+        'Heltec Mesh Tower V2',
+        'MeshTower V2',
+        'tower_v2',
+        'Heltec_tower_v2_sdcard',
+        'Heltec_mesh_tower_v2_sdcard',
+        'mesh_tower_v2_sdcard',
+        'tower_v2_sdcard',
+      ]) {
+        expect(dfuBootloaderName(board), 'TOWER_V2_OTA');
+        for (final address in [original, bootloader]) {
+          for (final name in ['TOWER_V2_OTA', 'TOWER_V2']) {
+            expect(
+              selectDfuBootloader(
+                [
+                  DfuAdvertisement(address, name, [legacyDfuServiceUuid]),
+                ],
+                originalAddress: original,
+                board: board,
+              ),
+              address,
+            );
+          }
+        }
+      }
+    },
+  );
+
+  test(
+    'Tower refuses wrong identity, arbitrary OTA, missing DFU and any NUS',
+    () {
+      for (final candidate in [
+        const DfuAdvertisement('AA:BB:CC:DD:EE:01', 'TOWER_V2', [
+          legacyDfuServiceUuid,
+        ]),
+        const DfuAdvertisement(original, 'TOWER_V2_OTA', []),
+        const DfuAdvertisement(original, 'TOWER_V2', ['180f']),
+        const DfuAdvertisement(original, 'TOWER_V2', [
+          legacyDfuServiceUuid,
+          nus,
+        ]),
+        const DfuAdvertisement(original, 'TOWER_V2_OTA', [
+          legacyDfuServiceUuid,
+          nus,
+        ]),
+        const DfuAdvertisement(original, 'T114_DFU', [legacyDfuServiceUuid]),
+        const DfuAdvertisement(original, 'OTHER_OTA', [legacyDfuServiceUuid]),
+        const DfuAdvertisement(original, 'AdaDFU', [legacyDfuServiceUuid]),
+        const DfuAdvertisement(original, 'TOWER', [legacyDfuServiceUuid]),
+      ]) {
+        expect(
+          selectDfuBootloader(
+            [candidate],
+            originalAddress: original,
+            board: 'Heltec Tower V2',
+          ),
+          isNull,
+        );
+      }
+      for (final board in ['Heltec T114', 'Unknown board', 'Heltec Tower V3']) {
+        expect(
+          selectDfuBootloader(
+            [
+              const DfuAdvertisement(original, 'TOWER_V2', [
+                legacyDfuServiceUuid,
+              ]),
+            ],
+            originalAddress: original,
+            board: board,
+          ),
+          isNull,
+        );
+      }
+      expect(
+        () => selectDfuBootloader(
+          [
+            const DfuAdvertisement(original, 'TOWER_V2', [
+              legacyDfuServiceUuid,
+            ]),
+            const DfuAdvertisement(bootloader, 'TOWER_V2_OTA', [
+              legacyDfuServiceUuid,
+            ]),
+          ],
+          originalAddress: original,
+          board: 'Heltec Tower V2',
+        ),
+        throwsStateError,
+      );
+    },
+  );
+
+  group('fresh advertisement reducer', () {
+    String? select(DfuAdvertisement value, String board) =>
+        selectDfuBootloader([value], originalAddress: original, board: board);
+
+    for (final entry in {
+      'Heltec T096': 'T096_DFU',
+      'Heltec T114': 'T114_DFU',
+      'Heltec Tower V2': 'TOWER_V2',
+    }.entries) {
+      test('${entry.key} NUS to DFU at the same MAC drops historical NUS', () {
+        final application = reduceDfuAdvertisement(
+          null,
+          const DfuAdvertisement(original, 'MeshCore-radio', [
+            nus,
+            legacyDfuServiceUuid,
+          ]),
+        );
+        final boot = reduceDfuAdvertisement(
+          application,
+          DfuAdvertisement(original.toLowerCase(), entry.value, [
+            legacyDfuServiceUuid.toUpperCase(),
+          ]),
+        );
+        expect(boot.services, [legacyDfuServiceUuid]);
+        expect(boot.isAmbiguous, isFalse);
+        expect(select(boot, entry.key), original);
+      });
+
+      test(
+        '${entry.key} name-only phase transition fails closed until fresh UUID',
+        () {
+          final ambiguous = reduceDfuAdvertisement(
+            const DfuAdvertisement(original, 'MeshCore-radio', [nus]),
+            DfuAdvertisement(original, entry.value, []),
+          );
+          expect(ambiguous.services, isEmpty);
+          expect(ambiguous.isAmbiguous, isTrue);
+          expect(select(ambiguous, entry.key), isNull);
+          final stillAmbiguous = reduceDfuAdvertisement(
+            ambiguous,
+            DfuAdvertisement(original, entry.value, []),
+          );
+          expect(select(stillAmbiguous, entry.key), isNull);
+          final proven = reduceDfuAdvertisement(
+            stillAmbiguous,
+            const DfuAdvertisement(original, '', [legacyDfuServiceUuid]),
+          );
+          expect(proven.name, entry.value);
+          expect(proven.isAmbiguous, isFalse);
+          expect(select(proven, entry.key), original);
+        },
+      );
+
+      test(
+        '${entry.key} service-only DFU followed by scan-response name joins safely',
+        () {
+          final unnamed = reduceDfuAdvertisement(
+            const DfuAdvertisement(original, 'MeshCore-radio', [nus]),
+            const DfuAdvertisement(original, '', [legacyDfuServiceUuid]),
+          );
+          expect(unnamed.name, isEmpty);
+          expect(select(unnamed, entry.key), isNull);
+          final named = reduceDfuAdvertisement(
+            unnamed,
+            DfuAdvertisement(original, entry.value, []),
+          );
+          expect(named.services, [legacyDfuServiceUuid]);
+          expect(select(named, entry.key), original);
+        },
+      );
+    }
+
+    test(
+      'Tower empty responses and short/full names retain same-phase proof',
+      () {
+        var observed = reduceDfuAdvertisement(
+          null,
+          const DfuAdvertisement(original, 'TOWER_V2', [legacyDfuServiceUuid]),
+        );
+        for (final response in [
+          const DfuAdvertisement(original, '', []),
+          const DfuAdvertisement(original, 'TOWER_V2_OTA', []),
+          const DfuAdvertisement(original, '', [legacyDfuServiceUuid]),
+          const DfuAdvertisement(original, 'TOWER_V2', []),
+        ]) {
+          observed = reduceDfuAdvertisement(observed, response);
+          expect(observed.services, [legacyDfuServiceUuid]);
+          expect(select(observed, 'Heltec Tower V2'), original);
+        }
+      },
+    );
+
+    test(
+      'fresh NUS replaces DFU proof and refuses application reappearance',
+      () {
+        var observed = reduceDfuAdvertisement(
+          const DfuAdvertisement(original, 'T114_DFU', [legacyDfuServiceUuid]),
+          const DfuAdvertisement(original, '', [nus]),
+        );
+        expect(observed.name, isEmpty);
+        expect(observed.services, [nus]);
+        observed = reduceDfuAdvertisement(
+          observed,
+          const DfuAdvertisement(original, 'T114_DFU', []),
+        );
+        expect(observed.isAmbiguous, isTrue);
+        expect(select(observed, 'Heltec T114'), isNull);
+      },
+    );
+
+    test('a conflicting bootloader name needs new service proof', () {
+      final observed = reduceDfuAdvertisement(
+        const DfuAdvertisement(original, 'T096_DFU', [legacyDfuServiceUuid]),
+        const DfuAdvertisement(original, 'T114_DFU', []),
+      );
+      expect(observed.isAmbiguous, isTrue);
+      expect(select(observed, 'Heltec T096'), isNull);
+      expect(select(observed, 'Heltec T114'), isNull);
+    });
+
+    test(
+      'no DFU UUID is borrowed from another address or unrelated services',
+      () {
+        final otherAddress = reduceDfuAdvertisement(
+          const DfuAdvertisement(original, 'TOWER_V2', [legacyDfuServiceUuid]),
+          const DfuAdvertisement('AA:BB:CC:DD:EE:01', 'TOWER_V2', []),
+        );
+        expect(otherAddress.services, isEmpty);
+        expect(select(otherAddress, 'Heltec Tower V2'), isNull);
+        final unrelated = reduceDfuAdvertisement(
+          const DfuAdvertisement(original, '', ['180f']),
+          const DfuAdvertisement(original, 'T114_DFU', []),
+        );
+        expect(unrelated.isAmbiguous, isTrue);
+        expect(select(unrelated, 'Heltec T114'), isNull);
+      },
+    );
+  });
+
+  for (final entry in {
+    'Heltec T114': 'T114_DFU',
+    'Heltec Tower V2': 'TOWER_V2',
+  }.entries) {
+    test(
+      '${entry.key} timeout recovery uses fresh proven bootloader',
+      () async {
+        var scans = 0, calls = 0;
+        final recovery = NrfDfuRecovery(
+          scan: (_, _) async {
+            if (++scans == 1) return [];
+            final observed = reduceDfuAdvertisement(
+              const DfuAdvertisement(original, 'MeshCore-radio', [nus]),
+              DfuAdvertisement(original, entry.value, [legacyDfuServiceUuid]),
+            );
+            return [observed];
+          },
+          wait: (_) async {},
+          transfer: (address, _, force, _) async {
+            calls++;
+            expect(address, original);
+            if (calls == 1) {
+              expect(force, isFalse);
+              throw PlatformException(code: '8', message: 'GATT CONN TIMEOUT');
+            }
+            expect(force, isTrue);
+          },
+        );
+        expect(await update(recovery, board: entry.key), original);
+        expect(calls, 2);
+        expect(scans, 2);
+      },
+    );
+  }
+
   test('recognizes GATT timeouts but not ZIP or remote protocol failures', () {
     for (final code in ['8', '62', '133', '147']) {
       expect(isDfuConnectionFailure(PlatformException(code: code)), isTrue);
@@ -166,6 +437,7 @@ void main() {
     'timeout performs one fresh scan and retries the actual changed address',
     () async {
       final calls = <String>[];
+      final statuses = <String>[];
       final scans = <Duration>[];
       final waits = <Duration>[];
       final recovery = NrfDfuRecovery(
@@ -186,7 +458,20 @@ void main() {
           }
         },
       );
-      expect(await update(recovery), bootloader);
+      expect(
+        await recovery.update(
+          originalAddress: original,
+          path: '/test/companion.zip',
+          board: 'Heltec T096',
+          applicationOnly: true,
+          onStatus: statuses.add,
+        ),
+        bootloader,
+      );
+      expect(
+        statuses,
+        contains('Bluetooth DFU error (code=8, type=2): GATT CONN TIMEOUT'),
+      );
       expect(calls, ['$original/false', '$bootloader/true']);
       expect(scans, [const Duration(seconds: 2), const Duration(seconds: 8)]);
       expect(waits, [const Duration(seconds: 2)]);

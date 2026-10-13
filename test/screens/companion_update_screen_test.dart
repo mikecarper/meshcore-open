@@ -8,8 +8,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meshcore_open/connector/meshcore_connector.dart';
 import 'package:meshcore_open/screens/companion_update_screen.dart';
+import 'package:meshcore_open/services/app_debug_log_service.dart';
 import 'package:meshcore_open/services/nrf_dfu_recovery.dart';
 import 'package:meshcore_open/theme/mesh_theme.dart';
+import 'package:meshcore_open/utils/app_logger.dart';
 import 'package:meshcore_open/widgets/update_status_card.dart';
 import 'package:provider/provider.dart';
 
@@ -127,7 +129,7 @@ Future<void> _loadDfuScreen(
   final browse = tester.widget<TextButton>(
     find.ancestor(
       of: find.text('Browse files'),
-        matching: find.byWidgetPredicate((widget) => widget is TextButton),
+      matching: find.byWidgetPredicate((widget) => widget is TextButton),
     ),
   );
   // This fixture copies a real ZIP. Await its callback in real async time;
@@ -152,10 +154,21 @@ Future<void> _tapDfu(WidgetTester tester, String label) async {
   await tester.pumpAndSettle();
 }
 
+AppDebugLogService _captureDfuLog() {
+  final log = AppDebugLogService();
+  appLogger.initialize(log, enabled: true);
+  addTearDown(() {
+    appLogger.setEnabled(false);
+    log.dispose();
+  });
+  return log;
+}
+
 void main() {
   testWidgets(
     'T096 timeout recovers at bootloader address after releasing Companion',
     (tester) async {
+      final log = _captureDfuLog();
       final connector = _CompanionConnector(board: 'Heltec T096');
       addTearDown(connector.dispose);
       var scans = 0, transfers = 0;
@@ -169,15 +182,24 @@ void main() {
               : [const DfuAdvertisement('EB:9D:56:B2:48:49', 'T096_DFU', [])];
         },
         wait: (_) async {},
-        transfer: (address, _, force, _) async {
+        transfer: (address, _, force, events) async {
           connector.events.add('DFU transfer');
           transfers++;
           if (transfers == 1) {
             expect(force, isFalse);
+            events.onDeviceConnecting?.call(address);
+            events.onEnablingDfuMode?.call(address);
+            events.onError?.call(address, 8, 1, 'GATT CONN TIMEOUT');
             throw PlatformException(code: '8', message: 'GATT CONN TIMEOUT');
           }
           expect(address, 'EB:9D:56:B2:48:49');
           expect(force, isTrue);
+          events.onProgressChanged?.call(address, 0, 1, 1, 1, 1);
+          events.onProgressChanged?.call(address, 1, 1, 1, 1, 1);
+          events.onProgressChanged?.call(address, 10, 1, 1, 1, 1);
+          events.onProgressChanged?.call(address, 11, 1, 1, 1, 1);
+          events.onProgressChanged?.call(address, 100, 1, 1, 1, 1);
+          events.onFirmwareValidating?.call(address);
         },
       );
       await _loadDfuScreen(tester, connector, recovery);
@@ -196,11 +218,119 @@ void main() {
       expect(card.isError, isFalse);
       expect(card.progress, 100);
       expect(card.message, contains('check its version'));
+      final messages = log.entries
+          .where((entry) => entry.tag == 'CompanionDFU')
+          .map((entry) => entry.message)
+          .join('\n');
+      expect(messages, contains('board=Heltec T096'));
+      expect(messages, contains('components=application applicationOnly=true'));
+      expect(messages, contains('stage=enabling_dfu'));
+      expect(messages, contains('Bluetooth DFU native_error:'));
+      expect(messages, contains('stage=recover_bootloader'));
+      expect(messages, contains('bootloaderAddress=EB:9D:56:B2:48:49'));
+      expect(messages, contains('stage=validating'));
+      expect(messages, contains('version verification still required'));
+      expect(messages, contains('Bluetooth DFU progress=1 '));
+      expect(messages, contains('Bluetooth DFU progress=10 '));
+      expect(messages, isNot(contains('Bluetooth DFU progress=11 ')));
+      expect(messages, isNot(contains('Bluetooth DFU failed:')));
+      expect(messages, isNot(contains('T096_companion.zip')));
+      expect(messages, isNot(contains('companion-dfu-test-')));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
       expect(connector.preserveUpdateScreenOnDisconnect, isFalse);
     },
   );
+
+  for (final failureCase in [
+    (percent: 0, code: '8'),
+    (percent: 37, code: '8'),
+    (percent: 80, code: '8'),
+    (percent: 37, code: 'DO_NOT_EXPORT_PRIVATE_CODE'),
+    (percent: 37, code: '999999999999999999999999999999999999'),
+  ]) {
+    final percent = failureCase.percent;
+    testWidgets(
+      'DFU export records failure stage without secrets at $percent percent (${failureCase.code})',
+      (tester) async {
+        final log = _captureDfuLog();
+        final connector = _CompanionConnector(board: 'Heltec T096');
+        addTearDown(connector.dispose);
+        const privateDetails = 'DO_NOT_EXPORT_PRIVATE_EXCEPTION_DETAILS';
+        final recovery = NrfDfuRecovery(
+          scan: (_, _) async => [],
+          wait: (_) async {},
+          transfer: (address, _, _, events) async {
+            events.onDeviceConnecting?.call(address);
+            events.onEnablingDfuMode?.call(address);
+            if (percent > 0) {
+              events.onProgressChanged?.call(address, percent, 1, 1, 1, 1);
+            }
+            if (percent == 80) {
+              events.onFirmwareValidating?.call(address);
+            }
+            events.onError?.call(address, 8, 1, privateDetails);
+            throw PlatformException(
+              code: failureCase.code,
+              message: privateDetails,
+              details: {
+                'privateKey': privateDetails,
+                'password': privateDetails,
+              },
+            );
+          },
+        );
+        await _loadDfuScreen(tester, connector, recovery);
+        await _tapDfu(tester, 'Update over Bluetooth');
+        await tester.tap(find.text('Update'));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pumpAndSettle();
+        final failures = log.entries.where(
+          (entry) =>
+              entry.tag == 'CompanionDFU' &&
+              entry.level == AppDebugLogLevel.error,
+        );
+        expect(failures, hasLength(1));
+        final failure = failures.single.message;
+        expect(failure, contains('Bluetooth DFU failed: stage='));
+        expect(failure, contains('address=EB:9D:56:B2:48:48'));
+        expect(failure, contains('progress=$percent'));
+        expect(failure, contains('payloadStarted=${percent > 0}'));
+        expect(failure, contains('validating=${percent == 80}'));
+        if (percent > 0) {
+          final exportedCode = failureCase.code == '8' ? '8' : 'unavailable';
+          expect(
+            failure,
+            contains('errorType=PlatformException code=$exportedCode'),
+          );
+          expect(
+            failure,
+            contains(
+              'stage=${percent == 80 ? 'validating' : 'sending_payload'}',
+            ),
+          );
+        }
+        final messages = log.entries.map((entry) => entry.message).join('\n');
+        expect(messages, isNot(contains(privateDetails)));
+        expect(messages, isNot(contains('DO_NOT_EXPORT_PRIVATE_CODE')));
+        expect(
+          messages,
+          isNot(contains('999999999999999999999999999999999999')),
+        );
+        expect(messages, isNot(contains('privateKey')));
+        expect(messages, isNot(contains('password')));
+        expect(messages, isNot(contains('companion-dfu-test-')));
+        expect(
+          tester
+              .widget<UpdateStatusCard>(find.byType(UpdateStatusCard))
+              .isError,
+          isTrue,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets(
     'manual bootloader retry freshly discovers the same T096 and fits the small phone',

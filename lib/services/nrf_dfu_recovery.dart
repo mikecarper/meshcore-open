@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:nordic_dfu/nordic_dfu.dart';
 
+import 'companion_firmware_inspector.dart';
 import 'nrf_dfu_package.dart';
 
 const legacyDfuServiceUuid = '00001530-1212-efde-1523-785feabcd123';
@@ -11,13 +12,105 @@ const _nusUuid = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 final _macPattern = RegExp(r'^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$');
 
 class DfuAdvertisement {
-  const DfuAdvertisement(this.address, this.name, this.services);
+  const DfuAdvertisement(
+    this.address,
+    this.name,
+    this.services, {
+    this.isAmbiguous = false,
+  });
   final String address, name;
   final List<String> services;
+  final bool isAmbiguous;
+}
+
+enum _AdvertisementPhase { unknown, application, bootloader }
+
+bool _isTowerBootloaderName(String name) =>
+    name == 'TOWER_V2_OTA' || name == 'TOWER_V2';
+
+_AdvertisementPhase _advertisementPhase(DfuAdvertisement value) {
+  if (value.services.contains(_nusUuid)) {
+    return _AdvertisementPhase.application;
+  }
+  final name = value.name.toUpperCase();
+  if (value.services.contains(legacyDfuServiceUuid) ||
+      name == 'ADADFU' ||
+      name.endsWith('_DFU') ||
+      _isTowerBootloaderName(name)) {
+    return _AdvertisementPhase.bootloader;
+  }
+  return name.isEmpty
+      ? _AdvertisementPhase.unknown
+      : _AdvertisementPhase.application;
+}
+
+/// Nonempty service data replaces an earlier database, never unions with it.
+/// Empty scan responses retain evidence only within the same radio phase. A
+/// name-only phase change needs fresh service data before it can be selected.
+DfuAdvertisement reduceDfuAdvertisement(
+  DfuAdvertisement? previous,
+  DfuAdvertisement observation,
+) {
+  final address = _macPattern.hasMatch(observation.address)
+      ? observation.address.toUpperCase()
+      : observation.address;
+  final current = DfuAdvertisement(
+    address,
+    observation.name,
+    observation.services.map((s) => s.toLowerCase()).toSet().toList(),
+    isAmbiguous: observation.isAmbiguous,
+  );
+  if (previous == null ||
+      previous.address.toUpperCase() != address.toUpperCase()) {
+    return current;
+  }
+  final old = DfuAdvertisement(
+    address,
+    previous.name,
+    previous.services.map((s) => s.toLowerCase()).toSet().toList(),
+    isAmbiguous: previous.isAmbiguous,
+  );
+  final oldPhase = _advertisementPhase(old);
+  final newPhase = _advertisementPhase(current);
+  if (current.services.isNotEmpty) {
+    return DfuAdvertisement(
+      address,
+      current.name.isNotEmpty
+          ? current.name
+          : newPhase == oldPhase
+          ? old.name
+          : '',
+      current.services,
+      isAmbiguous: current.isAmbiguous,
+    );
+  }
+  if (current.name.isEmpty) return old;
+  final oldName = old.name.toUpperCase();
+  final newName = current.name.toUpperCase();
+  final changedBootloaderName =
+      oldPhase == _AdvertisementPhase.bootloader &&
+      newPhase == _AdvertisementPhase.bootloader &&
+      oldName.isNotEmpty &&
+      oldName != newName &&
+      !(_isTowerBootloaderName(oldName) && _isTowerBootloaderName(newName));
+  final phaseChanged =
+      oldPhase != _AdvertisementPhase.unknown && oldPhase != newPhase;
+  final unclassifiedServices =
+      oldPhase == _AdvertisementPhase.unknown && old.services.isNotEmpty;
+  if (phaseChanged || changedBootloaderName || unclassifiedServices) {
+    return DfuAdvertisement(address, current.name, [], isAmbiguous: true);
+  }
+  return DfuAdvertisement(
+    address,
+    current.name,
+    old.services,
+    isAmbiguous: old.isAmbiguous || current.isAmbiguous,
+  );
 }
 
 String? dfuBootloaderName(String board) {
   final value = board.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  if (CompanionFirmwareInspector.isTowerV2Board(board)) return 'TOWER_V2_OTA';
   if (value.contains('t096')) return 'T096_DFU';
   if (value.contains('t114')) return 'T114_DFU';
   if (value.contains('rak4631') || value.contains('rak4630')) return '4631_DFU';
@@ -49,13 +142,17 @@ String? selectDfuBootloader(
     final address = _macPattern.hasMatch(advertisement.address)
         ? advertisement.address.toUpperCase()
         : advertisement.address;
-    if (!candidates.contains(address)) continue;
+    if (!candidates.contains(address) || advertisement.isAmbiguous) continue;
     final name = advertisement.name.toUpperCase();
     final services = advertisement.services.map((s) => s.toLowerCase()).toSet();
-    // A Companion also exposes the DFU service. NUS or an *_OTA/application
-    // name is not proof it has actually reached the bootloader.
+    // A Companion also exposes the DFU service. NUS or an arbitrary *_OTA
+    // name is not proof it has actually reached the bootloader. Tower's known
+    // full/short name also requires fresh legacy DFU service evidence.
     if (services.contains(_nusUuid)) continue;
-    final knownName = name == expectedName || name == 'ADADFU';
+    final knownName = expectedName == 'TOWER_V2_OTA'
+        ? _isTowerBootloaderName(name) &&
+              services.contains(legacyDfuServiceUuid)
+        : name == expectedName || name == 'ADADFU';
     final genericName =
         expectedName == null &&
         name.endsWith('_DFU') &&
@@ -160,14 +257,13 @@ class NrfDfuRecovery {
           final data = result.advertisementData;
           final address = result.device.remoteId.str.toUpperCase();
           if (!addresses.contains(address)) continue;
-          final previous = seen[address];
-          seen[address] = DfuAdvertisement(
-            address,
-            data.advName.isNotEmpty ? data.advName : previous?.name ?? '',
-            {
-              ...?previous?.services,
-              ...data.serviceUuids.map((s) => s.str),
-            }.toList(),
+          seen[address] = reduceDfuAdvertisement(
+            seen[address],
+            DfuAdvertisement(
+              address,
+              data.advName,
+              data.serviceUuids.map((s) => s.str).toList(),
+            ),
           );
         }
       },
@@ -242,7 +338,7 @@ class NrfDfuRecovery {
       },
       onError: (_, code, type, message) {
         errorType = type;
-        status('Bluetooth DFU error: $message');
+        status('Bluetooth DFU error (code=$code, type=$type): $message');
       },
     );
     Future<String?> discover(Duration timeout) async {

@@ -40,6 +40,35 @@ void main() {
     );
   });
 
+  test('only exact Tower V2 board aliases select Nordic ZIP', () {
+    for (final board in [
+      'Heltec Tower V2',
+      'Heltec Mesh Tower V2',
+      'MeshTower V2',
+      'tower_v2',
+      'Heltec Tower V2 SD',
+      'Heltec MeshTower V2 SD',
+      'MeshTower V2 SD',
+      'tower_v2_sd',
+      'Heltec_tower_v2_sdcard',
+      'Heltec_mesh_tower_v2_sdcard',
+      'mesh_tower_v2_sdcard',
+      'tower_v2_sdcard',
+    ]) {
+      expect(CompanionFirmwareInspector.isTowerV2Board(board), isTrue);
+      expect(CompanionFirmwareInspector.updateExtensionForBoard(board), 'zip');
+    }
+    for (final board in [
+      null,
+      'Heltec Tower V3',
+      'Unknown Heltec Tower V2',
+      'tower_v2_custom',
+      'ESP32 Tower V2',
+    ]) {
+      expect(CompanionFirmwareInspector.isTowerV2Board(board), isFalse);
+    }
+  });
+
   test('app-only ESP32 bytes are a phone-update image', () {
     final image = _image();
 

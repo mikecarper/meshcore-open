@@ -14,8 +14,17 @@ import '../services/github_mota_release_service.dart';
 import '../services/local_mota_builder.dart';
 import '../services/nrf_dfu_package.dart';
 import '../services/nrf_dfu_recovery.dart';
+import '../utils/app_logger.dart';
 import '../widgets/mesh_ui.dart';
 import '../widgets/update_status_card.dart';
+
+String _dfuExportCode(String? value) {
+  if (value == null || !RegExp(r'^[0-9]{1,5}$').hasMatch(value)) {
+    return 'unavailable';
+  }
+  final code = int.parse(value);
+  return code <= 0xFFFF ? '$code' : 'unavailable';
+}
 
 class CompanionUpdateScreen extends StatefulWidget {
   const CompanionUpdateScreen({super.key, this.pickFirmware, this.dfuRecovery});
@@ -494,54 +503,173 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
     _dfuAddress = address;
     connector.setPreserveUpdateScreenOnDisconnect(true);
     _dfuConnector = connector;
+    final applicationOnly =
+        package.components.length == 1 &&
+        package.components.single == 'application';
+    appLogger.info(
+      'Bluetooth DFU confirmed: board=$_board address=$address '
+      'components=${package.components.join(',')} '
+      'applicationOnly=$applicationOnly retryBootloader=$retryBootloader',
+      tag: 'CompanionDFU',
+      noNotify: true,
+    );
     await _run(
       () async {
+        var phase = 'release_companion';
+        var progress = 0;
+        var lastProgressBucket = -1;
+        var payloadStarted = false;
+        var validating = false;
+        var nativeCode = 'unavailable';
+        var nativeErrorType = 'unavailable';
         setState(() {
           _status = retryBootloader
               ? 'Finding this radio Bluetooth OTA bootloader...'
               : 'Releasing Companion Bluetooth for Nordic DFU...';
           _progress = 0;
         });
-        // Do not let the normal Companion scanner compete with the native
-        // DFU service. Manual disconnect also disables auto-reconnection.
-        await connector.stopScan();
-        if (!mounted) return;
-        if ((retryBootloader && connector.isConnected) ||
-            (!retryBootloader &&
-                (!connector.isConnected ||
-                    connector.deviceIdLabel != address ||
-                    connector.selfPublicKeyHex != _companionKey))) {
-          throw StateError('Connection changed. Reopen the updater.');
-        }
-        if (!retryBootloader) {
-          await connector.disconnect(manual: true);
-        }
-        await Future<void>.delayed(const Duration(seconds: 2));
-        if (!mounted) return;
-        await _dfuRecovery.update(
-          originalAddress: address,
-          path: path,
-          board: _board ?? '',
-          applicationOnly:
-              package.components.length == 1 &&
-              package.components.single == 'application',
-          retryBootloader: retryBootloader,
-          onStatus: (message) {
-            if (mounted) setState(() => _status = message);
-          },
-          onProgress: (percent) {
-            if (mounted) setState(() => _progress = percent);
-          },
-          onBootloader: (found) {
-            if (mounted) setState(() => _dfuBootloaderAddress = found);
-          },
-        );
-        if (mounted) {
-          setState(() {
-            _progress = 100;
-            _status =
-                'Bluetooth update finished. Reconnect to the Companion and check its version.';
-          });
+        try {
+          appLogger.info(
+            'Bluetooth DFU stage=$phase address=$address',
+            tag: 'CompanionDFU',
+            noNotify: true,
+          );
+          // Do not let the normal Companion scanner compete with the native
+          // DFU service. Manual disconnect also disables auto-reconnection.
+          await connector.stopScan();
+          if (!mounted) return;
+          if ((retryBootloader && connector.isConnected) ||
+              (!retryBootloader &&
+                  (!connector.isConnected ||
+                      connector.deviceIdLabel != address ||
+                      connector.selfPublicKeyHex != _companionKey))) {
+            throw StateError('Connection changed. Reopen the updater.');
+          }
+          if (!retryBootloader) {
+            await connector.disconnect(manual: true);
+          }
+          phase = 'connection_released';
+          appLogger.info(
+            'Bluetooth DFU stage=$phase address=$address',
+            tag: 'CompanionDFU',
+            noNotify: true,
+          );
+          await Future<void>.delayed(const Duration(seconds: 2));
+          if (!mounted) return;
+          final completedAddress = await _dfuRecovery.update(
+            originalAddress: address,
+            path: path,
+            board: _board ?? '',
+            applicationOnly: applicationOnly,
+            retryBootloader: retryBootloader,
+            onStatus: (message) {
+              // Native error strings are not trusted export metadata: they may
+              // contain paths or other private details. Keep the prior stage
+              // and extract only bounded numeric fields from a known header.
+              if (message.startsWith('Bluetooth DFU error')) {
+                final header = RegExp(
+                  r'^Bluetooth DFU error \((?:code=)?([0-9]{1,5})(?:[, ]+type[= ]([123]))?\):',
+                ).firstMatch(message);
+                nativeCode = _dfuExportCode(header?.group(1));
+                nativeErrorType = header?.group(2) ?? 'unavailable';
+                appLogger.warn(
+                  'Bluetooth DFU native_error: code=$nativeCode '
+                  'errorType=$nativeErrorType stage=$phase address=$address '
+                  'progress=$progress payloadStarted=$payloadStarted '
+                  'validating=$validating',
+                  tag: 'CompanionDFU',
+                  noNotify: true,
+                );
+              } else {
+                phase = switch (message) {
+                  'Looking for this radio Bluetooth OTA bootloader...' =>
+                    'discover_bootloader',
+                  'Connecting to the radio DFU service...' => 'connecting_dfu',
+                  'Asking the Companion to enter Bluetooth OTA mode...' =>
+                    'enabling_dfu',
+                  'Bluetooth DFU connected. Sending firmware...' =>
+                    'dfu_connected',
+                  'Validating firmware on the radio...' => 'validating',
+                  'Bluetooth handoff timed out. Looking for the actual bootloader before retrying...' =>
+                    'recover_bootloader',
+                  _
+                      when message.startsWith(
+                        'Found this radio bootloader. Reconnecting at ',
+                      ) =>
+                    'reconnect_bootloader',
+                  _ => 'native_status_unknown',
+                };
+                if (phase == 'validating') validating = true;
+                appLogger.info(
+                  'Bluetooth DFU stage=$phase address=$address '
+                  'progress=$progress payloadStarted=$payloadStarted '
+                  'validating=$validating',
+                  tag: 'CompanionDFU',
+                  noNotify: true,
+                );
+              }
+              if (mounted) setState(() => _status = message);
+            },
+            onProgress: (percent) {
+              final hadPayload = payloadStarted;
+              progress = percent;
+              if (percent > 0) {
+                payloadStarted = true;
+                phase = 'sending_payload';
+              }
+              // Keep the exported log useful without recording every packet.
+              final bucket = percent ~/ 10;
+              if (bucket != lastProgressBucket ||
+                  (!hadPayload && payloadStarted)) {
+                lastProgressBucket = bucket;
+                appLogger.info(
+                  'Bluetooth DFU progress=$percent address=$address '
+                  'payloadStarted=$payloadStarted',
+                  tag: 'CompanionDFU',
+                  noNotify: true,
+                );
+              }
+              if (mounted) setState(() => _progress = percent);
+            },
+            onBootloader: (found) {
+              appLogger.info(
+                'Bluetooth DFU bootloader selected: '
+                'originalAddress=$address bootloaderAddress=$found',
+                tag: 'CompanionDFU',
+                noNotify: true,
+              );
+              if (mounted) setState(() => _dfuBootloaderAddress = found);
+            },
+          );
+          appLogger.info(
+            'Bluetooth DFU transfer complete: originalAddress=$address '
+            'bootloaderAddress=$completedAddress; '
+            'Companion reconnection and version verification still required',
+            tag: 'CompanionDFU',
+            noNotify: true,
+          );
+          if (mounted) {
+            setState(() {
+              _progress = 100;
+              _status =
+                  'Bluetooth update finished. Reconnect to the Companion and check its version.';
+            });
+          }
+        } catch (error) {
+          // Do not export arbitrary exception details, file paths, firmware
+          // bytes, or identity keys. Native status callbacks identify the stage.
+          final code = error is PlatformException
+              ? _dfuExportCode(error.code)
+              : nativeCode;
+          appLogger.error(
+            'Bluetooth DFU failed: stage=$phase address=$address '
+            'progress=$progress payloadStarted=$payloadStarted '
+            'validating=$validating errorType=${error.runtimeType} code=$code '
+            'nativeErrorType=$nativeErrorType',
+            tag: 'CompanionDFU',
+            noNotify: true,
+          );
+          rethrow;
         }
       },
       failureMessage:

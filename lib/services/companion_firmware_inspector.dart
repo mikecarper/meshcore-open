@@ -5,10 +5,29 @@ enum Esp32FirmwareLayout { application, fullFlash }
 /// Selects the phone-update format only when the reported board family is
 /// unambiguous. Unknown boards keep both file types available for inspection.
 class CompanionFirmwareInspector {
+  static bool isTowerV2Board(String? board) {
+    final name = board?.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return const {
+      'heltectowerv2',
+      'heltecmeshtowerv2',
+      'meshtowerv2',
+      'towerv2',
+      'heltectowerv2sd',
+      'heltecmeshtowerv2sd',
+      'meshtowerv2sd',
+      'towerv2sd',
+      'heltectowerv2sdcard',
+      'heltecmeshtowerv2sdcard',
+      'meshtowerv2sdcard',
+      'towerv2sdcard',
+    }.contains(name);
+  }
+
   static String? updateExtensionForBoard(String? board) {
     if (board == null) return null;
     final name = board.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
     if (name.isEmpty || name.startsWith('unknown')) return null;
+    if (isTowerV2Board(board)) return 'zip';
 
     if (name.contains('xiaos3') ||
         name.contains('xiaoesp32') ||

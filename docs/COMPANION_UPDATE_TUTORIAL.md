@@ -64,6 +64,92 @@ Installing the final APK into that existing cached state physically verified rec
 
 Both Android profiles passed 1,045 tests with two optional skips, and the new service-cache policy has regression coverage for ordinary devices, non-Android platforms, real bootloader mode, and failed refreshes. All three connected Android 5.1.1 phones answered ADB at the final check. Their USB configuration was already 2; reconnecting only the stalled `LGL51AL2814a411` transport restored command responses, without phone reboots or changing other transports.
 
+### Isolated Mesh Tower follow-up
+
+The Mesh Tower V2 uses nRF52840/S140 6.1.1 and a Nordic application ZIP, not
+an ESP32 Wi-Fi BIN. Its bootloader can advertise the full `TOWER_V2_OTA` name
+or the shortened `TOWER_V2` name. The follow-up recovery code recognizes only
+those Tower names at the selected radio's original or expected bootloader
+address, with the legacy DFU service and no Companion NUS service.
+
+Fresh service advertisements replace older observations. In particular, an
+application NUS advertisement must not remain attached to that address after
+the bootloader starts advertising. Name-only phase changes are not sufficient
+proof of a bootloader and are kept unselectable until fresh service evidence
+arrives. Neither change permits choosing an arbitrary nearby radio.
+
+For the Mercerwood follow-up, the selected Tower is USB serial
+`9352162A72082314`, named `HIL-TOWER-SD`, and answered `ver` with
+`v1.17.1.9-hil-nrf-7d3ee720-7d3ee720` (build 05-Oct-2026). Initial inspection
+was read-only. This was a repeater test image, so the Tower was deliberately
+prepared with its exact-board `Heltec_tower_v2_companion_radio_full` application
+before testing the Companion updater. Its existing bootloader reported
+`OTAFIX2.4.11-preview.2`; it was not replaced. Both USB preparation and later
+restoration used verified application-only ZIPs requiring S140 6.1.1. No
+SoftDevice payload, bootloader payload, or erase firmware was used.
+
+The isolated test APK used package `com.meshcore.meshcore_open.towerdfutest`
+on Android 5.1.1 phone `LGL51AL2814a411`, leaving the installed production app
+and its remembered radios unchanged. To expose ADB, only that phone's MTP
+holder was released, then `usb_modeswitch` selected configuration 0 followed
+by configuration 2. Direct configuration-2 attempts had failed; a USB device
+reset alone did not substitute for this transition. The separate game-test
+phone and the T096/RAK4631 Morse-test serial ports were not operated.
+
+1. Pair to the verified Tower, `MeshCore-931C5D57` at `F1:58:C8:21:01:6F`.
+   The pairing PIN was read privately over its Pi USB port, never added to the
+   app, tutorial, or exported trace. Select the exact Tower Companion ZIP in
+   **Phone Downloads**. The app identifies the board as Nordic ZIP/Bluetooth.
+
+   ![Tower application ZIP selected in the Android 5.1.1 app](screenshots/companion-update/tower-01-package.png)
+
+2. Tap **Update over Bluetooth** and verify the board, address, and application
+   package in the confirmation. The bench Tower remained USB-powered. Its
+   last reported battery voltage, 2.96 V, appeared in the confirmation.
+
+   ![Tower Bluetooth update confirmation with its battery voltage](screenshots/companion-update/tower-02-confirm.png)
+
+3. Keep the updater open until completion. The native Nordic 2.11.0 SDK
+   handled the same-address application-to-bootloader handoff. The exported
+   trace recorded payload progress from 1% through 100%; the whole DFU call
+   took approximately 107 seconds, with about 77 seconds of payload transfer.
+   An early 0% snapshot was not evidence of a stuck transfer.
+
+   ![Tower Bluetooth transfer completed at 100 percent](screenshots/companion-update/tower-03-complete.png)
+
+4. Reconnect to the same Tower and reopen **Installed firmware**. The phone
+   reconnected without another PIN prompt and read
+   `Companion v1.17.1.9-halo-keymind-cascade-dev-7d3ee720` (protocol 14,
+   build 05-Oct-2026). This was an intentional same-version application
+   transfer, not an upgrade to a different release.
+
+   ![Tower Companion firmware verified after Bluetooth DFU and reconnect](screenshots/companion-update/tower-04-version-after.png)
+
+The isolated app was disconnected and stopped after the test. The original
+Tower SD repeater application was restored through verified application-only
+USB DFU. Its running version, `HIL-TOWER-SD` name, `910.5250244,62.5,7,5` radio
+tuple, and reported bootloader version matched the pre-test queries. This is
+not a backup or comparison of every setting. The Morse-test radios were
+neither reflashed nor reconfigured.
+
+The follow-up Companion updater also records a `CompanionDFU` phase trace in
+the app's existing exportable debug log. It distinguishes bootloader discovery,
+handoff, payload transfer, validation, and recovery, with bounded native error
+codes when available. Raw native error details, file paths, firmware contents,
+passwords, PINs, and private identity keys are not exported by this trace. A
+completed DFU trace still requires reconnecting and checking the installed
+version. These follow-up changes are not part of the already published RC6
+APK; do not assume that RC6 has the new trace or Tower recognition.
+
+Both Android source profiles passed 1,206 tests with five optional skips, and
+targeted analysis found no issues. This Tower run qualifies the shared Nordic
+Companion handoff, transfer, and phone reconnection. It does not qualify the
+reporter's exact T096/T114 hardware with Oltaco 2.3, prove the cause of that
+report, or exercise the app's changed-address recovery selection: the native
+SDK completed at the original address. Tower-name and fresh-advertisement
+recovery have regression tests but no separate hardware fallback result in
+this run. See the [sanitized Tower test evidence](test-results/tower-companion-dfu.json).
+
 ## ESP32: Wi-Fi application BIN
 
 1. Connect to the ESP32 Companion, then open **Settings > Update Companion**. Check the exact board and the installed version. The test device reported **Heltec V4.3 OLED** and `v1.17.1.5`.

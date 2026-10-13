@@ -1,0 +1,73 @@
+{
+  "test_date": "2026-10-12",
+  "test_branch": "codex/dfu-tower-recovery",
+  "baseline_commit": "1d9c774685d00d2a0aa1df942f6b76a574ff0610",
+  "radio": {
+    "physical_board": "Heltec MeshTower V2 SD",
+    "usb_serial": "9352162A72082314",
+    "companion_board_report": "Heltec Tower V2",
+    "companion_name": "MeshCore-931C5D57",
+    "bluetooth_address": "F1:58:C8:21:01:6F",
+    "reported_bootloader_version": "OTAFIX2.4.11-preview.2",
+    "bootloader_image_hash_verified": false
+  },
+  "phone": {
+    "serial": "LGL51AL2814a411",
+    "android": "5.1.1",
+    "package": "com.meshcore.meshcore_open.towerdfutest",
+    "test_apk_sha256": "c4e6111c18e4719b1fc47ddced6a2b7d2c94f04c85a33f9314307641a1e7d08d",
+    "test_apk_min_sdk": 21,
+    "test_apk_abi": "armeabi-v7a",
+    "test_apk_signing": "local-debug-sideload",
+    "production_app_replaced": false,
+    "adb_configuration_transition": [0, 2]
+  },
+  "application": {
+    "package": "Heltec_tower_v2_companion_radio_full-v1.17.1.9-halo-keymind-cascade-dev-7d3ee720.zip",
+    "sha256": "4aaf6104340ce474117653280e95ae5847539cddb73c00aabdafd1cce7acc445",
+    "application_only": true,
+    "softdevice_requirement": 182,
+    "same_version_transfer": true,
+    "post_reconnect_version": "Companion v1.17.1.9-halo-keymind-cascade-dev-7d3ee720",
+    "post_reconnect_protocol": 14,
+    "post_reconnect_build": "05-Oct-2026"
+  },
+  "result": {
+    "bluetooth_dfu_completed": true,
+    "last_progress_percent": 100,
+    "phone_reconnected": true,
+    "another_pin_prompt_required": false,
+    "native_sdk": "2.11.0",
+    "native_same_address_handoff": true,
+    "app_changed_address_fallback_exercised": false,
+    "dfu_elapsed_seconds": 106.895,
+    "battery_confirmation_volts": 2.96,
+    "external_usb_power": true,
+    "morse_radio_firmware_or_settings_changed": false,
+    "bootloader_or_softdevice_replaced": false,
+    "chip_erased": false,
+    "private_pin_or_keys_exported": false
+  },
+  "source_tests": {
+    "legacy": {"passed": 1206, "failed": 0, "skipped": 5},
+    "modern": {"passed": 1206, "failed": 0, "skipped": 5},
+    "targeted_analysis": "No issues found in either profile"
+  },
+  "restoration": {
+    "application_only_usb_dfu_completed": true,
+    "original_package_sha256": "926bbb394beee268ada24a072281b61fa976d5ebccd26a842d3514f8a2a20d22",
+    "running_version": "v1.17.1.9-hil-nrf-7d3ee720-7d3ee720",
+    "name": "HIL-TOWER-SD",
+    "radio_tuple": "910.5250244,62.5,7,5",
+    "reported_bootloader_version": "OTAFIX2.4.11-preview.2",
+    "queried_fields_match_pre_test": true,
+    "all_settings_compared": false
+  },
+  "limitations": [
+    "This is not an exact T096/T114 Oltaco 2.3 hardware qualification.",
+    "This is not a different-version upgrade test.",
+    "The current RC6 release APK does not contain these follow-up source changes.",
+    "No bootloader image hash was obtained from the reported preview.2 version label.",
+    "Phone clock timestamps are used only for relative elapsed time."
+  ]
+}
