@@ -22,6 +22,7 @@ import 'tcp_screen.dart';
 import 'usb_screen.dart';
 import 'packet_tools_screen.dart';
 import 'companion_update_screen.dart';
+import 'image_compression_screen.dart';
 
 /// Screen for scanning and connecting to MeshCore devices
 class ScannerScreen extends StatefulWidget {
@@ -210,40 +211,57 @@ class _ScannerScreenState extends State<ScannerScreen> {
         centerTitle: true,
         automaticallyImplyLeading: false,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.analytics_outlined),
-            tooltip: 'Packet tools',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => const PacketToolsScreen(),
+          PopupMenuButton<String>(
+            key: const ValueKey('scanner_tools_menu'),
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'Connection and tools',
+            onSelected: (tool) {
+              final Widget screen;
+              switch (tool) {
+                case 'image':
+                  screen = const ImageCompressionScreen();
+                  break;
+                case 'packets':
+                  screen = const PacketToolsScreen();
+                  break;
+                case 'usb':
+                  screen = const UsbScreen();
+                  break;
+                case 'tcp':
+                  screen = const TcpScreen();
+                  break;
+                default:
+                  return;
+              }
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute<void>(builder: (_) => screen));
+            },
+            itemBuilder: (context) => [
+              _toolMenuItem(
+                'image',
+                Icons.photo_size_select_large_outlined,
+                'Image compression',
               ),
-            ),
+              _toolMenuItem(
+                'packets',
+                Icons.analytics_outlined,
+                'Packet tools',
+              ),
+              if (PlatformInfo.supportsUsbSerial)
+                _toolMenuItem(
+                  'usb',
+                  Icons.usb,
+                  context.l10n.connectionChoiceUsbLabel,
+                ),
+              if (!PlatformInfo.isWeb)
+                _toolMenuItem(
+                  'tcp',
+                  Icons.lan,
+                  context.l10n.connectionChoiceTcpLabel,
+                ),
+            ],
           ),
-          if (PlatformInfo.supportsUsbSerial)
-            IconButton(
-              icon: const Icon(Icons.usb),
-              tooltip: context.l10n.connectionChoiceUsbLabel,
-              onPressed: () {
-                appLogger.info(
-                  'USB selected, opening UsbScreen',
-                  tag: 'ScannerScreen',
-                );
-                Navigator.of(
-                  context,
-                ).push(MaterialPageRoute(builder: (_) => const UsbScreen()));
-              },
-            ),
-          if (!PlatformInfo.isWeb)
-            IconButton(
-              icon: const Icon(Icons.lan),
-              tooltip: context.l10n.connectionChoiceTcpLabel,
-              onPressed: () {
-                Navigator.of(
-                  context,
-                ).push(MaterialPageRoute(builder: (_) => const TcpScreen()));
-              },
-            ),
         ],
       ),
       body: SafeArea(
@@ -333,6 +351,22 @@ class _ScannerScreenState extends State<ScannerScreen> {
       ),
     );
   }
+
+  PopupMenuItem<String> _toolMenuItem(
+    String value,
+    IconData icon,
+    String label,
+  ) => PopupMenuItem(
+    key: ValueKey('scanner_tool_$value'),
+    value: value,
+    child: Row(
+      children: [
+        Icon(icon),
+        const SizedBox(width: 12),
+        Flexible(child: Text(label)),
+      ],
+    ),
+  );
 
   void _toggleScan(MeshCoreConnector connector) {
     if (PlatformInfo.isWeb) {

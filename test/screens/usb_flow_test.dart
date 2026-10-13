@@ -197,10 +197,26 @@ void main() {
 
     final context = tester.element(find.byType(ScannerScreen));
     final l10n = AppLocalizations.of(context);
+    await tester.tap(find.byKey(const ValueKey('scanner_tools_menu')));
+    await tester.pumpAndSettle();
+    final usbAction = find.byKey(const ValueKey('scanner_tool_usb'));
     if (PlatformInfo.supportsUsbSerial) {
-      expect(find.byTooltip(l10n.connectionChoiceUsbLabel), findsOneWidget);
+      expect(usbAction.hitTestable(), findsOneWidget);
+      expect(find.text(l10n.connectionChoiceUsbLabel), findsOneWidget);
+      await tester.tap(usbAction);
+      await tester.pumpAndSettle();
+      expect(find.byType(UsbScreen), findsOneWidget);
+      await tester.tap(find.text(l10n.connectionChoiceBluetoothLabel));
+      await tester.pumpAndSettle();
+      expect(find.byType(UsbScreen), findsNothing);
+      expect(find.byType(ScannerScreen), findsOneWidget);
+      expect(
+        tester.state<NavigatorState>(find.byType(Navigator)).canPop(),
+        isFalse,
+      );
     } else {
-      expect(find.byTooltip(l10n.connectionChoiceUsbLabel), findsNothing);
+      expect(usbAction, findsNothing);
+      expect(find.text(l10n.connectionChoiceUsbLabel), findsNothing);
     }
 
     // ScannerScreen.dispose() schedules disconnect work that debounces notify.
@@ -227,13 +243,28 @@ void main() {
     final context = tester.element(find.byType(ScannerScreen));
     final l10n = AppLocalizations.of(context);
     expect(find.text(l10n.scanner_scan), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scanner_tools_menu')));
+    await tester.pumpAndSettle();
 
     if (PlatformInfo.supportsUsbSerial) {
-      expect(find.byTooltip(l10n.connectionChoiceUsbLabel), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('scanner_tool_usb')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.connectionChoiceUsbLabel), findsOneWidget);
+    } else {
+      expect(find.byKey(const ValueKey('scanner_tool_usb')), findsNothing);
     }
     if (!PlatformInfo.isWeb) {
-      expect(find.byTooltip(l10n.connectionChoiceTcpLabel), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('scanner_tool_tcp')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.connectionChoiceTcpLabel), findsOneWidget);
+    } else {
+      expect(find.byKey(const ValueKey('scanner_tool_tcp')), findsNothing);
     }
+    expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 60));

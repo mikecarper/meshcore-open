@@ -1,10 +1,16 @@
-import 'dart:typed_data';
+import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 
 import '../connector/meshcore_connector.dart';
 import '../l10n/l10n.dart';
+import '../screens/image_compression_screen.dart';
+import '../services/compact_image_codec_service.dart';
+import '../services/compact_image_preparation.dart'
+    show CompactImagePreparation;
 import '../utils/lora_airtime.dart';
 import 'image_send_codec_binding.dart';
 
@@ -16,8 +22,8 @@ class ImageSendPreviewResult {
   /// The encoded bitstream, ready to be chunked onto the air.
   final Uint8List payload;
 
-  /// The rate point the payload was encoded at. Always [kImageSendRatePoint] in
-  /// this build; carried through because the transport writes it on the wire.
+  /// Wire format for this payload. Compact images use their own identifier;
+  /// legacy AEIC images retain [kImageSendRatePoint].
   final ImageCodecRatePoint rate;
 
   /// Whether an XOR parity packet should be appended.
@@ -34,6 +40,11 @@ class ImageSendPreviewResult {
   /// actually shown. Null when the radio settings were unknown.
   final Duration? wallClock;
 
+  /// Pixels decoded from the selected compressed payload, when available.
+  final Uint8List? previewPng;
+  final double? aspectRatio;
+  final String? compressionLabel;
+
   const ImageSendPreviewResult({
     required this.payload,
     required this.rate,
@@ -41,6 +52,9 @@ class ImageSendPreviewResult {
     required this.packetCount,
     required this.airtime,
     required this.wallClock,
+    this.previewPng,
+    this.aspectRatio,
+    this.compressionLabel,
   });
 }
 
@@ -56,8 +70,8 @@ class ImageSendPreviewResult {
 /// the [MeshCoreConnector] in the widget tree. Pass it explicitly to preview
 /// this sheet without a connector.
 ///
-/// There is no quality/rate argument: ft32 ([kImageSendRatePoint]) is the only
-/// shipping model, so the sheet no longer offers a choice.
+/// Compact codecs offer a byte target and crop before displaying decoded PNG
+/// pixels. Legacy AEIC codecs retain their fixed ft32 rate.
 Future<ImageSendPreviewResult?> showImageSendPreviewSheet({
   required BuildContext context,
   required Uint8List imageBytes,
@@ -139,13 +153,28 @@ class _RateEstimate {
 }
 
 class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
-  /// The encoded ft32 bitstream, once the encode finishes.
+  /// The encoded bitstream, once the encode finishes.
   Uint8List? _encoded;
 
   late bool _parity;
   bool _encoding = false;
   bool _sending = false;
   bool _failed = false;
+  String? _encodeError;
+  CompactImageCompressionResult? _compactResult;
+  CompactImageCrop? _crop;
+  double _sourceAspect = 1;
+  Uint8List? _sourcePreview;
+
+  CompactImageCodecService? get _compactCodec =>
+      widget.codec is CompactImageCodecService
+      ? widget.codec as CompactImageCodecService
+      : null;
+
+  ImageCodecRatePoint get _rate =>
+      _compactCodec == null ? kImageSendRatePoint : ImageCodecRatePoint.compact;
+
+  bool get _working => _encoding || _sending || _compactCodec?.isBusy == true;
 
   /// Latest radio params seen in build; used by [_onSend] so the confirm path
   /// does not have to touch an InheritedWidget after an await.
@@ -154,10 +183,86 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
   @override
   void initState() {
     super.initState();
-    _parity = widget.initialParity;
+    _parity = _compactCodec?.budgetIncludesParity ?? widget.initialParity;
+    _compactCodec?.addListener(_codecChanged);
+    if (_compactCodec != null) {
+      _compactCodec!.setCrop(null);
+      unawaited(_readSourceAspect());
+    }
     if (widget.codec.availability == ImageCodecAvailability.ready) {
       _encode();
     }
+  }
+
+  void _codecChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _readSourceAspect() async {
+    ui.Codec? decoder;
+    ui.Image? image;
+    try {
+      final displayBytes = await compute(
+        CompactImagePreparation.previewInput,
+        widget.imageBytes,
+      );
+      decoder = await ui.instantiateImageCodec(
+        displayBytes,
+        targetWidth: 256,
+        allowUpscaling: false,
+      );
+      image = (await decoder.getNextFrame()).image;
+      if (mounted) {
+        setState(() {
+          _sourceAspect = image!.width / image.height;
+          _sourcePreview = displayBytes;
+        });
+      }
+    } catch (_) {
+      // The encode path supplies the user-facing error for invalid images.
+    } finally {
+      image?.dispose();
+      decoder?.dispose();
+    }
+  }
+
+  @override
+  void dispose() {
+    final compact = _compactCodec;
+    compact?.removeListener(_codecChanged);
+    if (_encoding && compact != null) {
+      unawaited(compact.cancelEncode().catchError((Object error) {}));
+    }
+    super.dispose();
+  }
+
+  void _invalidateCompact() {
+    setState(() {
+      _encoded = null;
+      _compactResult = null;
+      _failed = false;
+      _encodeError = null;
+    });
+  }
+
+  Future<void> _close() async {
+    if (_sending) return;
+    if (_encoding) {
+      try {
+        await _compactCodec?.cancelEncode();
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Could not confirm compression stopped. Another compression is blocked.',
+              ),
+            ),
+          );
+        }
+      }
+    }
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   Future<Uint8List?> _encode() async {
@@ -166,23 +271,25 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     setState(() {
       _encoding = true;
       _failed = false;
+      _encodeError = null;
     });
     try {
-      final bytes = await widget.codec.encode(
-        widget.imageBytes,
-        kImageSendRatePoint,
-      );
+      final bytes = await widget.codec.encode(widget.imageBytes, _rate);
       if (!mounted) return bytes;
       setState(() {
         _encoded = bytes;
+        _compactResult = _compactCodec?.result;
         _encoding = false;
       });
       return bytes;
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return null;
       setState(() {
         _encoding = false;
         _failed = true;
+        _encodeError = _compactCodec == null
+            ? null
+            : compactImageCompressionError(error, _compactCodec!);
       });
       return null;
     }
@@ -211,6 +318,14 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     }
     // Nothing encoded yet: show the measured ft32 range so the user sees a
     // figure immediately rather than a spinner.
+    final compact = _compactCodec;
+    if (compact != null) {
+      return _RateEstimate(
+        payloadBytes: null,
+        best: _estimate(1, radio),
+        worst: _estimate(compact.targetBytes, radio),
+      );
+    }
     final stats = ImageCodecRateStats.forRate(kImageSendRatePoint);
     return _RateEstimate(
       payloadBytes: null,
@@ -239,14 +354,32 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     }
     final radio = _radio ?? const ImageSendRadio();
     final estimate = _estimate(payload.length, radio);
+    final compact = _compactCodec;
+    if (compact != null && estimate.chunkCount > compact.packetBudget) {
+      setState(() {
+        _sending = false;
+        _encoded = null;
+        _compactResult = null;
+        _failed = true;
+        _encodeError =
+            'This image needs ${estimate.chunkCount} packets, above the '
+            '${compact.packetBudget}-packet budget. Choose more packets and recompress.';
+      });
+      return;
+    }
     Navigator.of(context).pop(
       ImageSendPreviewResult(
         payload: payload,
-        rate: kImageSendRatePoint,
+        rate: _rate,
         includeParity: estimate.includesParity,
         packetCount: estimate.chunkCount,
         airtime: estimate.totalAirtime,
         wallClock: estimate.pacedWallClock,
+        previewPng: _compactResult?.previewPng,
+        aspectRatio: _compactResult == null
+            ? null
+            : _compactResult!.width / _compactResult!.height,
+        compressionLabel: _compactResult?.codec.label,
       ),
     );
   }
@@ -285,9 +418,7 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
                   IconButton(
                     icon: const Icon(Icons.close),
                     tooltip: l10n.imageSend_cancel,
-                    onPressed: _sending
-                        ? null
-                        : () => Navigator.of(context).maybePop(),
+                    onPressed: _sending ? null : _close,
                   ),
                 ],
               ),
@@ -301,6 +432,61 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
                   const SizedBox(height: 16),
                   if (!ready) _unavailableBanner(theme, colors),
                   if (ready) ...[
+                    if (_compactCodec != null) ...[
+                      CompactImageCropControls(
+                        sourceAspectRatio: _sourceAspect,
+                        enabled: !_working && _sourcePreview != null,
+                        onChanged: (crop) {
+                          _crop = crop;
+                          _compactCodec!.setCrop(crop);
+                          _invalidateCompact();
+                        },
+                      ),
+                      CompactImageTargetSelector(
+                        targetBytes: _compactCodec!.targetBytes,
+                        enabled: !_working,
+                        onChanged: (bytes) {
+                          _compactCodec!.setTargetBytes(bytes);
+                          _invalidateCompact();
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      CompactImagePacketBudgetSelector(
+                        packetBudget: _compactCodec!.packetBudget,
+                        includeParity: _parity,
+                        targetBytes: _compactCodec!.targetBytes,
+                        enabled: !_working,
+                        onChanged: (packets) {
+                          _compactCodec!.setPacketBudget(
+                            packets,
+                            includeParity: _parity,
+                          );
+                          _invalidateCompact();
+                        },
+                      ),
+                      if (_encoded == null && !_encoding)
+                        TextButton.icon(
+                          key: const ValueKey('image-send-compress'),
+                          onPressed: _sending ? null : _encode,
+                          icon: const Icon(Icons.compress),
+                          label: const Text('Compress and preview'),
+                        ),
+                      if (_encoding) ...[
+                        LinearProgressIndicator(value: _compactCodec!.progress),
+                        const SizedBox(height: 4),
+                        Text(_compactCodec!.stage ?? 'Compressing image'),
+                        const Text('Up to 2 minutes per codec.'),
+                      ],
+                      if (_compactResult != null)
+                        Text(
+                          '${_compactResult!.codec.label}: '
+                          '${_encoded!.length} bytes, '
+                          '${_compactResult!.width} x ${_compactResult!.height}, '
+                          '${_compactResult!.blockSize} x ${_compactResult!.blockSize} blocks. '
+                          'Metadata removed.',
+                        ),
+                      const SizedBox(height: 12),
+                    ],
                     // Packet count and time on air lead: with the quality
                     // selector gone they are the only decision the user makes.
                     _headlineStats(theme, colors, selected),
@@ -320,7 +506,7 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
                         background: colors.errorContainer,
                         foreground: colors.onErrorContainer,
                         title: l10n.imageSend_encodeFailed,
-                        body: null,
+                        body: _encodeError,
                       ),
                     ],
                   ],
@@ -351,6 +537,34 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
   /// below it are the reason this screen exists and must not be pushed off the
   /// first screenful by a full-width square.
   Widget _preview(ThemeData theme, ColorScheme colors) {
+    if (_compactCodec != null) {
+      final result = _compactResult;
+      return Column(
+        children: [
+          if (result != null || _sourcePreview != null)
+            CompactImageCropPreview(
+              key: const ValueKey('image-send-compact-preview'),
+              bytes: result?.previewPng ?? _sourcePreview!,
+              aspectRatio: result == null
+                  ? _sourceAspect
+                  : result.width / result.height,
+              crop: result == null ? _crop : null,
+            )
+          else
+            const SizedBox(
+              height: 100,
+              child: Center(child: Icon(Icons.image_outlined)),
+            ),
+          const SizedBox(height: 8),
+          Text(
+            result == null ? 'Source image' : 'Decoded PNG preview',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.onSurfaceVariant,
+            ),
+          ),
+        ],
+      );
+    }
     final maxSide = MediaQuery.sizeOf(context).height * 0.28;
     return Column(
       children: [
@@ -529,7 +743,20 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     return SwitchListTile(
       contentPadding: EdgeInsets.zero,
       value: _parity,
-      onChanged: _sending ? null : (v) => setState(() => _parity = v),
+      onChanged: _sending || (_compactCodec != null && _working)
+          ? null
+          : (value) {
+              final compact = _compactCodec;
+              if (compact != null) {
+                final packets = compact.packetBudget.clamp(
+                  value ? 2 : 1,
+                  value ? 16 : 15,
+                );
+                compact.setPacketBudget(packets, includeParity: value);
+                _invalidateCompact();
+              }
+              setState(() => _parity = value);
+            },
       secondary: const Icon(Icons.shield_outlined, size: 20),
       title: Text(localizations.imageSend_parityTitle),
       subtitle: Text(
@@ -689,23 +916,26 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
 
   Widget _actions(ThemeData theme, bool ready) {
     final localizations = context.l10n;
-    final busy = _sending || _encoding;
+    final busy = _working;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Row(
         children: [
           Expanded(
             child: OutlinedButton(
-              onPressed: _sending
-                  ? null
-                  : () => Navigator.of(context).maybePop(),
+              onPressed: _sending ? null : _close,
               child: Text(localizations.imageSend_cancel),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: FilledButton.icon(
-              onPressed: (!ready || busy) ? null : _onSend,
+              onPressed:
+                  (!ready ||
+                      busy ||
+                      (_compactCodec != null && _encoded == null))
+                  ? null
+                  : _onSend,
               icon: busy
                   ? const SizedBox(
                       width: 16,

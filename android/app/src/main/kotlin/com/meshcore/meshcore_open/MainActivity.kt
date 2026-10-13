@@ -11,11 +11,13 @@ import io.flutter.embedding.engine.FlutterEngine
 class MainActivity : FlutterActivity() {
     private val usbFunctions by lazy { MeshcoreUsbFunctions(this) }
     private val usbEspEngine by lazy { MeshcoreUsbEspEngine(this, usbFunctions) }
+    private var imageCodec: MeshcoreImageCodec? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         usbFunctions.configureFlutterEngine(flutterEngine)
         usbEspEngine.configureFlutterEngine(flutterEngine)
+        imageCodec = MeshcoreImageCodec(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.meshcore.meshcore_open/settings"
@@ -47,6 +49,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        imageCodec?.close()
         usbEspEngine.dispose()
         usbFunctions.dispose()
         super.onDestroy()

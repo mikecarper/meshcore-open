@@ -44,7 +44,6 @@ class RepeaterCommandService {
     int retries = maxRetries,
     int minimumTimeoutMs = 0,
     bool raw = false,
-    int minimumTimeoutMs = 0,
   }) async {
     if (!raw) command = normalizeRepeaterClockSyncCommand(command);
     final attemptCount = retries < 1 ? 1 : retries;

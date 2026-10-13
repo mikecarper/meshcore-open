@@ -98,7 +98,7 @@ void main() {
       // is no longer expressible. Rate keeps two spare codes (2 and 3), and
       // that is the channel a future incompatible format must use so older
       // receivers reject it instead of guessing.
-      expect(ImageStreamMetadata.decode(0x02), isNull); // rate code 2
+      expect(ImageStreamMetadata.decode(0x02)?.rate, ImageCodecRatePoint.compact);
       expect(ImageStreamMetadata.decode(0x03), isNull); // rate code 3
       // 0xF0 is aspect 15 (unknown shape), resolution 0, rate 0 — all legal.
       final legal = ImageStreamMetadata.decode(0xF0);
@@ -1107,7 +1107,8 @@ void main() {
       );
       // ...and an AeicRatePoint ordinal on the wire is refused outright.
       expect(imageRatePointFromWireCode(AeicRatePoint.ft32.wireValue), isNull);
-      expect(imageRatePointFromWireCode(AeicRatePoint.ft8.wireValue), isNull);
+      // Numeric code 2 now names the explicit MCI1 envelope, never ft8.
+      expect(imageRatePointFromWireCode(2), ImageCodecRatePoint.compact);
     });
 
     test('every wire code round-trips and unknown codes are null', () {
@@ -1133,11 +1134,11 @@ void main() {
         senderPrefix: senderA,
         imgId: 80,
       );
-      // Overwrite the 2-bit rate field with 2 — a code no shipping build
+      // Overwrite the 2-bit rate field with 3 - the reserved format code.
       // emits. Without an explicit rate table this would have decoded as a
       // valid rate point and fed the wrong model.
       final bad = Uint8List.fromList(set.blobs[0]);
-      bad[kImageChunkHeaderBytes] = (bad[kImageChunkHeaderBytes] & 0xFC) | 0x02;
+      bad[kImageChunkHeaderBytes] = (bad[kImageChunkHeaderBytes] & 0xFC) | 0x03;
 
       final delivered = <ImageReassemblyResult>[];
       final failures = <ImageReassemblyFailure>[];

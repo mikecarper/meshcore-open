@@ -9,6 +9,9 @@ import 'package:meshcore_open/theme/mesh_theme.dart';
 import 'package:meshcore_open/services/nrf_dfu_recovery_store.dart';
 import 'package:meshcore_open/screens/channels_screen.dart';
 import 'package:meshcore_open/screens/companion_update_screen.dart';
+import 'package:meshcore_open/screens/image_compression_screen.dart';
+import 'package:meshcore_open/services/compact_image_codec_service.dart';
+import 'package:meshcore_open/widgets/adaptive_app_bar_title.dart';
 import 'package:provider/provider.dart';
 
 class _ScannerConnector extends MeshCoreConnector {
@@ -64,6 +67,11 @@ class _ScannerRecoveryStore extends NrfDfuRecoveryStore {
   Future<NrfDfuRecoveryRecord?> load() async => record;
 }
 
+class _ScannerImageCodec extends CompactImageCodecService {
+  @override
+  Future<List<CompactImageCodecCapability>> capabilities() async => const [];
+}
+
 NrfDfuRecoveryRecord _record() => NrfDfuRecoveryRecord(
   path: '/test/recovery.zip',
   originalAddress: 'EB:9D:56:B2:48:48',
@@ -95,6 +103,86 @@ Future<void> _mountScanner(
 );
 
 void main() {
+  testWidgets(
+    '320dp scanner with Back keeps a readable title and offline tools in one menu',
+    (tester) async {
+      tester.view.physicalSize = const Size(480, 854);
+      tester.view.devicePixelRatio = 1.5;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final connector = _ScannerConnector();
+      final codec = _ScannerImageCodec();
+      addTearDown(connector.dispose);
+      addTearDown(codec.dispose);
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<MeshCoreConnector>.value(value: connector),
+            ChangeNotifierProvider<CompactImageCodecService>.value(
+              value: codec,
+            ),
+          ],
+          child: MaterialApp(
+            theme: MeshTheme.light(),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ScannerScreen(recoveryStore: _ScannerRecoveryStore()),
+                    ),
+                  ),
+                  child: const Text('Open scanner'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open scanner'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.arrow_back).hitTestable(), findsOneWidget);
+      final appBar = tester.widget<AppBar>(find.byType(AppBar));
+      expect(appBar.actions, hasLength(1));
+      final title = find.descendant(
+        of: find.byType(AdaptiveAppBarTitle),
+        matching: find.byType(Text),
+      );
+      final titleRender = tester.renderObject<RenderBox>(title);
+      final titleElement = tester.element(title);
+      final titleStyle = DefaultTextStyle.of(titleElement).style;
+      final effectiveFont =
+          titleStyle.fontSize! *
+          titleRender.getTransformTo(null).getMaxScaleOnAxis();
+      expect(effectiveFont, greaterThanOrEqualTo(18));
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.byKey(const ValueKey('scanner_tools_menu')));
+      await tester.pumpAndSettle();
+      for (final tool in ['image', 'packets', 'usb', 'tcp']) {
+        expect(
+          find.byKey(ValueKey('scanner_tool_$tool')).hitTestable(),
+          findsOneWidget,
+        );
+      }
+      await tester.tap(find.byKey(const ValueKey('scanner_tool_image')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ImageCompressionScreen), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('compression-pick-image')),
+        findsOneWidget,
+      );
+      expect(connector.state, MeshCoreConnectionState.disconnected);
+      expect(connector.starts, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    },
+  );
+
   testWidgets(
     'no saved recovery leaves exactly the ordinary scan button and autoreconnect',
     (tester) async {

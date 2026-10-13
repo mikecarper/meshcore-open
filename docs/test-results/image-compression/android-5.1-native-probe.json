@@ -1,0 +1,114 @@
+{
+  "worker_sha256": "cf6ae6eea97417208323e1914550b3a60f391ca95874af45028deb257dcdd563",
+  "image_sha256": "88431cd9653ccd539741b555fb0a46b61558b301d4110412b5bc28b5e3ea6cb5",
+  "per_algorithm_limit_seconds": 120,
+  "results": [
+    {
+      "codec": "webp",
+      "success": true,
+      "width": 512,
+      "height": 512,
+      "encoded_bytes": 18322,
+      "encoded_sha256": "8b3a9426d06f2d26ad87118c5c1368b89c38b6dc39febc18076a65f2ab6c7f9a",
+      "encode_seconds": 1.8006955239980016,
+      "decode_seconds": 1.0371133389999159,
+      "display_png_sha256": "0156f591c33d03dcefe24d883758dce140409f0dd1b59aada9ca55209aa269f7"
+    },
+    {
+      "codec": "jpeg",
+      "success": true,
+      "width": 512,
+      "height": 512,
+      "encoded_bytes": 25489,
+      "encoded_sha256": "a37e6151137e2fa7341edea21a20912b9dd4d6400c5bef5cf58a3c45bc4dfb07",
+      "encode_seconds": 1.2515491990052396,
+      "decode_seconds": 1.1125056089949794,
+      "display_png_sha256": "098d4771eb5e7dddc250a609d05643846c746f3e143c5e8d069d0733bba8bb09"
+    },
+    {
+      "codec": "png",
+      "success": true,
+      "width": 512,
+      "height": 512,
+      "encoded_bytes": 488240,
+      "encoded_sha256": "a88bce9c9945a0bcc873314fed9e7e39e92fb70076b25bb87ff662eb9adac5a6",
+      "encode_seconds": 3.486300756005221,
+      "decode_seconds": 1.5685035589995096,
+      "display_png_sha256": "f8e7c7686bcd49e209c2ac12319c437b779f1de37f481406dd0aa327e65752b3"
+    },
+    {
+      "codec": "avif",
+      "success": true,
+      "width": 512,
+      "height": 512,
+      "encoded_bytes": 13723,
+      "encoded_sha256": "ff217648fe383a8a58a79aa4697a8b7a2d53e537a46872dd1c553d9e3e1afb06",
+      "encode_seconds": 3.7600402899988694,
+      "decode_seconds": 1.2813174329930916,
+      "display_png_sha256": "68bb3efb7519253e649a20365f10f3b51c8d1821fe6193a385065e5b401e8ab0"
+    },
+    {
+      "codec": "jxl",
+      "success": true,
+      "width": 512,
+      "height": 512,
+      "encoded_bytes": 10401,
+      "encoded_sha256": "22515be91cb682565cc960d6ad4ad231a4a2b1241b0cbb3d494e9361f2e0410f",
+      "encode_seconds": 1.4074712540023029,
+      "decode_seconds": 1.9579354699963005,
+      "display_png_sha256": "8ddab6745f1fc2966988f7b8ab24215d99649ec35fb76864bde2b023d53aec4a"
+    },
+    {
+      "codec": "jp2",
+      "success": true,
+      "width": 512,
+      "height": 512,
+      "encoded_bytes": 17097,
+      "encoded_sha256": "4a3403d092ebb8ea31dfaa9bb7a56a4353a41146cf526e0643edafb41d418808",
+      "encode_seconds": 1.656153876989265,
+      "decode_seconds": 1.3558811920083826,
+      "display_png_sha256": "e23d0e931a6ac742240e871b5e33c73d539647a890a2f305cb5c10250e7fbb84"
+    },
+    {
+      "codec": "vvc",
+      "success": true,
+      "width": 512,
+      "height": 512,
+      "encoded_bytes": 12048,
+      "encoded_sha256": "4d02ed161c85618ef15c2a72021c8e79041e0d2ad0178e202437605059ae97c9",
+      "encode_seconds": 7.602996489003999,
+      "decode_seconds": 1.3283472449984401,
+      "display_png_sha256": "d2780693ba091211676cc8ee02febc2df6e5677052f51ad61c35b54e0c4b4b62"
+    },
+    {
+      "codec": "heic",
+      "success": true,
+      "width": 512,
+      "height": 512,
+      "encoded_bytes": 27567,
+      "encoded_sha256": "d442c4b82feb40b80a49c6b158b2b966da7e1bdc298bbcca10a8668cc8ae6c52",
+      "encode_seconds": 2.793029653999838,
+      "decode_seconds": 1.2572402890073135,
+      "display_png_sha256": "f0ccd50c7883d648827800ef1ed88d368c7b002496ad98aa1056333bb2a38bb2"
+    },
+    {
+      "codec": "bpg",
+      "success": true,
+      "width": 512,
+      "height": 512,
+      "encoded_bytes": 26875,
+      "encoded_sha256": "71f184c05b23ca8ff5286598137d05ea3405f9f7dfcbea7303ed5d864809b905",
+      "encode_seconds": 5.71928373099945,
+      "decode_seconds": 1.102399819996208,
+      "display_png_sha256": "d84e47314756de29355fa91d40253a3f0d04c9bd71237e1a5586ba614c9d8017"
+    }
+  ],
+  "bpg_worker_sha256": "583d6fe38f21f0c8e3b41059037581014bc2f403546bcff29b10f32ae204b2a7",
+  "library_sha256": {
+    "libheif.so": "3255dea64e3b9087840b2f456abd20ce510b43f1dd226d0b6931e53ee508058c",
+    "libde265.so": "9642e96de95a72ed9b8ce7176cd7497aa10c753449a4e792f062e795c186f23e"
+  },
+  "phone_model": "LGL51AL",
+  "android_version": "5.1.1",
+  "host_test_date": "2026-10-13"
+}

@@ -50,6 +50,9 @@ enum ImageCodecRatePoint {
   /// registry ships ft32 weights only. Retained so the ordinal stays reserved
   /// and so bitstreams produced elsewhere can still be identified on the wire.
   high,
+
+  /// Metadata-free conventional image in the MCI1 envelope (wire code 2).
+  compact,
 }
 
 /// The single rate point the compose UI encodes at.
@@ -88,12 +91,20 @@ class ImageCodecRateStats {
     maxBytes: 409,
   );
 
+  static const ImageCodecRateStats compact = ImageCodecRateStats(
+    meanBytes: 1536,
+    minBytes: 128,
+    maxBytes: 2048,
+  );
+
   static ImageCodecRateStats forRate(ImageCodecRatePoint rate) {
     switch (rate) {
       case ImageCodecRatePoint.standard:
         return standard;
       case ImageCodecRatePoint.high:
         return high;
+      case ImageCodecRatePoint.compact:
+        return compact;
     }
   }
 }

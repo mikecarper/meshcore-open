@@ -19,6 +19,22 @@ PROFILES = {
 }
 ESP_BUNDLE_SHA256 = "00ebe6fb0b202976d3e2a3c6b9a6bd438c26a81d2af6739c95ac276a64c1a84e"
 USB_DRIVERS = ("CdcAcmSerialDriver", "Ch34xSerialDriver", "Cp21xxSerialDriver", "FtdiSerialDriver")
+IMAGE_CODEC_LIBRARIES = (
+    "libmesh_image_codec.so", "libmesh_image_worker.so", "libmesh_bpg_worker.so",
+    "libheif.so", "libde265.so",
+)
+IMAGE_CODECS = ("webp", "jpeg", "png", "avif", "jxl", "jp2", "vvc", "heic", "bpg")
+IMAGE_CODEC_LICENSES = (
+    "GPL-3.0.txt", "aom-LICENSE.txt", "aom-PATENTS.txt",
+    "aom-fastfeat-LICENSE.txt", "aom-vector-LICENSE.txt", "avif-LICENSE.txt",
+    "bpg-LGPL-2.1.txt", "bpg-wrapper-LICENSE.txt", "bpg-x265-GPL-2.0.txt",
+    "brotli-LICENSE.txt", "de265-COPYING.txt", "heif-COPYING.txt",
+    "highway-LICENSE-BSD3.txt", "highway-LICENSE.txt", "jpeg-LICENSE.txt",
+    "jpeg-README.ijg.txt", "jxl-LICENSE.txt", "jxl-PATENTS.txt",
+    "kvazaar-LICENSE.txt", "libyuv-LICENSE.txt", "openjpeg-LICENSE.txt",
+    "png-LICENSE.txt", "skcms-LICENSE.txt", "vvdec-LICENSE.txt",
+    "vvenc-LICENSE.txt", "webp-LICENSE.txt", "webp-PATENTS.txt",
+)
 
 
 def summarize_tests(log):
@@ -107,11 +123,29 @@ def verify_apk(apk, profile):
             descriptor = f"Lcom/hoho/android/usbserial/driver/{driver};".encode()
             if descriptor not in dex:
                 raise RuntimeError(f"APK is missing required native USB driver: {driver}")
+        image_license_assets = ROOT / "android/app/src/main/assets/image_codecs/licenses"
+        license_files = {path.name: path for path in image_license_assets.iterdir()
+                         if path.is_file()}
+        for required in IMAGE_CODEC_LICENSES:
+            if required not in license_files:
+                raise RuntimeError(f"Source is missing required image codec license: {required}")
+        # Check every notice in the source directory, including future additions.
+        for filename, asset in sorted(license_files.items()):
+            packaged = "assets/image_codecs/licenses/" + filename
+            if packaged not in names:
+                raise RuntimeError(f"APK is missing image codec license asset: {packaged}")
+            if archive.read(packaged) != asset.read_bytes():
+                raise RuntimeError(f"APK image codec license checksum mismatch: {packaged}")
     libraries = [name for name in names if name.startswith("lib/") and name.endswith(".so")]
     abis = {name.split("/")[1] for name in libraries}
     expected = {"armeabi-v7a"} if profile == "legacy" else {"arm64-v8a"}
     if abis != expected:
         raise RuntimeError(f"Unexpected APK ABIs: {abis}; expected {expected}")
+    for abi in sorted(expected):
+        for library in IMAGE_CODEC_LIBRARIES:
+            packaged = f"lib/{abi}/{library}"
+            if packaged not in libraries:
+                raise RuntimeError(f"APK is missing required native image codec library: {packaged}")
     onnx = any("onnxruntime" in name for name in libraries)
     llama = any("llamadart" in name for name in libraries)
     if profile == "modern" and not (onnx and llama):
@@ -125,7 +159,10 @@ def verify_apk(apk, profile):
             raise RuntimeError(f"APK is missing required asset: {asset}")
     return {"abis": sorted(abis), "onnx": onnx, "llamadart": llama,
             "usb_drivers": list(USB_DRIVERS), "esptool_js": "0.7.0",
-            "esptool_bundle_sha256": ESP_BUNDLE_SHA256}
+            "esptool_bundle_sha256": ESP_BUNDLE_SHA256,
+            "image_codecs": {"codecs": list(IMAGE_CODECS),
+                             "libraries": list(IMAGE_CODEC_LIBRARIES),
+                             "license_assets": sorted(license_files)}}
 
 
 def main():

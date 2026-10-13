@@ -50,7 +50,8 @@
 ///
 /// ## Integrity
 ///
-/// There is deliberately NO app-level checksum. Two layers below already cover
+/// The original AEIC payload has no app-level checksum. Compact MCI1 images add
+/// an envelope CRC32; the chunk framing itself remains unchanged. Lower layers cover
 /// corruption of a delivered chunk: the LoRa PHY CRCs every packet (`setCRC(1)`
 /// in each radio driver, and a failing packet is dropped by the modem), and
 /// MeshCore verifies a 2-byte HMAC-SHA256 per packet and rejects on mismatch
@@ -157,7 +158,10 @@ const int kImageRateWireStandard = 0;
 const int kImageRateWireHigh = 1;
 
 /// Number of rate codes this build knows how to name.
-const int kImageRateWireCodeCount = 2;
+const int kImageRateWireCodeCount = 3;
+
+/// Explicit conventional codec envelope; old AEIC-only receivers reject it.
+const int kImageRateWireCompact = 2;
 
 /// Maps a UI rate point to the wire code written into the metadata byte.
 ///
@@ -181,6 +185,8 @@ int imageRateWireCode(ImageCodecRatePoint rate) {
       return kImageRateWireStandard;
     case ImageCodecRatePoint.high:
       return kImageRateWireHigh;
+    case ImageCodecRatePoint.compact:
+      return kImageRateWireCompact;
   }
 }
 
@@ -191,6 +197,8 @@ ImageCodecRatePoint? imageRatePointFromWireCode(int code) {
       return ImageCodecRatePoint.standard;
     case kImageRateWireHigh:
       return ImageCodecRatePoint.high;
+    case kImageRateWireCompact:
+      return ImageCodecRatePoint.compact;
     default:
       return null;
   }

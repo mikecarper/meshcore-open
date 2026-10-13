@@ -49,12 +49,12 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // Codec2 native build removed - no longer needed
-        // externalNativeBuild {
-        //     cmake {
-        //         arguments += listOf("-DANDROID_STL=c++_shared")
-        //     }
-        // }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf("-DANDROID_STL=c++_static", "-DANDROID_ARM_MODE=arm")
+                targets += listOf("mesh_image_codec", "mesh_image_worker_packaged", "mesh_bpg_worker_packaged", "heif", "de265")
+            }
+        }
         // Keep the modern app 64-bit: its inference runtimes need that address
         // space. The API 22 phone receives the dedicated ARMv7 build.
         ndk {
@@ -94,12 +94,19 @@ android {
         }
     }
 
-    // Codec2 native build removed - no longer needed
-    // externalNativeBuild {
-    //     cmake {
-    //         path = file("src/main/cpp/CMakeLists.txt")
-    //     }
-    // }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/image/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+    packaging {
+        jniLibs {
+            // The codec worker is a PIE executable stored in the native library
+            // directory. Android must extract it to preserve execute access.
+            useLegacyPackaging = true
+        }
+    }
 }
 
 // Do not silently label a debug-signed APK as a distributable release.

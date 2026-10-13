@@ -61,6 +61,7 @@ dependencies:
   package_info_plus: ^8.3.1
   mobile_scanner: 6.0.10  # API 21-compatible QR/barcode scanning
   image_picker: ^1.1.2    # Pick photos to send as compressed mesh images
+  image: 4.5.4           # Metadata-free raster preparation and PNG display
   file_selector: ^1.0.3   # Dart 3.8-compatible legacy device build
   qr_flutter: ^4.1.0      # QR code generation
   url_launcher: ^6.3.0    # Launch URLs in system browser
@@ -129,6 +130,7 @@ flutter:
     - assets/firmware/esp32_partition_catalog.json
     - assets/certs/github_legacy_roots.pem
     - assets/images/
+    - assets/image_compression/
     - assets/icons/
     - assets/fonts/
 

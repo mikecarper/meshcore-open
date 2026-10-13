@@ -21,3 +21,4 @@
 -keepclassmembers class com.meshcore.meshcore_open.MeshcoreUsbEspEngine$NativeBridge {
     @android.webkit.JavascriptInterface <methods>;
 }
+-keep class com.meshcore.meshcore_open.MeshcoreImageNative { *; }

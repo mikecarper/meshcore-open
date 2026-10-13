@@ -10,6 +10,7 @@ import '../models/image_codec_support.dart';
 import '../models/translation_support.dart';
 import '../services/app_settings_service.dart';
 import '../services/image_codec_service.dart';
+import '../services/compact_image_codec_service.dart';
 import '../services/map_tile_cache_service.dart';
 import '../services/notification_service.dart';
 import '../services/translation_service.dart';
@@ -20,6 +21,7 @@ import '../widgets/legacy_radio.dart' as legacy_radio;
 import '../widgets/sync_progress_overlay.dart';
 import '../helpers/snack_bar_builder.dart';
 import 'map_cache_screen.dart';
+import 'image_compression_screen.dart';
 
 class AppSettingsScreen extends StatelessWidget {
   /// Scrolls the image-message settings into view once, on first build.
@@ -644,6 +646,22 @@ class AppSettingsScreen extends StatelessWidget {
             },
           ),
         ),
+        ListTile(
+          key: const ValueKey('settings-image-compression'),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 4,
+          ),
+          leading: const Icon(Icons.compress, size: 20),
+          title: const Text('Image compression'),
+          subtitle: const Text(
+            'Crop and compare codecs for 1-2 KB images on this phone',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const ImageCompressionScreen()),
+          ),
+        ),
         if (settingsService.settings.imageMessagesEnabled) ...[
           const Divider(height: 1, indent: 16),
           SwitchListTile(
@@ -658,10 +676,24 @@ class AppSettingsScreen extends StatelessWidget {
             onChanged: (value) =>
                 settingsService.setImageProcessAutomatically(value),
           ),
-          _buildImageCodecModels(context),
+          if (_compactImageCodec(context) != null)
+            ExpansionTile(
+              title: const Text('Optional AEIC models'),
+              children: [_buildImageCodecModels(context)],
+            )
+          else
+            _buildImageCodecModels(context),
         ],
       ],
     );
+  }
+
+  CompactImageCodecService? _compactImageCodec(BuildContext context) {
+    try {
+      return context.read<CompactImageCodecService>();
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   /// The image codec, or null when it is not registered (screen tests).

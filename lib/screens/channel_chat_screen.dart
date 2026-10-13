@@ -46,6 +46,7 @@ import '../widgets/jump_to_bottom_button.dart';
 import '../widgets/gif_picker.dart';
 import '../widgets/image_send_codec_binding.dart';
 import '../widgets/image_send_preview_sheet.dart';
+import '../services/compact_image_codec_service.dart';
 import '../widgets/message_translation_button.dart';
 import '../widgets/message_status_icon.dart';
 import '../widgets/radio_stats_entry.dart';
@@ -1263,7 +1264,16 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
   }
 
   /// The image codec, or null when it is not registered (screen tests).
-  ImageCodecService? get _imageCodec {
+  ImageSendCodec? get _imageCodec {
+    try {
+      return context.read<CompactImageCodecService>();
+    } on ProviderNotFoundException {
+      // Legacy tests and builds can still provide the AEIC codec alone.
+    }
+    return _neuralImageCodec;
+  }
+
+  ImageCodecService? get _neuralImageCodec {
     try {
       return context.read<ImageCodecService>();
     } on ProviderNotFoundException {
@@ -1277,6 +1287,11 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
   /// from an overlay and cannot listen to a provider.
   bool _isImageCodecDownloading(BuildContext context) {
     try {
+      return context.watch<CompactImageCodecService>().isBusy;
+    } on ProviderNotFoundException {
+      // The older codec exposes its model-download phase separately.
+    }
+    try {
       return context.watch<ImageCodecService>().isDownloading;
     } on ProviderNotFoundException {
       return false;
@@ -1285,15 +1300,13 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
 
   /// Takes no [BuildContext]: it uses the [State]'s own, so the `mounted`
   /// checks around each `await` are the ones that actually govern it.
-  Future<void> _showImageSendPreview() async {
-    final codec = _imageCodec;
+  Future<void> _showImageSendPreview({bool useNeuralCodec = false}) async {
+    final codec = useNeuralCodec ? _neuralImageCodec : _imageCodec;
     if (codec == null) return;
     final connector = context.read<MeshCoreConnector>();
 
-    // The picked bytes are kept past the preview on purpose: the sender's own
-    // bubble renders from them (see [_registerOutgoingImage]). The bitstream
-    // cannot serve — turning it back into pixels is a ~2.16 GiB, ~1 s decode
-    // of an image the sender is already holding.
+    // Retain the source for legacy previews. Compact images supply pixels
+    // decoded from the chosen payload for the sender's own bubble.
     final XFile? picked;
     try {
       picked = await ImagePicker().pickImage(
@@ -1380,11 +1393,11 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
         metadata: ImageStreamMetadata(
           rate: result.rate,
           squareSize: kImageCodecSquareSize,
-          // The codec stretched the whole frame into a square, which the
-          // receiver cannot undo from pixels alone. Naming the source shape
-          // here costs no extra bytes -- it rides in spare bits of the metadata
-          // byte -- and lets the receiver letterbox back.
-          aspectCode: await _aspectCodeOf(sourceBytes),
+          // Compact images preserve their shape inside the payload. Legacy
+          // square images retain their original aspect hint for letterboxing.
+          aspectCode: result.rate == ImageCodecRatePoint.compact
+              ? kImageAspectUnknown
+              : await _aspectCodeOf(sourceBytes),
         ),
         senderPrefix: senderPrefix,
         imgId: _imageIds.next(),
@@ -1479,7 +1492,8 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
     } on ProviderNotFoundException {
       return; // screen test without the store
     }
-    final previewPng = await _squarePreviewPng(sourceBytes);
+    final previewPng =
+        result.previewPng ?? await _squarePreviewPng(sourceBytes);
     if (previewPng == null) return;
     try {
       await store.registerOutgoing(
@@ -1490,6 +1504,8 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
         imgId: chunkSet.imgId,
         previewPng: previewPng,
         rate: aeicRatePointForUi(result.rate),
+        formatRate: result.rate,
+        compactAspectRatio: result.aspectRatio,
         chunkCount: chunkSet.dataChunkCount,
       );
     } on Exception catch (error) {
@@ -1806,6 +1822,18 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
     final imageCodecDownloading = _isImageCodecDownloading(context);
     final showImageAction =
         settings.imageMessagesEnabled && !imageCodecDownloading;
+    var showNeuralImageAction = false;
+    try {
+      final neural = context.watch<ImageCodecService>();
+      showNeuralImageAction =
+          showImageAction &&
+          _imageCodec is CompactImageCodecService &&
+          neural.availability == ImageCodecAvailability.ready &&
+          !neural.isBusy &&
+          !neural.isDownloading;
+    } on ProviderNotFoundException {
+      // Legacy builds can omit the neural codec entirely.
+    }
     final scheme = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
@@ -1835,7 +1863,14 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.add_circle_outline),
                     position: PopupMenuPosition.over,
-                    offset: Offset(0, showImageAction ? -112 : -64),
+                    offset: Offset(
+                      0,
+                      showNeuralImageAction
+                          ? -160
+                          : showImageAction
+                          ? -112
+                          : -64,
+                    ),
                     tooltip: context.l10n.chat_selectSendAction,
                     onSelected: (action) {
                       switch (action) {
@@ -1844,6 +1879,9 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
                           break;
                         case 'meshcore-image':
                           _showImageSendPreview();
+                          break;
+                        case 'aeic-image':
+                          _showImageSendPreview(useNeuralCodec: true);
                           break;
                       }
                     },
@@ -1854,7 +1892,7 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
                           children: [
                             const Icon(Icons.gif_box),
                             const SizedBox(width: 12),
-                            Text(context.l10n.chat_sendGif),
+                            Flexible(child: Text(context.l10n.chat_sendGif)),
                           ],
                         ),
                       ),
@@ -1872,7 +1910,23 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
                             children: [
                               const Icon(Icons.image_outlined),
                               const SizedBox(width: 12),
-                              Text(context.l10n.chat_sendImageLora),
+                              Flexible(
+                                child: Text(context.l10n.chat_sendImageLora),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (showNeuralImageAction)
+                        const PopupMenuItem(
+                          key: ValueKey('channel-send-aeic-image'),
+                          value: 'aeic-image',
+                          child: Row(
+                            children: [
+                              Icon(Icons.auto_awesome_outlined),
+                              SizedBox(width: 12),
+                              Flexible(
+                                child: Text('Send AEIC image (generative)'),
+                              ),
                             ],
                           ),
                         ),

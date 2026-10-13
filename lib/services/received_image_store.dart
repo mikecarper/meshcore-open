@@ -50,6 +50,7 @@ import 'package:flutter/foundation.dart';
 import '../models/image_codec_support.dart';
 import '../widgets/image_send_codec_binding.dart';
 import 'image_chunk_transport.dart';
+import 'compact_image_envelope.dart';
 
 // ---------------------------------------------------------------------------
 // Sentinel
@@ -171,6 +172,10 @@ class ReceivedImageEntry {
   final int totalChunks;
 
   final AeicRatePoint rate;
+
+  /// Identifies conventional images separately from neural model rate points.
+  final ImageCodecRatePoint formatRate;
+  final double? compactAspectRatio;
   final int resolution;
 
   /// Index into [kImageAspectCodes]: the shape the sender's photo was before
@@ -180,6 +185,7 @@ class ReceivedImageEntry {
 
   /// The source `width / height` to render at, or null to render square.
   double? get displayAspectRatio {
+    if (formatRate == ImageCodecRatePoint.compact) return compactAspectRatio;
     final e = kImageAspectCodes[aspectCode & 0x0F];
     final r = e[0] / e[1];
     return r == 1.0 ? null : r;
@@ -198,7 +204,8 @@ class ReceivedImageEntry {
 
   /// Whether the pixels are generative-model output. Derived, never supplied:
   /// `synthesized == !isOutgoing`.
-  bool get synthesized => !isOutgoing;
+  bool get synthesized =>
+      !isOutgoing && formatRate != ImageCodecRatePoint.compact;
 
   final int? decodeMs;
   final String? error;
@@ -226,6 +233,8 @@ class ReceivedImageEntry {
     required this.receivedChunks,
     required this.totalChunks,
     this.rate = AeicRatePoint.ft32,
+    this.formatRate = ImageCodecRatePoint.standard,
+    this.compactAspectRatio,
     this.resolution = kImageCodecSquareSize,
     this.aspectCode = 0,
     this.metadataAssumed = true,
@@ -263,6 +272,8 @@ class ReceivedImageEntry {
     int? receivedChunks,
     int? totalChunks,
     AeicRatePoint? rate,
+    ImageCodecRatePoint? formatRate,
+    double? compactAspectRatio,
     int? resolution,
     int? aspectCode,
     bool? metadataAssumed,
@@ -286,6 +297,8 @@ class ReceivedImageEntry {
       receivedChunks: receivedChunks ?? this.receivedChunks,
       totalChunks: totalChunks ?? this.totalChunks,
       rate: rate ?? this.rate,
+      formatRate: formatRate ?? this.formatRate,
+      compactAspectRatio: compactAspectRatio ?? this.compactAspectRatio,
       resolution: resolution ?? this.resolution,
       aspectCode: aspectCode ?? this.aspectCode,
       metadataAssumed: metadataAssumed ?? this.metadataAssumed,
@@ -314,6 +327,8 @@ class ReceivedImageEntry {
     'receivedChunks': receivedChunks,
     'totalChunks': totalChunks,
     'rate': rate.wireValue,
+    'format_rate': formatRate.name,
+    if (compactAspectRatio != null) 'compact_aspect_ratio': compactAspectRatio,
     'resolution': resolution,
     'aspect_code': aspectCode,
     'metadataAssumed': metadataAssumed,
@@ -342,6 +357,10 @@ class ReceivedImageEntry {
       receivedChunks: json['receivedChunks'] as int? ?? 0,
       totalChunks: json['totalChunks'] as int? ?? 1,
       rate: parseAeicRatePoint(json['rate'] as int? ?? 4),
+      compactAspectRatio: (json['compact_aspect_ratio'] as num?)?.toDouble(),
+      formatRate: json['format_rate'] == 'compact'
+          ? ImageCodecRatePoint.compact
+          : ImageCodecRatePoint.standard,
       resolution: json['resolution'] as int? ?? kImageCodecSquareSize,
       aspectCode: json['aspect_code'] as int? ?? 0,
       metadataAssumed: json['metadataAssumed'] as bool? ?? true,
@@ -517,6 +536,11 @@ abstract class ReceivedImageDecoder {
 
   /// Cooperative cancel, used when we background mid-decode.
   void cancelCodecJob();
+}
+
+/// Optional extension, preserving older neural decoder implementations.
+abstract class CompactReceivedImageDecoder {
+  Future<ImageCodecResult?> decodeCompactBitstream(Uint8List bitstream);
 }
 
 // ---------------------------------------------------------------------------
@@ -888,6 +912,7 @@ class ReceivedImageStore extends ChangeNotifier {
       rate: metadata == null
           ? AeicRatePoint.ft32
           : aeicRatePointForUi(metadata.rate),
+      formatRate: metadata?.rate ?? ImageCodecRatePoint.standard,
       aspectCode: metadata?.aspectCode ?? 0,
       resolution: metadata?.squareSize ?? kImageCodecSquareSize,
       metadataAssumed: metadata == null,
@@ -964,6 +989,8 @@ class ReceivedImageStore extends ChangeNotifier {
     required int imgId,
     required Uint8List previewPng,
     required AeicRatePoint rate,
+    ImageCodecRatePoint formatRate = ImageCodecRatePoint.standard,
+    double? compactAspectRatio,
     required int chunkCount,
     DateTime? at,
   }) async {
@@ -984,6 +1011,8 @@ class ReceivedImageStore extends ChangeNotifier {
       receivedChunks: chunkCount,
       totalChunks: chunkCount,
       rate: rate,
+      formatRate: formatRate,
+      compactAspectRatio: compactAspectRatio,
       metadataAssumed: false,
       isOutgoing: true,
       pngStored: true,
@@ -1208,12 +1237,25 @@ class ReceivedImageStore extends ChangeNotifier {
     await _store(entry.copyWith(state: ReceivedImageState.decoding));
 
     ImageCodecResult? result;
+    double? decodedCompactAspect;
     try {
-      result = await decoder.decodeBitstream(
-        bitstream: bitstream,
-        ratePoint: entry.rate,
-        resolution: entry.resolution,
-      );
+      if (entry.formatRate == ImageCodecRatePoint.compact) {
+        final envelope = CompactImageEnvelope.decode(bitstream);
+        decodedCompactAspect = envelope.width / envelope.height;
+        if (decoder is! CompactReceivedImageDecoder) {
+          throw UnsupportedError(
+            'This app does not include the compact image decoder.',
+          );
+        }
+        result = await (decoder as CompactReceivedImageDecoder)
+            .decodeCompactBitstream(bitstream);
+      } else {
+        result = await decoder.decodeBitstream(
+          bitstream: bitstream,
+          ratePoint: entry.rate,
+          resolution: entry.resolution,
+        );
+      }
     } catch (error) {
       final current = _entries[entry.streamId] ?? entry;
       if (_cancelRequested) {
@@ -1278,6 +1320,7 @@ class ReceivedImageStore extends ChangeNotifier {
         pngStored: true,
         pngByteCount: png.length,
         pngBytes: png,
+        compactAspectRatio: decodedCompactAspect,
         decodeMs: result.durationMs > 0
             ? result.durationMs
             : _clock().difference(started).inMilliseconds,

@@ -30,6 +30,7 @@
         android:label="MeshCore Open"
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"
+        android:extractNativeLibs="true"
         android:icon="@mipmap/ic_launcher">
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"

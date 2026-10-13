@@ -10,20 +10,33 @@ import build_android as build
 
 
 class AndroidProfileTests(unittest.TestCase):
+    def package_apk(self, apk, abi, *libraries, omit_library=None,
+                    omit_license=None, tamper_license=None):
+        with zipfile.ZipFile(apk, "w") as archive:
+            for library in ("libflutter.so", *build.IMAGE_CODEC_LIBRARIES, *libraries):
+                if library != omit_library:
+                    archive.writestr(f"lib/{abi}/{library}", b"fixture")
+            for asset in ("esp32_partition_catalog.json", "github_legacy_roots.pem"):
+                archive.writestr(f"assets/flutter_assets/{asset}", b"fixture")
+            for asset in (build.ROOT / "android/app/src/main/assets/esptool").iterdir():
+                if asset.is_file():
+                    archive.writestr("assets/esptool/" + asset.name, asset.read_bytes())
+            licenses = build.ROOT / "android/app/src/main/assets/image_codecs/licenses"
+            for asset in licenses.iterdir():
+                if asset.is_file() and asset.name != omit_license:
+                    archive.writestr(
+                        "assets/image_codecs/licenses/" + asset.name,
+                        b"tampered" if asset.name == tamper_license else asset.read_bytes(),
+                    )
+            archive.writestr("classes.dex", b"\0".join(
+                f"Lcom/hoho/android/usbserial/driver/{driver};".encode()
+                for driver in build.USB_DRIVERS))
+
     def test_apk_checks_native_libraries_and_required_update_assets(self):
         with tempfile.TemporaryDirectory() as temporary:
             apk = Path(temporary) / "test.apk"
             def package(abi, *libraries):
-                with zipfile.ZipFile(apk, "w") as archive:
-                    for library in ("libflutter.so", *libraries):
-                        archive.writestr(f"lib/{abi}/{library}", b"fixture")
-                    for asset in ("esp32_partition_catalog.json", "github_legacy_roots.pem"):
-                        archive.writestr(f"assets/flutter_assets/{asset}", b"fixture")
-                    for asset in (build.ROOT / "android/app/src/main/assets/esptool").iterdir():
-                        archive.writestr("assets/esptool/" + asset.name, asset.read_bytes())
-                    archive.writestr("classes.dex", b"\0".join(
-                        f"Lcom/hoho/android/usbserial/driver/{driver};".encode()
-                        for driver in build.USB_DRIVERS))
+                self.package_apk(apk, abi, *libraries)
             package("armeabi-v7a")
             self.assertFalse(build.verify_apk(apk, "legacy")["onnx"])
             with self.assertRaises(RuntimeError):
@@ -35,6 +48,49 @@ class AndroidProfileTests(unittest.TestCase):
             self.assertTrue(build.verify_apk(apk, "modern")["llamadart"])
             package("armeabi-v7a", "libonnxruntime.so")
             with self.assertRaises(RuntimeError):
+                build.verify_apk(apk, "legacy")
+
+    def test_image_codec_packaging_records_both_workers_and_all_licenses(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            apk = Path(temporary) / "test.apk"
+            for profile, abi, runtimes in (
+                ("legacy", "armeabi-v7a", ()),
+                ("modern", "arm64-v8a", ("libonnxruntime.so", "libllamadart.so")),
+            ):
+                with self.subTest(profile=profile):
+                    self.package_apk(apk, abi, *runtimes)
+                    marker = build.verify_apk(apk, profile)["image_codecs"]
+                    self.assertEqual(marker["codecs"], list(build.IMAGE_CODECS))
+                    self.assertEqual(marker["libraries"], list(build.IMAGE_CODEC_LIBRARIES))
+                    self.assertEqual(marker["license_assets"], sorted(build.IMAGE_CODEC_LICENSES))
+
+    def test_image_codec_packaging_refuses_each_missing_native_library(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            apk = Path(temporary) / "test.apk"
+            for profile, abi, runtimes in (
+                ("legacy", "armeabi-v7a", ()),
+                ("modern", "arm64-v8a", ("libonnxruntime.so", "libllamadart.so")),
+            ):
+                for library in build.IMAGE_CODEC_LIBRARIES:
+                    with self.subTest(profile=profile, library=library):
+                        self.package_apk(apk, abi, *runtimes, omit_library=library)
+                        with self.assertRaisesRegex(RuntimeError, "native image codec library"):
+                            build.verify_apk(apk, profile)
+
+    def test_image_codec_packaging_refuses_each_missing_license(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            apk = Path(temporary) / "test.apk"
+            for license_name in build.IMAGE_CODEC_LICENSES:
+                with self.subTest(license=license_name):
+                    self.package_apk(apk, "armeabi-v7a", omit_license=license_name)
+                    with self.assertRaisesRegex(RuntimeError, "missing image codec license asset"):
+                        build.verify_apk(apk, "legacy")
+
+    def test_image_codec_packaging_refuses_changed_license_text(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            apk = Path(temporary) / "test.apk"
+            self.package_apk(apk, "armeabi-v7a", tamper_license="vvenc-LICENSE.txt")
+            with self.assertRaisesRegex(RuntimeError, "image codec license checksum mismatch"):
                 build.verify_apk(apk, "legacy")
 
     def test_usb_packaging_refuses_missing_drivers_and_wrong_bundle(self):

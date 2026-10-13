@@ -13,6 +13,9 @@ import 'image_codec_file_store.dart';
 import 'image_codec_session.dart';
 import 'image_codec_settings_store.dart';
 
+/// Maximum wall-clock budget for one neural compression attempt.
+const kImageCodecEncodeTimeLimit = Duration(seconds: 120);
+
 /// Neural image codec (AEIC-SE) for sending photographs over the mesh.
 ///
 /// Structurally a sibling of [TranslationService] — same model registry, same
@@ -72,15 +75,37 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   /// `MockClient` — without this the only way to exercise an 872 MB two-file
   /// resumable transfer would be to actually perform one.
   final http.Client Function() _newClient;
+  final Future<ImageCodecSession> Function(ImageCodecBundle) _spawnSession;
+  final Duration _encodeTimeLimit;
 
   ImageCodecService(
     this._appSettingsService, {
     ImageCodecFileStore? fileStore,
     ImageCodecSettingsStore? settingsStore,
     http.Client Function()? clientFactory,
+    Future<ImageCodecSession> Function(ImageCodecBundle)? sessionFactory,
+    Duration encodeTimeLimit = kImageCodecEncodeTimeLimit,
   }) : _fileStore = fileStore ?? ImageCodecFileStore(),
        _settingsStore = settingsStore ?? PrefsImageCodecSettingsStore(),
-       _newClient = clientFactory ?? http.Client.new;
+       _newClient = clientFactory ?? http.Client.new,
+       _spawnSession = sessionFactory ?? ImageCodecSession.spawn,
+       _encodeTimeLimit = _boundedEncodeTimeLimit(encodeTimeLimit);
+
+  static Duration _boundedEncodeTimeLimit(Duration requested) {
+    if (requested <= Duration.zero) {
+      throw ArgumentError.value(
+        requested,
+        'encodeTimeLimit',
+        'must be positive',
+      );
+    }
+    return requested > kImageCodecEncodeTimeLimit
+        ? kImageCodecEncodeTimeLimit
+        : requested;
+  }
+
+  @visibleForTesting
+  Duration get encodeTimeLimit => _encodeTimeLimit;
 
   // ---- state (naming/order mirrors TranslationService:50-62) ----------------
   bool _disposed = false;
@@ -90,10 +115,9 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   String? _lastError;
   Future<void> _queue = Future<void>.value();
   ImageCodecSession? _session;
-
-  /// Teardown started by [handleMemoryPressure]; [_ensureSession] waits for it
-  /// so a second isolate is never spawned while the first is still resident.
-  Future<void>? _pendingRelease;
+  int _sessionGeneration = 0;
+  bool _codecQuarantined = false;
+  String? _codecQuarantineReason;
   ImageCodecBundle? _loadedBundle;
   ImageCodecBundle? _failedBundle;
   int _downloadedBytes = 0;
@@ -177,8 +201,8 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
 
   /// Why [availability] is `unavailable`, or null when it is not.
   ///
-  /// EXACTLY THREE CAUSES, all of them permanent properties of the build or the
-  /// platform, none of them fixable by the user:
+  /// Build/platform failures, plus a timeout quarantine that needs an app
+  /// restart because the platform inference plugin cannot cancel native work:
   ///   * web, which has no native inference runtime;
   ///   * a build compiled without the entropy path
   ///     ([kImageCodecBitstreamPathAvailable]);
@@ -190,6 +214,11 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   /// can never send a picture, which is false.
   @override
   String? get unavailableReason {
+    if (_codecQuarantined) {
+      return '${_codecQuarantineReason ?? 'AEIC processing was stopped.'} '
+          'Restart the app before using AEIC again; the native inference '
+          'plugin may still be running.';
+    }
     if (kIsWeb) {
       return 'The image codec needs a native inference runtime, which the web '
           'build does not have.';
@@ -208,7 +237,7 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   /// One user-facing sentence for whatever non-ready state the codec is in, or
   /// null when it is ready.
   ///
-  /// [unavailableReason] can only explain the three permanent causes, so a
+  /// [unavailableReason] explains build failures and timeout quarantine. A
   /// sheet that renders it alone falls back to a generic "not available" string
   /// for the two states the user can actually DO something about — the feature
   /// being switched off and the model not being installed. This getter covers
@@ -496,6 +525,7 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     final model = selectedModel;
     return !kIsWeb &&
         !_backendMissing &&
+        !_codecQuarantined &&
         model != null &&
         model.localPath.isNotEmpty;
   }
@@ -973,8 +1003,8 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
       // installed files cannot. Do not collapse the two.
       throw const ImageCodecBundleIncomplete();
     }
-    final result = await encodeImage(
-      rgbBytes: await _toSquareRgb(imageBytes),
+    final result = await _runEncodeJob(
+      prepareRgb: () => _toSquareRgb(imageBytes),
       ratePoint: aeicRatePointForUi(rate),
     );
     final bitstream = result?.bitstream;
@@ -1004,22 +1034,9 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
             '$kImageCodecSquareSize RGB',
       );
     }
-    return _runCodecJob(
-      stage: 'Encoding…',
+    return _runEncodeJob(
+      prepareRgb: () async => rgbBytes,
       ratePoint: ratePoint,
-      action: (session) => session.encode(
-        rgbBytes,
-        ratePoint,
-        kImageCodecSquareSize,
-        onProgress: _reportCodecProgress,
-      ),
-      wrap: (bytes, elapsed) => ImageCodecResult(
-        bitstream: bytes,
-        ratePoint: ratePoint,
-        resolution: kImageCodecSquareSize,
-        durationMs: elapsed,
-        status: ImageCodecStatus.completed,
-      ),
     );
   }
 
@@ -1031,10 +1048,35 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     AeicRatePoint? ratePoint,
   }) async {
     if (!canEncode) return null;
-    final bytes = await _fileStore.readFileBytes(path);
-    return encodeImage(
-      rgbBytes: await _toSquareRgb(bytes),
+    return _runEncodeJob(
+      prepareRgb: () async =>
+          _toSquareRgb(await _fileStore.readFileBytes(path)),
       ratePoint: ratePoint ?? defaultRatePoint,
+    );
+  }
+
+  Future<ImageCodecResult?> _runEncodeJob({
+    required Future<Uint8List> Function() prepareRgb,
+    required AeicRatePoint ratePoint,
+  }) {
+    if (!canEncode) return Future<ImageCodecResult?>.value();
+    return _runCodecJob(
+      stage: 'Encoding...',
+      ratePoint: ratePoint,
+      timeLimit: _encodeTimeLimit,
+      action: (session) async => session.encode(
+        await prepareRgb(),
+        ratePoint,
+        kImageCodecSquareSize,
+        onProgress: _reportCodecProgress,
+      ),
+      wrap: (bytes, elapsed) => ImageCodecResult(
+        bitstream: bytes,
+        ratePoint: ratePoint,
+        resolution: kImageCodecSquareSize,
+        durationMs: elapsed,
+        status: ImageCodecStatus.completed,
+      ),
     );
   }
 
@@ -1226,7 +1268,8 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   ///
   /// The worker polls a flag between backend stages; a backend stuck inside one
   /// blocking native call will not notice until that call returns. For a hard
-  /// stop use [handleMemoryPressure] / [releaseModel], which kill the isolate.
+  /// stop use [handleMemoryPressure], which kills the Dart worker immediately.
+  /// Platform-plugin native work cannot be guaranteed stopped by isolate exit.
   void cancelCodecJob() {
     final session = _session;
     if (session == null || _codecStage == null) return;
@@ -1240,20 +1283,41 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     required AeicRatePoint ratePoint,
     required Future<Uint8List> Function(ImageCodecSession session) action,
     required ImageCodecResult Function(Uint8List bytes, int elapsedMs) wrap,
+    Duration? timeLimit,
   }) async {
     final bundle = installedBundle;
     if (bundle == null) return null;
     final started = DateTime.now();
     try {
       return await _runExclusive(() async {
-        _setCodecStage('Loading model…', 0);
-        final session = await _ensureSession(bundle);
-        if (session == null) {
-          return null;
+        // A queued attempt must not start after the preceding attempt timed
+        // out: ORT runs outside this isolate and has no cancellation API.
+        if (_codecQuarantined) return null;
+        Future<ImageCodecResult?> run() async {
+          _setCodecStage('Loading model...', 0);
+          final session = await _ensureSession(bundle);
+          if (session == null) return null;
+          _setCodecStage(stage, 0);
+          final bytes = await action(session);
+          return wrap(bytes, DateTime.now().difference(started).inMilliseconds);
         }
-        _setCodecStage(stage, 0);
-        final bytes = await action(session);
-        return wrap(bytes, DateTime.now().difference(started).inMilliseconds);
+
+        final job = run();
+        if (timeLimit == null) return await job;
+        return await job.timeout(
+          timeLimit,
+          onTimeout: () {
+            final error = TimeoutException(
+              'AEIC compression exceeded its ${timeLimit.inSeconds}-second '
+              'limit. Restart the app before using AEIC again.',
+              timeLimit,
+            );
+            _codecQuarantined = true;
+            _codecQuarantineReason = 'AEIC compression timed out.';
+            _stopSession(error);
+            throw error;
+          },
+        );
       });
     } catch (error) {
       _lastError = error.toString();
@@ -1343,12 +1407,7 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   // ---- model memory (mirrors translation_service.dart:586-629) -------------
 
   Future<ImageCodecSession?> _ensureSession(ImageCodecBundle bundle) async {
-    final pendingRelease = _pendingRelease;
-    if (pendingRelease != null) {
-      try {
-        await pendingRelease;
-      } catch (_) {}
-    }
+    final generation = _sessionGeneration;
     if (_session != null && _loadedBundle == bundle) {
       return _session;
     }
@@ -1362,7 +1421,16 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
       await previous.dispose();
     }
     try {
-      final session = await ImageCodecSession.spawn(bundle);
+      if (_disposed || _codecQuarantined || generation != _sessionGeneration) {
+        return null;
+      }
+      final session = await _spawnSession(bundle);
+      if (_disposed || _codecQuarantined || generation != _sessionGeneration) {
+        // Startup can finish after a timeout. Never attach that stale worker
+        // or allow it to run inference after the serial slot has been freed.
+        session.forceDispose(StateError('Image codec startup was abandoned.'));
+        return null;
+      }
       _session = session;
       _loadedBundle = bundle;
       _failedBundle = null;
@@ -1437,12 +1505,12 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   /// already gone. Never invert this: dropping the entropy graph first would
   /// free an eighth of the memory and cost the only path that was warm.
   ///
-  /// The default is still the hard stop — kill the isolate — because that also
-  /// returns ORT's arena and any native allocation the plugin is holding, which
-  /// closing sessions alone does not.
+  /// The default stops the Dart worker immediately, without waiting behind a
+  /// pending native call. Platform-plugin work may outlive its Dart worker;
+  /// isolate teardown is not a guarantee that ORT allocations are returned.
   Future<void> handleMemoryPressure({bool keepEntropySession = false}) async {
     final session = _session;
-    if (session == null && _loadedBundle == null) {
+    if (session == null && _loadedBundle == null && !_isBusy) {
       return;
     }
     // Deliberately does NOT go through _runExclusive: memory pressure arrives
@@ -1458,26 +1526,28 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
       _notify();
       return;
     }
-    _session = null;
-    _loadedBundle = null;
+    if (_isBusy) {
+      // A forced stop of a busy Dart worker cannot cancel the platform
+      // plugin's in-flight inference. Block a replacement session until restart.
+      _codecQuarantined = true;
+      _codecQuarantineReason =
+          'AEIC processing was stopped for memory pressure.';
+    }
+    _stopSession(StateError('Image codec stopped for memory pressure.'));
     _codecProgress = null;
     _codecStage = null;
-    if (session != null) {
-      // Ask for the big half back before the shutdown handshake, so the peak
-      // does not have to wait on isolate teardown.
-      final release = () async {
-        await session.release(decoder: true);
-        await session.dispose();
-      }();
-      _pendingRelease = release;
-      try {
-        await release;
-      } finally {
-        if (identical(_pendingRelease, release)) _pendingRelease = null;
-      }
-    }
-    appLogger.info('Image codec model evicted', tag: 'ImageCodec');
+    appLogger.info('Image codec Dart worker stopped', tag: 'ImageCodec');
     _notify();
+  }
+
+  void _stopSession(Object error) {
+    _sessionGeneration++;
+    final session = _session;
+    _session = null;
+    _loadedBundle = null;
+    // Do not send release and wait behind a blocked encode. Complete pending
+    // jobs/releases immediately and terminate the Dart isolate instead.
+    session?.forceDispose(error);
   }
 
   // ---- plumbing (copied from translation_service.dart:631-698) ------------
@@ -1572,12 +1642,7 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   @override
   void dispose() {
     _disposed = true;
-    final session = _session;
-    _session = null;
-    _loadedBundle = null;
-    if (session != null) {
-      unawaited(session.dispose());
-    }
+    _stopSession(StateError('ImageCodecService disposed.'));
     super.dispose();
   }
 }

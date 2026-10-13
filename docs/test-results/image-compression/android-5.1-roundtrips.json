@@ -1,0 +1,595 @@
+{
+  "schema": 1,
+  "platform": "android",
+  "system_version": "LMY47V",
+  "per_algorithm_limit_ms": 120000,
+  "capabilities": [
+    {
+      "codec": "webp",
+      "available": true,
+      "reason": "Native encoder and decoder; metadata-free pixels"
+    },
+    {
+      "codec": "jpeg",
+      "available": true,
+      "reason": "Native encoder and decoder; metadata-free pixels"
+    },
+    {
+      "codec": "png",
+      "available": true,
+      "reason": "Native encoder and decoder; metadata-free pixels"
+    },
+    {
+      "codec": "avif",
+      "available": true,
+      "reason": "Native encoder and decoder; metadata-free pixels"
+    },
+    {
+      "codec": "bpg",
+      "available": true,
+      "reason": "Native encoder and decoder; metadata-free pixels"
+    },
+    {
+      "codec": "jxl",
+      "available": true,
+      "reason": "Native encoder and decoder; metadata-free pixels"
+    },
+    {
+      "codec": "jp2",
+      "available": true,
+      "reason": "Native encoder and decoder; metadata-free pixels"
+    },
+    {
+      "codec": "heic",
+      "available": true,
+      "reason": "Native encoder and decoder; metadata-free pixels"
+    },
+    {
+      "codec": "vvc",
+      "available": true,
+      "reason": "Native encoder and decoder; metadata-free pixels"
+    },
+    {
+      "codec": "aeic",
+      "available": false,
+      "reason": "AEIC needs the optional model and a 64-bit inference runtime; its decoder exceeds the 32-bit phone memory limit."
+    }
+  ],
+  "runs": [
+    {
+      "case": "portrait_512",
+      "source_bytes": 791555,
+      "target_bytes": 2048,
+      "selected_total_packet_budget": 14,
+      "elapsed_ms": 105278,
+      "data_packets": 11,
+      "total_packets": 12,
+      "receiver_png_identical": true,
+      "parity_recovery_verified": true,
+      "codec": "bpg",
+      "payload_bytes": 1638,
+      "display_png_bytes": 93448,
+      "width": 256,
+      "height": 256,
+      "block_size": 16,
+      "quality": 8,
+      "score": 24.291216219390293,
+      "attempts": [
+        {
+          "codec": "webp",
+          "status": "completed",
+          "elapsed_ms": 3970,
+          "encoded_bytes": 1942,
+          "width": 128,
+          "height": 128,
+          "block_size": 16
+        },
+        {
+          "codec": "jpeg",
+          "status": "completed",
+          "elapsed_ms": 1256,
+          "encoded_bytes": 2028,
+          "width": 128,
+          "height": 128,
+          "block_size": 16
+        },
+        {
+          "codec": "png",
+          "status": "completed",
+          "elapsed_ms": 8087,
+          "encoded_bytes": 363,
+          "width": 512,
+          "height": 512,
+          "block_size": 16
+        },
+        {
+          "codec": "avif",
+          "status": "completed",
+          "elapsed_ms": 13992,
+          "encoded_bytes": 1710,
+          "width": 256,
+          "height": 256,
+          "block_size": 16
+        },
+        {
+          "codec": "bpg",
+          "status": "completed",
+          "elapsed_ms": 23001,
+          "encoded_bytes": 1638,
+          "width": 256,
+          "height": 256,
+          "block_size": 16
+        },
+        {
+          "codec": "jxl",
+          "status": "completed",
+          "elapsed_ms": 2994,
+          "encoded_bytes": 2024,
+          "width": 192,
+          "height": 192,
+          "block_size": 16
+        },
+        {
+          "codec": "jp2",
+          "status": "completed",
+          "elapsed_ms": 3628,
+          "encoded_bytes": 2012,
+          "width": 192,
+          "height": 192,
+          "block_size": 16
+        },
+        {
+          "codec": "heic",
+          "status": "completed",
+          "elapsed_ms": 8610,
+          "encoded_bytes": 1909,
+          "width": 256,
+          "height": 256,
+          "block_size": 16
+        },
+        {
+          "codec": "vvc",
+          "status": "completed",
+          "elapsed_ms": 36694,
+          "encoded_bytes": 1713,
+          "width": 512,
+          "height": 512,
+          "block_size": 16
+        },
+        {
+          "codec": "aeic",
+          "status": "unavailable",
+          "elapsed_ms": 0,
+          "reason": "AEIC needs the optional model and a 64-bit inference runtime; its decoder exceeds the 32-bit phone memory limit."
+        }
+      ]
+    },
+    {
+      "case": "portrait_512",
+      "source_bytes": 791555,
+      "target_bytes": 1024,
+      "selected_total_packet_budget": 8,
+      "elapsed_ms": 100316,
+      "data_packets": 7,
+      "total_packets": 8,
+      "receiver_png_identical": true,
+      "parity_recovery_verified": true,
+      "codec": "bpg",
+      "payload_bytes": 988,
+      "display_png_bytes": 31658,
+      "width": 128,
+      "height": 128,
+      "block_size": 16,
+      "quality": 13,
+      "score": 21.91545435231107,
+      "attempts": [
+        {
+          "codec": "webp",
+          "status": "overBudget",
+          "elapsed_ms": 3381,
+          "encoded_bytes": 1478,
+          "reason": "No verified image fits this budget at the 128-pixel minimum. Choose more packets."
+        },
+        {
+          "codec": "jpeg",
+          "status": "overBudget",
+          "elapsed_ms": 831,
+          "encoded_bytes": 1266,
+          "reason": "No verified image fits this budget at the 128-pixel minimum. Choose more packets."
+        },
+        {
+          "codec": "png",
+          "status": "completed",
+          "elapsed_ms": 7884,
+          "encoded_bytes": 363,
+          "width": 512,
+          "height": 512,
+          "block_size": 16
+        },
+        {
+          "codec": "avif",
+          "status": "completed",
+          "elapsed_ms": 13865,
+          "encoded_bytes": 907,
+          "width": 128,
+          "height": 128,
+          "block_size": 16
+        },
+        {
+          "codec": "bpg",
+          "status": "completed",
+          "elapsed_ms": 23344,
+          "encoded_bytes": 988,
+          "width": 128,
+          "height": 128,
+          "block_size": 16
+        },
+        {
+          "codec": "jxl",
+          "status": "overBudget",
+          "elapsed_ms": 2278,
+          "encoded_bytes": 1124,
+          "reason": "No verified image fits this budget at the 128-pixel minimum. Choose more packets."
+        },
+        {
+          "codec": "jp2",
+          "status": "completed",
+          "elapsed_ms": 3693,
+          "encoded_bytes": 1017,
+          "width": 128,
+          "height": 128,
+          "block_size": 16
+        },
+        {
+          "codec": "heic",
+          "status": "completed",
+          "elapsed_ms": 8989,
+          "encoded_bytes": 1013,
+          "width": 128,
+          "height": 128,
+          "block_size": 16
+        },
+        {
+          "codec": "vvc",
+          "status": "completed",
+          "elapsed_ms": 33287,
+          "encoded_bytes": 817,
+          "width": 512,
+          "height": 512,
+          "block_size": 16
+        },
+        {
+          "codec": "aeic",
+          "status": "unavailable",
+          "elapsed_ms": 0,
+          "reason": "AEIC needs the optional model and a 64-bit inference runtime; its decoder exceeds the 32-bit phone memory limit."
+        }
+      ]
+    },
+    {
+      "case": "diagram_239x173",
+      "source_bytes": 1057,
+      "target_bytes": 2048,
+      "selected_total_packet_budget": 14,
+      "elapsed_ms": 13941,
+      "data_packets": 4,
+      "total_packets": 5,
+      "receiver_png_identical": true,
+      "parity_recovery_verified": true,
+      "codec": "png",
+      "payload_bytes": 492,
+      "display_png_bytes": 1005,
+      "width": 224,
+      "height": 160,
+      "block_size": 16,
+      "quality": 128,
+      "score": 99.0,
+      "attempts": [
+        {
+          "codec": "webp",
+          "status": "completed",
+          "elapsed_ms": 328,
+          "encoded_bytes": 1560,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "jpeg",
+          "status": "completed",
+          "elapsed_ms": 542,
+          "encoded_bytes": 1989,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "png",
+          "status": "completed",
+          "elapsed_ms": 330,
+          "encoded_bytes": 492,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "avif",
+          "status": "completed",
+          "elapsed_ms": 673,
+          "encoded_bytes": 793,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "bpg",
+          "status": "completed",
+          "elapsed_ms": 3654,
+          "encoded_bytes": 1975,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "jxl",
+          "status": "completed",
+          "elapsed_ms": 1097,
+          "encoded_bytes": 2017,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "jp2",
+          "status": "completed",
+          "elapsed_ms": 987,
+          "encoded_bytes": 1950,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "heic",
+          "status": "completed",
+          "elapsed_ms": 1272,
+          "encoded_bytes": 1962,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "vvc",
+          "status": "completed",
+          "elapsed_ms": 1404,
+          "encoded_bytes": 1158,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "aeic",
+          "status": "unavailable",
+          "elapsed_ms": 0,
+          "reason": "AEIC needs the optional model and a 64-bit inference runtime; its decoder exceeds the 32-bit phone memory limit."
+        }
+      ]
+    },
+    {
+      "case": "diagram_239x173",
+      "source_bytes": 1057,
+      "target_bytes": 1024,
+      "selected_total_packet_budget": 8,
+      "elapsed_ms": 21265,
+      "data_packets": 4,
+      "total_packets": 5,
+      "receiver_png_identical": true,
+      "parity_recovery_verified": true,
+      "codec": "png",
+      "payload_bytes": 492,
+      "display_png_bytes": 1005,
+      "width": 224,
+      "height": 160,
+      "block_size": 16,
+      "quality": 128,
+      "score": 99.0,
+      "attempts": [
+        {
+          "codec": "webp",
+          "status": "completed",
+          "elapsed_ms": 861,
+          "encoded_bytes": 984,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "jpeg",
+          "status": "completed",
+          "elapsed_ms": 601,
+          "encoded_bytes": 879,
+          "width": 192,
+          "height": 128,
+          "block_size": 16
+        },
+        {
+          "codec": "png",
+          "status": "completed",
+          "elapsed_ms": 310,
+          "encoded_bytes": 492,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "avif",
+          "status": "completed",
+          "elapsed_ms": 690,
+          "encoded_bytes": 793,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "bpg",
+          "status": "completed",
+          "elapsed_ms": 3599,
+          "encoded_bytes": 862,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "jxl",
+          "status": "completed",
+          "elapsed_ms": 1030,
+          "encoded_bytes": 1019,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "jp2",
+          "status": "completed",
+          "elapsed_ms": 975,
+          "encoded_bytes": 995,
+          "width": 192,
+          "height": 128,
+          "block_size": 16
+        },
+        {
+          "codec": "heic",
+          "status": "completed",
+          "elapsed_ms": 1289,
+          "encoded_bytes": 1005,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "vvc",
+          "status": "completed",
+          "elapsed_ms": 8187,
+          "encoded_bytes": 1022,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "aeic",
+          "status": "unavailable",
+          "elapsed_ms": 0,
+          "reason": "AEIC needs the optional model and a 64-bit inference runtime; its decoder exceeds the 32-bit phone memory limit."
+        }
+      ]
+    },
+    {
+      "case": "diagram_239x173",
+      "source_bytes": 1057,
+      "target_bytes": 473,
+      "selected_total_packet_budget": 4,
+      "elapsed_ms": 25727,
+      "data_packets": 3,
+      "total_packets": 4,
+      "receiver_png_identical": true,
+      "parity_recovery_verified": true,
+      "codec": "bpg",
+      "payload_bytes": 471,
+      "display_png_bytes": 11804,
+      "width": 224,
+      "height": 160,
+      "block_size": 16,
+      "quality": 18,
+      "score": 32.44138749126804,
+      "attempts": [
+        {
+          "codec": "webp",
+          "status": "completed",
+          "elapsed_ms": 1573,
+          "encoded_bytes": 460,
+          "width": 128,
+          "height": 80,
+          "block_size": 16
+        },
+        {
+          "codec": "jpeg",
+          "status": "overBudget",
+          "elapsed_ms": 419,
+          "encoded_bytes": 569,
+          "reason": "No verified image fits this budget at the 128-pixel minimum. Choose more packets."
+        },
+        {
+          "codec": "png",
+          "status": "completed",
+          "elapsed_ms": 673,
+          "encoded_bytes": 144,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "avif",
+          "status": "completed",
+          "elapsed_ms": 3044,
+          "encoded_bytes": 468,
+          "width": 128,
+          "height": 80,
+          "block_size": 16
+        },
+        {
+          "codec": "bpg",
+          "status": "completed",
+          "elapsed_ms": 3556,
+          "encoded_bytes": 471,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "jxl",
+          "status": "completed",
+          "elapsed_ms": 1822,
+          "encoded_bytes": 467,
+          "width": 128,
+          "height": 80,
+          "block_size": 16
+        },
+        {
+          "codec": "jp2",
+          "status": "completed",
+          "elapsed_ms": 1779,
+          "encoded_bytes": 444,
+          "width": 128,
+          "height": 80,
+          "block_size": 16
+        },
+        {
+          "codec": "heic",
+          "status": "overBudget",
+          "elapsed_ms": 946,
+          "encoded_bytes": 476,
+          "reason": "No verified image fits this budget at the 128-pixel minimum. Choose more packets."
+        },
+        {
+          "codec": "vvc",
+          "status": "completed",
+          "elapsed_ms": 8175,
+          "encoded_bytes": 401,
+          "width": 224,
+          "height": 160,
+          "block_size": 16
+        },
+        {
+          "codec": "aeic",
+          "status": "unavailable",
+          "elapsed_ms": 0,
+          "reason": "AEIC needs the optional model and a 64-bit inference runtime; its decoder exceeds the 32-bit phone memory limit."
+        }
+      ]
+    }
+  ],
+  "success": true,
+  "phone_model": "LGL51AL",
+  "android_version": "5.1.1",
+  "host_test_date": "2026-10-13",
+  "radio_test": "local reverse-order chunk loopback with one dropped data packet"
+}

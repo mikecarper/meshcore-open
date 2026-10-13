@@ -1,0 +1,136 @@
+{
+  "legacy": {
+    "apk_sha256": "d609e10843c4336e19d5da8325be9071d7e709831c73f72e8368a098b0a59584",
+    "packaging": {
+      "abis": [
+        "armeabi-v7a"
+      ],
+      "onnx": false,
+      "llamadart": false,
+      "usb_drivers": [
+        "CdcAcmSerialDriver",
+        "Ch34xSerialDriver",
+        "Cp21xxSerialDriver",
+        "FtdiSerialDriver"
+      ],
+      "esptool_js": "0.7.0",
+      "esptool_bundle_sha256": "00ebe6fb0b202976d3e2a3c6b9a6bd438c26a81d2af6739c95ac276a64c1a84e",
+      "image_codecs": {
+        "codecs": [
+          "webp",
+          "jpeg",
+          "png",
+          "avif",
+          "jxl",
+          "jp2",
+          "vvc",
+          "heic",
+          "bpg"
+        ],
+        "libraries": [
+          "libmesh_image_codec.so",
+          "libmesh_image_worker.so",
+          "libmesh_bpg_worker.so",
+          "libheif.so",
+          "libde265.so"
+        ],
+        "license_assets": [
+          "GPL-3.0.txt",
+          "aom-LICENSE.txt",
+          "aom-PATENTS.txt",
+          "aom-fastfeat-LICENSE.txt",
+          "aom-vector-LICENSE.txt",
+          "avif-LICENSE.txt",
+          "bpg-LGPL-2.1.txt",
+          "bpg-wrapper-LICENSE.txt",
+          "bpg-x265-GPL-2.0.txt",
+          "brotli-LICENSE.txt",
+          "de265-COPYING.txt",
+          "heif-COPYING.txt",
+          "highway-LICENSE-BSD3.txt",
+          "highway-LICENSE.txt",
+          "jpeg-LICENSE.txt",
+          "jpeg-README.ijg.txt",
+          "jxl-LICENSE.txt",
+          "jxl-PATENTS.txt",
+          "kvazaar-LICENSE.txt",
+          "libyuv-LICENSE.txt",
+          "openjpeg-LICENSE.txt",
+          "png-LICENSE.txt",
+          "skcms-LICENSE.txt",
+          "vvdec-LICENSE.txt",
+          "vvenc-LICENSE.txt",
+          "webp-LICENSE.txt",
+          "webp-PATENTS.txt"
+        ]
+      }
+    }
+  },
+  "modern": {
+    "apk_sha256": "3109dca657b9836dd15e39f4014d376eba8ce38454b98fa618e165cbc1b40ae0",
+    "packaging": {
+      "abis": [
+        "arm64-v8a"
+      ],
+      "onnx": true,
+      "llamadart": true,
+      "usb_drivers": [
+        "CdcAcmSerialDriver",
+        "Ch34xSerialDriver",
+        "Cp21xxSerialDriver",
+        "FtdiSerialDriver"
+      ],
+      "esptool_js": "0.7.0",
+      "esptool_bundle_sha256": "00ebe6fb0b202976d3e2a3c6b9a6bd438c26a81d2af6739c95ac276a64c1a84e",
+      "image_codecs": {
+        "codecs": [
+          "webp",
+          "jpeg",
+          "png",
+          "avif",
+          "jxl",
+          "jp2",
+          "vvc",
+          "heic",
+          "bpg"
+        ],
+        "libraries": [
+          "libmesh_image_codec.so",
+          "libmesh_image_worker.so",
+          "libmesh_bpg_worker.so",
+          "libheif.so",
+          "libde265.so"
+        ],
+        "license_assets": [
+          "GPL-3.0.txt",
+          "aom-LICENSE.txt",
+          "aom-PATENTS.txt",
+          "aom-fastfeat-LICENSE.txt",
+          "aom-vector-LICENSE.txt",
+          "avif-LICENSE.txt",
+          "bpg-LGPL-2.1.txt",
+          "bpg-wrapper-LICENSE.txt",
+          "bpg-x265-GPL-2.0.txt",
+          "brotli-LICENSE.txt",
+          "de265-COPYING.txt",
+          "heif-COPYING.txt",
+          "highway-LICENSE-BSD3.txt",
+          "highway-LICENSE.txt",
+          "jpeg-LICENSE.txt",
+          "jpeg-README.ijg.txt",
+          "jxl-LICENSE.txt",
+          "jxl-PATENTS.txt",
+          "kvazaar-LICENSE.txt",
+          "libyuv-LICENSE.txt",
+          "openjpeg-LICENSE.txt",
+          "png-LICENSE.txt",
+          "skcms-LICENSE.txt",
+          "vvdec-LICENSE.txt",
+          "vvenc-LICENSE.txt",
+          "webp-LICENSE.txt",
+          "webp-PATENTS.txt"
+        ]
+      }
+    }
+  }
+}

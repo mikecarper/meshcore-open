@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/image_codec_support.dart';
 
 /// Web stand-in. There is no isolate and no native runtime on web, so the
@@ -8,9 +10,19 @@ import '../models/image_codec_support.dart';
 class ImageCodecSession {
   ImageCodecSession._();
 
-  static Future<ImageCodecSession> spawn(ImageCodecBundle bundle) async {
+  static Future<ImageCodecSession> spawn(
+    ImageCodecBundle bundle, {
+    Duration startupTimeout = const Duration(seconds: 120),
+  }) async {
     throw UnsupportedError('The image codec is not supported on web.');
   }
+
+  @visibleForTesting
+  static Future<ImageCodecSession> debugSpawnWorker(
+    ImageCodecBundle bundle,
+    void Function(List<Object?>) workerMain, {
+    Duration startupTimeout = const Duration(seconds: 120),
+  }) => spawn(bundle, startupTimeout: startupTimeout);
 
   String get backendName => 'unsupported';
 
@@ -48,6 +60,8 @@ class ImageCodecSession {
   }
 
   void cancel() {}
+
+  void forceDispose([Object? reason]) {}
 
   Future<void> dispose() async {}
 }

@@ -19,6 +19,7 @@ import 'connector/meshcore_connector.dart';
 import 'models/image_codec_support.dart';
 import 'services/image_chunk_transport.dart';
 import 'services/image_codec_service.dart';
+import 'services/compact_image_codec_service.dart';
 import 'services/image_codec_settings_store.dart';
 import 'services/received_image_blob_store_factory.dart';
 import 'services/received_image_store.dart';
@@ -87,11 +88,18 @@ void main() async {
     appSettingsService,
     settingsStore: AppSettingsImageCodecStore(appSettingsService),
   );
+  final compactImageCodecService = CompactImageCodecService(
+    enabled: () => appSettingsService.settings.imageMessagesEnabled,
+    preferences: PrefsManager.instance,
+  );
   final receivedImageStore = ReceivedImageStore(
     // Without a file-backed store this silently falls back to memory and every
     // received image — sidecar included — is gone at the next launch.
     blobs: createReceivedImageBlobStore(),
-    decoder: ImageCodecServiceDecoder(imageCodecService),
+    decoder: ImageCodecServiceDecoder(
+      imageCodecService,
+      compactImageCodecService,
+    ),
     processAutomatically: appSettingsService.settings.imageProcessAutomatically,
   );
   // A decode peaks around 2.16 GiB, so the setting is the user's consent to
@@ -104,6 +112,7 @@ void main() async {
   // Availability/isBusy changes are the only thing that un-parks a decode
   // queue that stopped because the codec was unusable or busy.
   imageCodecService.addListener(receivedImageStore.notifyDecoderChanged);
+  compactImageCodecService.addListener(receivedImageStore.notifyDecoderChanged);
   final imageReassembler = ImageStreamReassembler(store: receivedImageStore);
   final imageTransport = ImageChunkTransport(
     reassembler: imageReassembler,
@@ -178,6 +187,7 @@ void main() async {
       uiViewStateService: uiViewStateService,
       timeoutPredictionService: timeoutPredictionService,
       imageCodecService: imageCodecService,
+      compactImageCodecService: compactImageCodecService,
       receivedImageStore: receivedImageStore,
       imageReassembler: imageReassembler,
     ),
@@ -189,16 +199,31 @@ void main() async {
 /// Pure delegation. It exists so `received_image_store.dart` never imports
 /// `image_codec_service.dart` (and so the store stays testable without an
 /// 872 MB ONNX graph).
-class ImageCodecServiceDecoder implements ReceivedImageDecoder {
+class ImageCodecServiceDecoder
+    implements ReceivedImageDecoder, CompactReceivedImageDecoder {
   final ImageCodecService service;
+  final CompactImageCodecService compact;
 
-  const ImageCodecServiceDecoder(this.service);
-
-  @override
-  ImageCodecAvailability get availability => service.availability;
+  const ImageCodecServiceDecoder(this.service, this.compact);
 
   @override
-  bool get isBusy => service.isBusy;
+  ImageCodecAvailability get availability => compact.availability;
+
+  @override
+  bool get isBusy => service.isBusy || compact.isBusy;
+
+  @override
+  Future<ImageCodecResult?> decodeCompactBitstream(Uint8List bitstream) async {
+    final started = Stopwatch()..start();
+    final png = await compact.decodeToPng(bitstream);
+    return ImageCodecResult(
+      pngBytes: png,
+      ratePoint: AeicRatePoint.ft32,
+      resolution: 512,
+      durationMs: started.elapsedMilliseconds,
+      status: ImageCodecStatus.completed,
+    );
+  }
 
   @override
   Future<ImageCodecResult?> decodeBitstream({
@@ -212,7 +237,17 @@ class ImageCodecServiceDecoder implements ReceivedImageDecoder {
   );
 
   @override
-  void cancelCodecJob() => service.cancelCodecJob();
+  void cancelCodecJob() {
+    service.cancelCodecJob();
+    unawaited(
+      compact.cancelEncode().catchError((Object error) {
+        // Lifecycle cancellation has no UI awaiting its stop acknowledgement.
+        // The service still quarantines an unconfirmed worker; contain the
+        // error here instead of leaking it into the application's async zone.
+        debugPrint('Compact image cancellation failed: $error');
+      }),
+    );
+  }
 }
 
 /// [ImageCodecSettingsStore] backed by [AppSettingsService].
@@ -313,6 +348,7 @@ class MeshCoreApp extends StatefulWidget {
   final UiViewStateService uiViewStateService;
   final TimeoutPredictionService timeoutPredictionService;
   final ImageCodecService imageCodecService;
+  final CompactImageCodecService compactImageCodecService;
   final ReceivedImageStore receivedImageStore;
   final ImageStreamReassembler imageReassembler;
 
@@ -331,6 +367,7 @@ class MeshCoreApp extends StatefulWidget {
     required this.uiViewStateService,
     required this.timeoutPredictionService,
     required this.imageCodecService,
+    required this.compactImageCodecService,
     required this.receivedImageStore,
     required this.imageReassembler,
   });
@@ -437,6 +474,11 @@ class _MeshCoreAppState extends State<MeshCoreApp> with WidgetsBindingObserver {
   void didHaveMemoryPressure() {
     super.didHaveMemoryPressure();
     unawaited(widget.imageCodecService.handleMemoryPressure());
+    unawaited(
+      widget.compactImageCodecService.cancelEncode().catchError((Object error) {
+        debugPrint('Compact image memory-pressure cancellation failed: $error');
+      }),
+    );
     unawaited(widget.receivedImageStore.handleMemoryPressure());
   }
 
@@ -459,6 +501,7 @@ class _MeshCoreAppState extends State<MeshCoreApp> with WidgetsBindingObserver {
         ChangeNotifierProvider.value(value: widget.mapTileCacheService),
         ChangeNotifierProvider.value(value: widget.timeoutPredictionService),
         ChangeNotifierProvider.value(value: widget.imageCodecService),
+        ChangeNotifierProvider.value(value: widget.compactImageCodecService),
         ChangeNotifierProvider.value(value: widget.receivedImageStore),
       ],
       child: Consumer<AppSettingsService>(

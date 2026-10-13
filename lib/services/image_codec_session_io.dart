@@ -79,6 +79,7 @@ class ImageCodecSession {
   final Map<int, Completer<void>> _pendingReleases = {};
   int _nextJobId = 1;
   bool _disposed = false;
+  bool _terminated = false;
 
   ImageCodecSession._({
     required Isolate isolate,
@@ -103,7 +104,28 @@ class ImageCodecSession {
   ///
   /// Throws [ImageCodecUnimplemented] when no inference backend is compiled
   /// into the build, or whatever the backend threw while loading.
-  static Future<ImageCodecSession> spawn(ImageCodecBundle bundle) async {
+  static Future<ImageCodecSession> spawn(
+    ImageCodecBundle bundle, {
+    Duration startupTimeout = const Duration(seconds: 120),
+  }) => _spawn(bundle, _codecWorkerMain, startupTimeout);
+
+  /// Exercises isolate lifecycle/deadlines without loading a native model.
+  @visibleForTesting
+  static Future<ImageCodecSession> debugSpawnWorker(
+    ImageCodecBundle bundle,
+    void Function(List<Object?>) workerMain, {
+    Duration startupTimeout = const Duration(seconds: 120),
+  }) => _spawn(bundle, workerMain, startupTimeout);
+
+  static Future<ImageCodecSession> _spawn(
+    ImageCodecBundle bundle,
+    void Function(List<Object?>) workerMain,
+    Duration startupTimeout,
+  ) async {
+    if (startupTimeout <= Duration.zero) {
+      throw ArgumentError.value(startupTimeout, 'startupTimeout');
+    }
+    final started = Stopwatch()..start();
     final fromWorker = ReceivePort();
     final errors = ReceivePort();
     final handshake = Completer<Map<String, Object?>>();
@@ -134,8 +156,8 @@ class ImageCodecSession {
 
     late final Isolate isolate;
     try {
-      isolate = await Isolate.spawn<List<Object?>>(
-        _codecWorkerMain,
+      final spawning = Isolate.spawn<List<Object?>>(
+        workerMain,
         _bootPayload(
           bundle,
           fromWorker.sendPort,
@@ -148,6 +170,21 @@ class ImageCodecSession {
         onError: errors.sendPort,
         debugName: 'image-codec',
       );
+      isolate = await spawning.timeout(
+        startupTimeout,
+        onTimeout: () {
+          // Even if VM startup finishes late, it must not leave a stray worker.
+          unawaited(
+            spawning.then<void>((lateIsolate) {
+              lateIsolate.kill(priority: Isolate.immediate);
+            }, onError: (Object error, StackTrace stackTrace) {}),
+          );
+          throw TimeoutException(
+            'Image codec worker startup timed out.',
+            startupTimeout,
+          );
+        },
+      );
     } catch (_) {
       fromWorker.close();
       errors.close();
@@ -156,7 +193,10 @@ class ImageCodecSession {
 
     Map<String, Object?> reply;
     try {
-      reply = await handshake.future;
+      final remaining = startupTimeout - started.elapsed;
+      reply = await handshake.future.timeout(
+        remaining > Duration.zero ? remaining : Duration.zero,
+      );
     } catch (_) {
       isolate.kill(priority: Isolate.immediate);
       fromWorker.close();
@@ -300,6 +340,7 @@ class ImageCodecSession {
   }
 
   void _handleMessage(Map<String, Object?> message) {
+    if (_terminated) return;
     final id = message['id'];
     final job = id is int ? _pending[id] : null;
     switch (message['type']) {
@@ -348,8 +389,8 @@ class ImageCodecSession {
         job.completer.completeError(error);
       }
     }
-    // Releases resolve rather than fail: the isolate dying IS the memory being
-    // freed, which is all the caller was waiting for.
+    // Releases resolve rather than fail: the worker can no longer acknowledge
+    // them. Platform-plugin native work may outlive the Dart isolate.
     final releases = _pendingReleases.values.toList();
     _pendingReleases.clear();
     for (final release in releases) {
@@ -359,18 +400,30 @@ class ImageCodecSession {
     }
   }
 
-  /// Kills the isolate and frees the model's resident memory.
+  /// Kills the Dart worker immediately and completes every pending request.
+  ///
+  /// Never waits for a release acknowledgment queued behind inference. Native
+  /// plugin work is outside this isolate, so callers must not assume it has
+  /// stopped or that its allocations have been released.
+  void forceDispose([Object? reason]) {
+    if (_terminated) return;
+    _terminated = true;
+    _disposed = true;
+    _isolate.kill(priority: Isolate.immediate);
+    _failAll(reason ?? StateError('Image codec session disposed.'));
+    _fromWorker.close();
+    _errors.close();
+  }
+
+  /// Requests graceful shutdown, then kills the Dart worker after 50 ms.
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
     _toWorker.send(const <String, Object?>{'type': 'shutdown'});
-    // Give the worker one event-loop turn to release the native session
-    // cleanly, then take the memory back regardless.
+    // Give the worker one event-loop turn to release native sessions cleanly.
+    // forceDispose can still interrupt this grace period immediately.
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    _isolate.kill(priority: Isolate.immediate);
-    _failAll(StateError('Image codec session disposed.'));
-    _fromWorker.close();
-    _errors.close();
+    forceDispose();
   }
 }
 
