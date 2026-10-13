@@ -1,4 +1,2 @@
-*.apk filter=lfs diff=lfs merge=lfs -text
-*.aab filter=lfs diff=lfs merge=lfs -text
-*.so filter=lfs diff=lfs merge=lfs -text
-*.jar filter=lfs diff=lfs merge=lfs -text
+# Keep upstream licenses byte-for-byte, including their original whitespace.
+android/app/src/main/assets/image_codecs/licenses/** -whitespace
