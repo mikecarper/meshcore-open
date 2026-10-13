@@ -25,7 +25,15 @@ def summarize_tests(log):
     """Retain machine-readable evidence and exclude hidden suite-loader tests."""
     completed = {}
     for line in log.read_text().splitlines():
+        if not line.strip():
+            continue
         event = json.loads(line)
+        # Real-async widget workers may emit test-platform process-event arrays.
+        # They are not test results and must not corrupt the profile evidence.
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "done" and event.get("success") is False:
+            raise RuntimeError("Flutter reported an unsuccessful test run")
         if event.get("type") == "testDone" and not event.get("hidden", False):
             completed[event["testID"]] = event
     if not completed:

@@ -10,8 +10,85 @@ import 'package:meshcore_open/services/github_mota_release_service.dart';
 import 'package:meshcore_open/services/rak_bootloader_migration.dart';
 
 import '../support/mota_test_data.dart';
+import '../support/companion_firmware_test_data.dart';
 
 void main() {
+  test(
+    'version history retains exact-board verified Full images from older releases',
+    () async {
+      const target = 'Heltec_tower_v2_companion_radio_full';
+      final caps = utf8.encode(
+        jsonEncode({
+          'artifact_target': target,
+          'build_profile': 'full',
+          'verified': true,
+          'ota_update_verified': true,
+          'ota_update_methods': ['bluetooth'],
+          'capabilities': ['profile.full'],
+        }),
+      );
+      Map<String, Object> asset(String name, List<int> bytes) => {
+        'name': name,
+        'browser_download_url':
+            'https://github.com/mikecarper/MeshCore/releases/download/test/$name',
+        'size': bytes.length,
+        'digest': 'sha256:${crypto.sha256.convert(bytes)}',
+      };
+      final service = GitHubMotaReleaseService(
+        client: MockClient((request) async {
+          if (request.url.host == 'api.github.com') {
+            return http.Response(
+              jsonEncode([
+                for (final version in [
+                  '1.17.1.10',
+                  '1.17.1.9',
+                  '1.17.1.8',
+                  '1.17.1.7',
+                ])
+                  {
+                    'tag_name': 'v$version',
+                    'draft': version == '1.17.1.10',
+                    'assets': [
+                      asset('$target-v$version.zip', [1, 2, 3]),
+                      // Unverified old firmware is not promoted by choosing history.
+                      if (version != '1.17.1.7')
+                        asset('$target-v$version.capabilities.json', caps),
+                      asset('Heltec_t096_companion_radio_full-v$version.zip', [
+                        1,
+                        2,
+                        3,
+                      ]),
+                      asset(
+                        'Heltec_tower_v2_companion_radio_ble-v$version.zip',
+                        [1, 2, 3],
+                      ),
+                    ],
+                  },
+              ]),
+              200,
+            );
+          }
+          expect(request.url.path.endsWith('.capabilities.json'), isTrue);
+          return http.Response.bytes(caps, 200);
+        }),
+      );
+      addTearDown(service.dispose);
+      expect(
+        (await service.findCompanionAssets(
+          'Heltec Tower V2',
+        )).map((a) => a.name),
+        ['$target-v1.17.1.9.zip'],
+      );
+      expect(
+        (await service.findCompanionAssets(
+          'Heltec Tower V2',
+          includeOlderVersions: true,
+        )).map((a) => a.name),
+        ['$target-v1.17.1.9.zip', '$target-v1.17.1.8.zip'],
+      );
+    },
+  );
+
   const environment = 'Heltec_tower_v2_sdcard_repeat';
   const prefix = 'Heltec_tower_v2_sdcard_repeater_lora_ota';
   final capabilities = utf8.encode(
@@ -98,26 +175,7 @@ void main() {
       const normalName =
           'wiscore_rak4631_auto_bootloader-v0.11.0-OTAFIX2.4.10_s140_6.1.1.zip';
       const bundleName = 'OTAFIX-2.4.10-R_recovery.zip';
-      final dfu = ZipEncoder().encodeBytes(
-        Archive()
-          ..add(
-            ArchiveFile.bytes(
-              'manifest.json',
-              utf8.encode(
-                jsonEncode({
-                  'manifest': {
-                    'softdevice_bootloader': {
-                      'bin_file': 'bootloader.bin',
-                      'dat_file': 'bootloader.dat',
-                    },
-                  },
-                }),
-              ),
-            ),
-          )
-          ..add(ArchiveFile.bytes('bootloader.bin', List.filled(1024, 0x55)))
-          ..add(ArchiveFile.bytes('bootloader.dat', List.filled(32, 0x33))),
-      );
+      final dfu = testNrfDfuZip(component: 'softdevice_bootloader');
       final member = 'boards/$profile/$recoveryName';
       final innerHash = crypto.sha256.convert(dfu).toString();
       final bundle = ZipEncoder().encodeBytes(
@@ -262,6 +320,9 @@ void main() {
     final service = GitHubMotaReleaseService(
       client: MockClient((request) async {
         if (request.url.host == 'api.github.com') {
+          if (request.url.path == '/repos/mikecarper/MeshCore/releases') {
+            return http.Response('[]', 200);
+          }
           return http.Response(
             jsonEncode(<Object>[
               <String, Object>{
@@ -284,14 +345,17 @@ void main() {
         return http.Response.bytes(bytes, 200);
       }),
     );
-    final assets = await service.findCompanionAssets('RAKwireless RAK4631');
+    final assets = await service.findCompanionAssets(
+      'RAK4631',
+      preserveFullProfile: false,
+    );
     expect(assets.map((asset) => asset.name), <String>[
-      'RAK_4631_companion_radio_ble-v1.17.1.bin',
       'RAK_4631_companion_radio_ble-v1.17.1.zip',
     ]);
     final nordic = await service.findCompanionAssets(
-      'RAKwireless RAK4631',
+      'RAK4631',
       extension: 'zip',
+      preserveFullProfile: false,
     );
     expect(nordic.map((asset) => asset.name), <String>[
       'RAK_4631_companion_radio_ble-v1.17.1.zip',
@@ -323,6 +387,45 @@ void main() {
     );
   });
 
+  test('separates a numeric-version reinstall from an older release', () {
+    const installed = 'Companion v1.17.1.9-fork-build (protocol 14)';
+    expect(
+      GitHubMotaReleaseService.compareCompanionRelease(
+        installed,
+        'Heltec_t096_companion_radio_full-v1.17.1.9-other.zip',
+      ),
+      0,
+    );
+    expect(
+      GitHubMotaReleaseService.isCompanionReleaseNewer(
+        installed,
+        'Heltec_t096_companion_radio_full-v1.17.1.9-other.zip',
+      ),
+      false,
+    );
+    expect(
+      GitHubMotaReleaseService.compareCompanionRelease(
+        installed,
+        'Heltec_t096_companion_radio_full-v1.17.1.8.zip',
+      ),
+      lessThan(0),
+    );
+    expect(
+      GitHubMotaReleaseService.compareCompanionRelease(
+        installed,
+        'Heltec_t096_companion_radio_full-v1.17.1.10.zip',
+      ),
+      greaterThan(0),
+    );
+    expect(
+      GitHubMotaReleaseService.compareCompanionRelease(
+        'Unknown firmware',
+        'Heltec_t096_companion_radio_full-v1.17.1.9.zip',
+      ),
+      isNull,
+    );
+  });
+
   for (final entry in <String, String?>{
     'Heltec V4 OLED': 'heltec_v4',
     'Heltec V4.3 OLED': 'heltec_v4',
@@ -339,6 +442,9 @@ void main() {
     test('matches only the supported Companion build for ${entry.key}', () async {
       final service = GitHubMotaReleaseService(
         client: MockClient((request) async {
+          if (request.url.path == '/repos/mikecarper/MeshCore/releases') {
+            return http.Response('[]', 200);
+          }
           expect(request.url.path, '/repos/meshcore-dev/MeshCore/releases');
           return http.Response(
             jsonEncode(<Object>[
@@ -370,13 +476,256 @@ void main() {
         }),
       );
       addTearDown(service.dispose);
-      final assets = await service.findCompanionAssets(entry.key);
+      if (entry.value == null) {
+        await expectLater(
+          service.findCompanionAssets(entry.key, preserveFullProfile: false),
+          throwsFormatException,
+        );
+        return;
+      }
+      final assets = await service.findCompanionAssets(
+        entry.key,
+        preserveFullProfile: false,
+      );
       expect(assets.map((asset) => asset.name), <String>[
         if (entry.value != null)
           '${entry.value}_companion_radio_ble-v1.17.1.bin',
       ]);
     });
   }
+
+  test('Full profile release metadata prevents fallback to stock BLE', () async {
+    const name = 'heltec_v4_r8_companion_radio_full-v1.17.1.9-deadbeef.bin';
+    const capName =
+        'heltec_v4_r8_companion_radio_full-v1.17.1.9-deadbeef.capabilities.json';
+    final image = testEspApplication(hardwareId: 'heltec_v4_r8', targetId: 0);
+    final caps = utf8.encode(
+      jsonEncode({
+        'artifact_target': 'heltec_v4_r8_companion_radio_full',
+        'build_profile': 'full',
+        'verified': true,
+        'ota_update_verified': true,
+        'ota_update_methods': ['wifi'],
+        'capabilities': ['profile.full'],
+      }),
+    );
+    Map<String, Object> asset(String name, List<int> bytes) => {
+      'name': name,
+      'browser_download_url':
+          'https://github.com/mikecarper/MeshCore/releases/download/test/$name',
+      'size': bytes.length,
+      'digest': 'sha256:${crypto.sha256.convert(bytes)}',
+    };
+    final service = GitHubMotaReleaseService(
+      client: MockClient((request) async {
+        if (request.url.host == 'api.github.com') {
+          expect(request.url.path, '/repos/mikecarper/MeshCore/releases');
+          return http.Response(
+            jsonEncode([
+              {
+                'tag_name': 'full-test',
+                'assets': [
+                  asset(name, image),
+                  asset(capName, caps),
+                  asset('heltec_v4_r8_companion_radio_ble-v1.18.0.bin', image),
+                ],
+              },
+            ]),
+            200,
+          );
+        }
+        return http.Response.bytes(
+          request.url.path.endsWith(capName) ? caps : image,
+          200,
+        );
+      }),
+    );
+    addTearDown(service.dispose);
+    final assets = await service.findCompanionAssets('Heltec V4 R8 OLED');
+    expect(assets.map((a) => a.name), [name]);
+    final download = await service.downloadCompanionFirmware(
+      assets.single,
+      board: 'Heltec V4 R8 OLED',
+    );
+    expect(download.provenance.profile, 'full');
+    await expectLater(
+      service.downloadCompanionFirmware(assets.single, board: 'Heltec V4 OLED'),
+      throwsFormatException,
+    );
+  });
+
+  test(
+    'Full metadata missing transport or linked proof is not offered',
+    () async {
+      const name =
+          'Heltec_tower_v2_companion_radio_full-v1.17.1.9-deadbeef.zip';
+      final bytes = testNrfDfuZip(
+        image: testNrfApplication(hardwareId: 'Heltec_tower_v2', targetId: 0),
+      );
+      final service = GitHubMotaReleaseService(
+        client: MockClient((request) async {
+          expect(request.url.host, 'api.github.com');
+          return http.Response(
+            jsonEncode([
+              {
+                'tag_name': 'full-test',
+                'assets': [
+                  {
+                    'name': name,
+                    'browser_download_url':
+                        'https://github.com/mikecarper/MeshCore/releases/download/test/$name',
+                    'size': bytes.length,
+                    'digest': 'sha256:${crypto.sha256.convert(bytes)}',
+                  },
+                ],
+              },
+            ]),
+            200,
+          );
+        }),
+      );
+      addTearDown(service.dispose);
+      expect(
+        await service.findCompanionAssets('Heltec Mesh Tower V2 SD'),
+        isEmpty,
+      );
+    },
+  );
+  test(
+    'older trusted Nordic release is digest-bound; missing digest is blocked',
+    () async {
+      const name = 'Heltec_t096_companion_radio_ble-v1.17.1-deadbeef.zip';
+      final bytes = testNrfDfuZip(image: testNrfApplication(marked: false));
+      for (final digest in [
+        'sha256:${crypto.sha256.convert(bytes)}',
+        '',
+        'sha256:${List.filled(64, '0').join()}',
+      ]) {
+        final service = GitHubMotaReleaseService(
+          client: MockClient((request) async {
+            if (request.url.host == 'api.github.com') {
+              if (request.url.path.contains('/mikecarper/')) {
+                return http.Response('[]', 200);
+              }
+              return http.Response(
+                jsonEncode([
+                  {
+                    'tag_name': 'companion-test',
+                    'assets': [
+                      {
+                        'name': name,
+                        'size': bytes.length,
+                        'digest': digest,
+                        'browser_download_url':
+                            'https://github.com/meshcore-dev/MeshCore/releases/download/test/$name',
+                      },
+                    ],
+                  },
+                ]),
+                200,
+              );
+            }
+            return http.Response.bytes(bytes, 200);
+          }),
+        );
+        addTearDown(service.dispose);
+        final assets = await service.findCompanionAssets(
+          'Heltec T096',
+          preserveFullProfile: false,
+        );
+        if (digest.endsWith(crypto.sha256.convert(bytes).toString())) {
+          final download = await service.downloadCompanionFirmware(
+            assets.single,
+            board: 'Heltec T096',
+          );
+          expect(
+            download.provenance.sha256,
+            crypto.sha256.convert(bytes).toString(),
+          );
+        } else {
+          await expectLater(
+            service.downloadCompanionFirmware(
+              assets.single,
+              board: 'Heltec T096',
+            ),
+            throwsA(anyOf(isA<FormatException>(), isA<StateError>())),
+          );
+        }
+      }
+    },
+  );
+  test(
+    'Tower aliases select only capability-verified Full Nordic firmware',
+    () async {
+      const name =
+          'Heltec_tower_v2_companion_radio_full-v1.17.1.9-deadbeef.zip';
+      final bytes = testNrfDfuZip(
+        image: testNrfApplication(hardwareId: 'Heltec_tower_v2', targetId: 0),
+      );
+      final valid = <String, Object>{
+        'artifact_target': 'Heltec_tower_v2_companion_radio_full',
+        'build_profile': 'full',
+        'verified': true,
+        'ota_update_verified': true,
+        'ota_update_methods': ['bluetooth'],
+        'capabilities': ['profile.full'],
+      };
+      for (final invalid in [
+        <String, Object>{},
+        {'verified': false},
+        {
+          'ota_update_methods': ['wifi'],
+        },
+        {'artifact_target': 'Heltec_t114_companion_radio_full'},
+        {
+          'capabilities': ['profile.ble'],
+        },
+      ]) {
+        final cap = utf8.encode(jsonEncode({...valid, ...invalid}));
+        final capName = name.replaceFirst('.zip', '.capabilities.json');
+        Map<String, Object> asset(String name, List<int> bytes) => {
+          'name': name,
+          'size': bytes.length,
+          'digest': 'sha256:${crypto.sha256.convert(bytes)}',
+          'browser_download_url':
+              'https://github.com/mikecarper/MeshCore/releases/download/test/$name',
+        };
+        final service = GitHubMotaReleaseService(
+          client: MockClient((request) async {
+            if (request.url.host == 'api.github.com') {
+              expect(request.url.path, '/repos/mikecarper/MeshCore/releases');
+              return http.Response(
+                jsonEncode([
+                  {
+                    'tag_name': 'full-test',
+                    'assets': [asset(name, bytes), asset(capName, cap)],
+                  },
+                ]),
+                200,
+              );
+            }
+            return http.Response.bytes(
+              request.url.path.endsWith(capName) ? cap : bytes,
+              200,
+            );
+          }),
+        );
+        addTearDown(service.dispose);
+        final assets = await service.findCompanionAssets(
+          'Heltec Mesh Tower V2 SD',
+        );
+        if (invalid.isEmpty) {
+          expect(assets.map((a) => a.name), [name]);
+          await service.downloadCompanionFirmware(
+            assets.single,
+            board: 'Heltec Mesh Tower V2 SD',
+          );
+        } else {
+          expect(assets, isEmpty);
+        }
+      }
+    },
+  );
 }
 
 MockClient _client({

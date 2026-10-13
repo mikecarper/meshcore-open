@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../connector/meshcore_connector.dart';
 import '../l10n/l10n.dart';
 import '../services/linux_ble_error_classifier.dart';
+import '../services/nrf_dfu_recovery_store.dart';
 import '../theme/mesh_theme.dart';
 import '../services/notification_service.dart';
 import '../utils/app_logger.dart';
@@ -20,10 +21,14 @@ import 'channels_screen.dart';
 import 'tcp_screen.dart';
 import 'usb_screen.dart';
 import 'packet_tools_screen.dart';
+import 'companion_update_screen.dart';
 
 /// Screen for scanning and connecting to MeshCore devices
 class ScannerScreen extends StatefulWidget {
-  const ScannerScreen({super.key});
+  const ScannerScreen({super.key, this.recoveryStore, this.recoveryBuilder});
+
+  final NrfDfuRecoveryStore? recoveryStore;
+  final WidgetBuilder? recoveryBuilder;
 
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
@@ -36,11 +41,19 @@ class _ScannerScreenState extends State<ScannerScreen> {
   late final VoidCallback _connectionListener;
   BluetoothAdapterState _bluetoothState = BluetoothAdapterState.unknown;
   late StreamSubscription<BluetoothAdapterState> _bluetoothStateSubscription;
+  late final NrfDfuRecoveryStore _recoveryStore;
+  late final bool _recoverySupported;
+  bool _recoveryOpen = false;
+  bool _recoveryAvailable = false;
+  bool _checkingRecovery = false;
 
   @override
   void initState() {
     super.initState();
     _connector = Provider.of<MeshCoreConnector>(context, listen: false);
+    _recoveryStore = widget.recoveryStore ?? NrfDfuRecoveryStore();
+    _recoverySupported = PlatformInfo.isAndroid || widget.recoveryStore != null;
+    _checkingRecovery = _recoverySupported;
 
     _connectionListener = () {
       final isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
@@ -49,6 +62,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
       } else if (_connector.state == MeshCoreConnectionState.connected &&
           _connector.activeTransport == MeshCoreTransportType.bluetooth &&
           isCurrentRoute &&
+          !_recoveryOpen &&
+          !_checkingRecovery &&
           !_changedNavigation) {
         _changedNavigation = true;
         // Prompt for notification permission on first
@@ -67,8 +82,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
     // If the app was killed (swipe-away) and relaunched, try to reconnect
     // to the last known device so the user doesn't have to scan again.
-    if (_connector.state == MeshCoreConnectionState.disconnected) {
-      _connector.tryAutoReconnect();
+    if (_recoverySupported) {
+      unawaited(_refreshRecovery(tryAutoReconnect: true));
+    } else if (_connector.state == MeshCoreConnectionState.disconnected) {
+      unawaited(_tryReconnect());
     }
 
     _bluetoothStateSubscription = FlutterBluePlus.adapterState.listen(
@@ -87,6 +104,80 @@ class _ScannerScreenState extends State<ScannerScreen> {
         appLogger.warn('Adapter state stream error: $e', tag: 'ScannerScreen');
       },
     );
+  }
+
+  Future<void> _tryReconnect() async {
+    try {
+      await _connector.tryAutoReconnect();
+    } catch (_) {
+      appLogger.warn(
+        'Automatic reconnect did not finish.',
+        tag: 'ScannerScreen',
+        noNotify: true,
+      );
+    }
+  }
+
+  Future<void> _refreshRecovery({bool tryAutoReconnect = false}) async {
+    if (!_recoverySupported) return;
+    try {
+      final nativePending = await _recoveryStore.hasUnconfirmedNativeTransfer();
+      final record = await _recoveryStore.load();
+      if (!mounted) return;
+      setState(() {
+        _recoveryAvailable = nativePending || record != null;
+        _checkingRecovery = false;
+      });
+      if (tryAutoReconnect &&
+          !_recoveryAvailable &&
+          !_recoveryOpen &&
+          _connector.state == MeshCoreConnectionState.disconnected) {
+        await _tryReconnect();
+      }
+    } catch (_) {
+      // No arbitrary filesystem errors/paths are exported, and an unavailable
+      // durable lifetime guard is not permission to auto-connect a DFU radio.
+      appLogger.warn(
+        'Bluetooth recovery availability could not be checked.',
+        tag: 'ScannerScreen',
+        noNotify: true,
+      );
+      if (mounted) setState(() => _checkingRecovery = false);
+    }
+  }
+
+  Future<void> _openRecovery() async {
+    if (_recoveryOpen || !_recoveryAvailable) return;
+    final previousPreserve = _connector.preserveUpdateScreenOnDisconnect;
+    setState(() => _recoveryOpen = true);
+    _connector.setPreserveUpdateScreenOnDisconnect(true);
+    try {
+      await _connector.stopScan();
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder:
+              widget.recoveryBuilder ??
+              (_) => CompanionUpdateScreen(recoveryStore: _recoveryStore),
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not open Bluetooth recovery. No firmware was sent.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      _connector.setPreserveUpdateScreenOnDisconnect(previousPreserve);
+      if (mounted) {
+        setState(() => _recoveryOpen = false);
+        await _refreshRecovery();
+      }
+    }
   }
 
   @override
@@ -176,6 +267,20 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
                 // Connection status header
                 _ConnectionStatusHeader(connector: connector),
+
+                if (_recoveryAvailable)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    child: OutlinedButton.icon(
+                      key: const ValueKey('scanner_dfu_recovery'),
+                      onPressed: _recoveryOpen ? null : _openRecovery,
+                      icon: const Icon(Icons.settings_backup_restore, size: 20),
+                      label: const Text('Recover Bluetooth update'),
+                    ),
+                  ),
 
                 // Device list
                 Expanded(child: _buildDeviceList(context, connector)),

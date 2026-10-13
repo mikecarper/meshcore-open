@@ -1,0 +1,103 @@
+{
+  "test_date": "2026-10-13",
+  "app_branch": "codex/flashing-hardening",
+  "app_base_commit": "0939938200b7c3f6699a28d16856e8c3c6bd00ca",
+  "firmware_fix_commit": "6e65186ed2677e3b2ff7dc87bd2b425aa193c3a1",
+  "radio": {
+    "physical_board": "Heltec MeshTower V2 SD",
+    "usb_serial": "9352162A72082314",
+    "companion_board_report": "Heltec Tower V2",
+    "public_key_prefix": "931C5D57",
+    "bluetooth_address": "F1:58:C8:21:01:6F",
+    "bootloader_name": "TOWER_V2",
+    "legacy_dfu_revision": "0.8",
+    "reported_bootloader_version": "OTAFIX2.4.11-preview.2",
+    "bootloader_image_hash_verified": false,
+    "bootloader_or_softdevice_replaced": false,
+    "external_usb_power": true
+  },
+  "phone": {
+    "serial": "LGL51AL2814a411",
+    "android": "5.1.1",
+    "package": "com.meshcore.meshcore_open.towerdfutest",
+    "production_app_replaced": false,
+    "final_apk_sha256": "2dd86a3f1458144809794bfbfa990b0c6a7cf384e5031c337bf795b03d553200",
+    "signing": "local-debug-sideload",
+    "abi": "armeabi-v7a",
+    "orientation_restored": true,
+    "test_app_stopped_after_native_dfu_termination": true
+  },
+  "transfers": [
+    {
+      "source": "v1.17.1.8-flashing-hil-peerfix-015a3e8e",
+      "source_profile": "standard BLE with staged-peer handoff fix",
+      "source_package_sha256": "6896eadc6908b5761a2119eddfaa71b8ee4f3b6b81205197a0e0ae0bf9871fc8",
+      "target": "v1.17.1.9-halo-keymind-cascade-dev-88c85108",
+      "target_profile": "Full Companion",
+      "target_package_sha256": "f643bfb0a55d49e2111e4433a890b70489c9fd77bae5eb32cc3517fa5c7fe5e0",
+      "apk_sha256": "c0320e477a77bccb912ec60169131dcc46546e7f3da9e6177b872c1af72f944a",
+      "bonded_gatt_bootloader_proof_used": true,
+      "native_dfu_completed": true,
+      "post_boot_identity_board_and_body_hash_verified": true
+    },
+    {
+      "source": "v1.17.1.9-halo-keymind-cascade-dev-88c85108",
+      "target": "v1.17.1.8-halo-keymind-cascade-dev-9053038f",
+      "target_profile": "Full Companion",
+      "target_package_sha256": "90eb1da80283718aeaeda568eceddd41f628200e41c1d11fadd94aa9f61471c6",
+      "apk_sha256": "cd471c92f93b8fa7340aabb665bd83b28b6d492b1503885d3311ba282c9ff8f3",
+      "explicit_downgrade_confirmed": true,
+      "initial_write_gatt_status": 133,
+      "manual_retry_bootloader_required": true,
+      "bonded_gatt_bootloader_proof_used": true,
+      "application_bytes": 581252,
+      "reported_payload_duration_ms": 74751,
+      "native_dfu_completed": true,
+      "post_boot_identity_board_and_body_hash_verified": true
+    },
+    {
+      "source": "v1.17.1.8-halo-keymind-cascade-dev-9053038f",
+      "target": "v1.17.1.9-halo-keymind-cascade-dev-88c85108",
+      "target_profile": "Full Companion",
+      "target_package_sha256": "f643bfb0a55d49e2111e4433a890b70489c9fd77bae5eb32cc3517fa5c7fe5e0",
+      "apk_sha256": "2dd86a3f1458144809794bfbfa990b0c6a7cf384e5031c337bf795b03d553200",
+      "manual_retry_bootloader_required": false,
+      "bonded_gatt_bootloader_proof_used": true,
+      "native_dfu_service_instances": 1,
+      "native_sdk": "2.11.0",
+      "application_bytes": 601980,
+      "reported_payload_duration_ms": 77168,
+      "native_service_lifetime_seconds": 83.290,
+      "native_dfu_completed": true,
+      "post_boot_identity_board_and_body_hash_verified": true
+    }
+  ],
+  "automated_tests": {
+    "flutter_3_32_8": {"passed": 1459, "failed": 0, "skipped": 6},
+    "flutter_3_47_5": {"passed": 1459, "failed": 0, "skipped": 6},
+    "changed_dart_analysis": "No issues found in either profile",
+    "build_evidence_parser_passed": 4,
+    "nrf52_compile_emulation_passed": 10,
+    "nrf52_compiled_elf_gate": "PASS",
+    "wifi_host_passed": 29
+  },
+  "restoration": {
+    "application_only_usb_dfu_completed": true,
+    "original_package_sha256": "926bbb394beee268ada24a072281b61fa976d5ebccd26a842d3514f8a2a20d22",
+    "board": "Heltec Tower V2",
+    "version": "v1.17.1.9-hil-nrf-7d3ee720-7d3ee720",
+    "name": "HIL-TOWER-SD",
+    "radio_tuple": "910.5250244,62.5,7,5",
+    "reported_bootloader_version": "OTAFIX2.4.11-preview.2",
+    "queried_fields_match_pre_test": true,
+    "all_settings_compared": false,
+    "morse_test_radios_opened_or_changed": false
+  },
+  "limitations": [
+    "Tower hardware result, not every catalog board or exact T096/T114 plus Oltaco 2.3.",
+    "No ESP32 Wi-Fi or iOS hardware qualification for these changes.",
+    "Legacy unbound Wi-Fi uploaders and migration bridges require a separately reviewed wired path.",
+    "Phone wall-clock timestamps are used only for relative durations.",
+    "This is branch and isolated test-APK evidence, not a new published release."
+  ]
+}

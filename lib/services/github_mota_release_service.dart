@@ -10,10 +10,13 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 import 'ble_mota_catalog.dart';
+import 'companion_board_catalog.dart';
+import 'companion_image_validator.dart';
 import 'esp32_partition_migration_package.dart';
 import 'local_mota_builder.dart';
 import 'nrf_dfu_package.dart';
 import 'rak_bootloader_migration.dart';
+import 'usb_firmware_package.dart';
 
 /// GitHub release discovery is advisory. Only a digest-checked, validated
 /// .mota can enter the Bluetooth source catalog.
@@ -401,56 +404,154 @@ class GitHubMotaReleaseService {
     return Esp32PartitionMigrationPackage.load(await _download(asset));
   }
 
-  /// Exact-board Companion BLE release assets from the upstream release feed.
-  /// USB variants and merged ESP32 images are not suitable for phone OTA.
+  /// Preserve Full capabilities by default. Board aliases, transport format,
+  /// linked capabilities and release digests must agree, not merely filenames.
   Future<List<GitHubReleaseAsset>> findCompanionAssets(
     String board, {
     String? extension,
+    bool preserveFullProfile = true,
+    bool includeOlderVersions = false,
   }) async {
-    final reportedBoard = board.toLowerCase().replaceAll(
-      RegExp(r'[^a-z0-9]'),
-      '',
-    );
-    // HeltecV4Board detects the V4.3 radio frontend at runtime; upstream
-    // packages both revisions under V4. Keep OLED, TFT and explicit R8 builds
-    // distinct, and do not guess aliases for other hardware revisions.
-    final normalizedBoard = switch (reportedBoard) {
-      'heltecv4oled' || 'heltecv43oled' => 'heltecv4',
-      'heltecv43tft' => 'heltecv4tft',
-      _ => reportedBoard,
-    };
-    if (normalizedBoard.length < 5) {
+    final spec = CompanionBoardCatalog.lookup(board);
+    if (spec == null ||
+        spec.updateExtension == null ||
+        spec.assetPrefixes.isEmpty) {
       throw const FormatException('Companion did not report a specific board.');
     }
-    for (final release in await _releases(_officialFirmwareRepository)) {
-      if (!release.tag.startsWith('companion-')) continue;
-      final matches = release.assets.where((asset) {
-        final name = asset.name.toLowerCase();
-        final marker = name.indexOf('_companion_radio_ble-');
-        if (marker <= 0 ||
-            name.contains('-merged.bin') ||
-            !(name.endsWith('.zip') || name.endsWith('.bin')) ||
-            (extension != null && !name.endsWith('.$extension'))) {
-          return false;
+    if (extension != null && extension != spec.updateExtension) return [];
+    for (final repository in [
+      _firmwareRepository,
+      if (!preserveFullProfile) _officialFirmwareRepository,
+    ]) {
+      final history = <GitHubReleaseAsset>[];
+      for (final release in await _releases(repository)) {
+        if (release.draft) continue;
+        if (repository == _officialFirmwareRepository &&
+            !release.tag.startsWith('companion-')) {
+          continue;
         }
-        final assetBoard = name
-            .substring(0, marker)
-            .replaceAll(RegExp(r'[^a-z0-9]'), '');
-        return assetBoard.length >= 5 &&
-            (normalizedBoard == assetBoard ||
-                normalizedBoard.endsWith(assetBoard));
-      }).toList();
-      if (matches.isNotEmpty) {
-        matches.sort((a, b) => a.name.compareTo(b.name));
-        return matches;
+        final matches = <GitHubReleaseAsset>[];
+        for (final asset in release.assets) {
+          final selection = _companionAssetSelection(asset.name, spec);
+          if (selection == null ||
+              (preserveFullProfile && selection.$2 != 'full')) {
+            continue;
+          }
+          // Full has several board-specific subprofiles. Only linked metadata
+          // for this exact artifact can prove a phone OTA path still exists.
+          if (selection.$2 == 'full') {
+            final capabilityName =
+                '${asset.name.substring(0, asset.name.lastIndexOf('.'))}.capabilities.json';
+            final candidates = release.assets
+                .where((a) => a.name == capabilityName)
+                .toList();
+            if (candidates.length != 1 || candidates.single.size > 65536) {
+              continue;
+            }
+            final data = usbStrictJson(await _download(candidates.single));
+            final methods = data is Map ? data['ota_update_methods'] : null;
+            final capabilities = data is Map ? data['capabilities'] : null;
+            final method = spec.family == CompanionChipFamily.nrf52
+                ? 'bluetooth'
+                : 'wifi';
+            if (data is! Map ||
+                data['artifact_target'] != selection.$1 ||
+                data['build_profile'] != 'full' ||
+                data['verified'] != true ||
+                data['ota_update_verified'] != true ||
+                methods is! List ||
+                !methods.contains(method) ||
+                capabilities is! List ||
+                !capabilities.contains('profile.full')) {
+              continue;
+            }
+          }
+          matches.add(asset._forCompanion(spec.id, selection.$2));
+        }
+        if (matches.isNotEmpty) {
+          matches.sort((a, b) => a.name.compareTo(b.name));
+          if (!includeOlderVersions) return matches;
+          history.addAll(matches);
+        }
       }
+      if (history.isNotEmpty) return history;
     }
     return <GitHubReleaseAsset>[];
+  }
+
+  static (String, String)? _companionAssetSelection(
+    String filename,
+    CompanionBoardSpec spec,
+  ) {
+    final name = filename.toLowerCase();
+    if (!name.endsWith('.${spec.updateExtension}') ||
+        name.endsWith('-merged.bin')) {
+      return null;
+    }
+    final marker = name.indexOf('_companion_radio_');
+    if (marker <= 0) return null;
+    final version = name.indexOf('-v', marker);
+    if (version <= marker) return null;
+    final prefix = name.substring(0, marker);
+    if (!spec.assetPrefixes.any((value) => value.toLowerCase() == prefix)) {
+      return null;
+    }
+    final role = name.substring(marker + '_companion_radio_'.length, version);
+    final profile = role == 'ble'
+        ? 'ble'
+        : RegExp(r'^full(?:_[a-z0-9]+)*_?$').hasMatch(role)
+        ? 'full'
+        : null;
+    return profile == null ? null : (filename.substring(0, version), profile);
+  }
+
+  Future<CompanionFirmwareDownload> downloadCompanionFirmware(
+    GitHubReleaseAsset asset, {
+    required String board,
+  }) async {
+    final spec = CompanionBoardCatalog.lookup(board);
+    final selection = spec == null
+        ? null
+        : _companionAssetSelection(asset.name, spec);
+    if (spec == null ||
+        selection == null ||
+        asset.companionBoardId != spec.id ||
+        asset.companionProfile != selection.$2) {
+      throw const FormatException(
+        'Release metadata does not match this exact Companion board/profile.',
+      );
+    }
+    final bytes = await _download(asset);
+    final provenance = CompanionFirmwareProvenance(
+      boardId: spec.id,
+      sha256: crypto.sha256.convert(bytes).toString(),
+      profile: selection.$2,
+    );
+    if (spec.family == CompanionChipFamily.nrf52) {
+      NrfDfuPackage.inspect(
+        bytes,
+      ).validateForBoard(board, provenance: provenance);
+    } else {
+      CompanionImageValidator.validateEsp32(
+        asset.name,
+        bytes,
+        board,
+        provenance: provenance,
+      );
+    }
+    return CompanionFirmwareDownload(bytes, provenance);
   }
 
   /// Returns false for equal/older versions, and null when either label has
   /// no comparable numeric version. A fork's fourth component is significant.
   static bool? isCompanionReleaseNewer(String installed, String assetName) {
+    final order = compareCompanionRelease(installed, assetName);
+    return order == null ? null : order > 0;
+  }
+
+  /// Compares the release's numeric version against the installed version.
+  /// Zero allows an explicit reinstall, not a claim that the builds match.
+  static int? compareCompanionRelease(String installed, String assetName) {
     List<int>? version(String text) {
       final match = RegExp(
         r'v(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?',
@@ -467,13 +568,14 @@ class GitHubMotaReleaseService {
     final release = version(assetName);
     if (current == null || release == null) return null;
     for (var i = 0; i < 4; i++) {
-      if (release[i] != current[i]) return release[i] > current[i];
+      if (release[i] != current[i]) return release[i].compareTo(current[i]);
     }
-    return false;
+    return 0;
   }
 
   Future<Uint8List> downloadCompanionAsset(GitHubReleaseAsset asset) async {
-    if (!asset.name.toLowerCase().contains('_companion_radio_ble-') ||
+    if (!(asset.name.toLowerCase().contains('_companion_radio_ble-') ||
+            asset.name.toLowerCase().contains('_companion_radio_full')) ||
         asset.name.toLowerCase().contains('-merged.bin') ||
         !(asset.name.endsWith('.zip') || asset.name.endsWith('.bin'))) {
       throw const FormatException('Not a phone-updateable Companion asset.');
@@ -606,7 +708,9 @@ class _Release {
 
 class GitHubReleaseAsset {
   GitHubReleaseAsset.fromJson(Map<String, dynamic> json)
-    : name = json['name'] is String ? json['name'] as String : '',
+    : companionBoardId = null,
+      companionProfile = null,
+      name = json['name'] is String ? json['name'] as String : '',
       url = json['browser_download_url'] is String
           ? json['browser_download_url'] as String
           : '',
@@ -617,4 +721,24 @@ class GitHubReleaseAsset {
   final String url;
   final String? digest;
   final int size;
+  final String? companionBoardId;
+  final String? companionProfile;
+
+  GitHubReleaseAsset._companion(
+    GitHubReleaseAsset original,
+    this.companionBoardId,
+    this.companionProfile,
+  ) : name = original.name,
+      url = original.url,
+      digest = original.digest,
+      size = original.size;
+
+  GitHubReleaseAsset _forCompanion(String boardId, String profile) =>
+      GitHubReleaseAsset._companion(this, boardId, profile);
+}
+
+class CompanionFirmwareDownload {
+  const CompanionFirmwareDownload(this.bytes, this.provenance);
+  final Uint8List bytes;
+  final CompanionFirmwareProvenance provenance;
 }

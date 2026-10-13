@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meshcore_open/services/companion_board_catalog.dart';
 import 'package:meshcore_open/services/nrf_dfu_recovery.dart';
 import 'package:nordic_dfu/nordic_dfu.dart';
 
@@ -14,6 +15,7 @@ Future<String> update(
   NrfDfuRecovery recovery, {
   bool applicationOnly = true,
   bool retryBootloader = false,
+  bool allowBondedBootloaderProbe = false,
   String address = original,
   String board = 'Heltec T096',
 }) => recovery.update(
@@ -22,10 +24,62 @@ Future<String> update(
   board: board,
   applicationOnly: applicationOnly,
   retryBootloader: retryBootloader,
+  allowBondedBootloaderProbe: allowBondedBootloaderProbe,
 );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final evidence in ['same radio', 'another radio', 'none']) {
+    test(
+      'bonded probe requires fresh bootloader evidence for $evidence',
+      () async {
+        var probes = 0, transfers = 0;
+        final recovery = NrfDfuRecovery(
+          scan: (_, _) async => [],
+          bondedProbe: (address, board) async {
+            expect(address, original);
+            expect(board, 'Heltec T096');
+            probes++;
+            return evidence == 'none'
+                ? null
+                : DfuAdvertisement(
+                    evidence == 'same radio' ? original : bootloader,
+                    'T096_DFU',
+                    [legacyDfuServiceUuid],
+                  );
+          },
+          transfer: (address, _, force, _) async {
+            expect(address, original);
+            expect(force, isTrue);
+            transfers++;
+          },
+        );
+        final future = update(
+          recovery,
+          retryBootloader: true,
+          allowBondedBootloaderProbe: true,
+        );
+        if (evidence == 'same radio') {
+          expect(await future, original);
+        } else {
+          await expectLater(future, throwsStateError);
+        }
+        expect(probes, 1);
+        expect(transfers, evidence == 'same radio' ? 1 : 0);
+      },
+    );
+  }
+  test(
+    'ordinary discovery does not probe a bonded radio without opt-in',
+    () async {
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async => [advert],
+        bondedProbe: (_, _) async => fail('No probe'),
+        transfer: (_, _, _, _) async {},
+      );
+      expect(await update(recovery), bootloader);
+    },
+  );
   for (final applicationOnly in [true, false]) {
     test(
       'native DFU retains bonds only for applicationOnly=$applicationOnly',
@@ -40,7 +94,7 @@ void main() {
           expect(call.method, 'startDfu');
           final args = call.arguments as Map;
           expect(args['keepBond'], applicationOnly);
-          expect(args['numberOfRetries'], 2);
+          expect(args['numberOfRetries'], 0);
           expect(args['packetReceiptNotificationsEnabled'], isTrue);
           expect(args['address'], original);
           expect(args['forceDfu'], isFalse);
@@ -85,11 +139,14 @@ void main() {
       board: 'Heltec T096',
     );
     expect(select([advert]), bootloader);
+    expect(select([const DfuAdvertisement(original, 'T096_DFU', [])]), isNull);
+    expect(select([const DfuAdvertisement(original, 'AdaDFU', [])]), isNull);
     expect(
-      select([const DfuAdvertisement(original, 'T096_DFU', [])]),
-      original,
+      select([
+        const DfuAdvertisement(original, 'AdaDFU', [legacyDfuServiceUuid]),
+      ]),
+      isNull,
     );
-    expect(select([const DfuAdvertisement(original, 'AdaDFU', [])]), original);
     expect(
       select([const DfuAdvertisement('AA:BB:CC:DD:EE:01', 'T096_DFU', [])]),
       isNull,
@@ -114,14 +171,17 @@ void main() {
       isNull,
     );
     expect(
-      () => select([advert, const DfuAdvertisement(original, 'T096_DFU', [])]),
+      () => select([
+        advert,
+        const DfuAdvertisement(original, 'T096_DFU', [legacyDfuServiceUuid]),
+      ]),
       throwsStateError,
     );
     expect(select([advert, advert]), bootloader);
   });
 
   test(
-    'unknown boards require both a DFU name and service at the known address',
+    'unknown boards cannot authorize an arbitrary DFU name at the known address',
     () {
       String? select(List<String> services) => selectDfuBootloader(
         [DfuAdvertisement(original, 'BOARD_DFU', services)],
@@ -129,7 +189,7 @@ void main() {
         board: 'Unknown board',
       );
       expect(select([]), isNull);
-      expect(select([legacyDfuServiceUuid]), original);
+      expect(select([legacyDfuServiceUuid]), isNull);
     },
   );
 
@@ -368,6 +428,50 @@ void main() {
     );
   });
 
+  test(
+    'every catalog full/short DFU name joins fresh same-profile service proof',
+    () {
+      for (final board in CompanionBoardCatalog.specs.where(
+        (s) => s.dfuNames.isNotEmpty,
+      )) {
+        for (final name in board.dfuNames) {
+          var observation = reduceDfuAdvertisement(
+            null,
+            const DfuAdvertisement(original, '', [legacyDfuServiceUuid]),
+          );
+          observation = reduceDfuAdvertisement(
+            observation,
+            DfuAdvertisement(original, name, []),
+          );
+          expect(
+            selectDfuBootloader(
+              [observation],
+              originalAddress: original,
+              board: board.aliases.first,
+            ),
+            original,
+            reason: '${board.id}/$name',
+          );
+          for (final nextName in board.dfuNames) {
+            final next = reduceDfuAdvertisement(
+              observation,
+              DfuAdvertisement(original, nextName, []),
+            );
+            expect(
+              selectDfuBootloader(
+                [next],
+                originalAddress: original,
+                board: board.aliases.first,
+              ),
+              original,
+              reason: '${board.id}/$name->$nextName',
+            );
+          }
+        }
+      }
+    },
+  );
+
   for (final entry in {
     'Heltec T114': 'T114_DFU',
     'Heltec Tower V2': 'TOWER_V2',
@@ -404,7 +508,7 @@ void main() {
   }
 
   test('recognizes GATT timeouts but not ZIP or remote protocol failures', () {
-    for (final code in ['8', '62', '133', '147']) {
+    for (final code in ['8', '22', '62', '133', '147', '4101']) {
       expect(isDfuConnectionFailure(PlatformException(code: code)), isTrue);
     }
     for (final message in [
@@ -422,7 +526,7 @@ void main() {
     }
     expect(
       isDfuConnectionFailure(
-        PlatformException(code: '4101', message: 'File error'),
+        PlatformException(code: '4098', message: 'File error'),
       ),
       isFalse,
     );
@@ -430,53 +534,69 @@ void main() {
       isDfuConnectionFailure(PlatformException(code: '8'), errorType: 3),
       isFalse,
     );
+    expect(
+      isDfuConnectionFailure(PlatformException(code: '22'), errorType: 3),
+      isFalse,
+    );
     expect(isDfuConnectionFailure(StateError('GATT CONN TIMEOUT')), isFalse);
   });
 
-  test(
-    'timeout performs one fresh scan and retries the actual changed address',
-    () async {
-      final calls = <String>[];
-      final statuses = <String>[];
-      final scans = <Duration>[];
-      final waits = <Duration>[];
-      final recovery = NrfDfuRecovery(
-        scan: (addresses, timeout) async {
-          expect(addresses, [original, bootloader]);
-          scans.add(timeout);
-          return scans.length == 1 ? [] : [advert];
-        },
-        wait: (duration) async {
-          waits.add(duration);
-        },
-        transfer: (address, path, force, events) async {
-          expect(path, '/test/companion.zip');
-          calls.add('$address/$force');
-          if (calls.length == 1) {
-            events.onError?.call(address, 8, 2, 'GATT CONN TIMEOUT');
-            throw PlatformException(code: '8', message: 'GATT CONN TIMEOUT');
-          }
-        },
-      );
-      expect(
-        await recovery.update(
-          originalAddress: original,
-          path: '/test/companion.zip',
-          board: 'Heltec T096',
-          applicationOnly: true,
-          onStatus: statuses.add,
-        ),
-        bootloader,
-      );
-      expect(
-        statuses,
-        contains('Bluetooth DFU error (code=8, type=2): GATT CONN TIMEOUT'),
-      );
-      expect(calls, ['$original/false', '$bootloader/true']);
-      expect(scans, [const Duration(seconds: 2), const Duration(seconds: 8)]);
-      expect(waits, [const Duration(seconds: 2)]);
-    },
-  );
+  for (final errorCode in [8, 22, 4101]) {
+    test(
+      'connection error $errorCode scans and retries the actual changed address',
+      () async {
+        final calls = <String>[];
+        final statuses = <String>[];
+        final scans = <Duration>[];
+        final waits = <Duration>[];
+        final recovery = NrfDfuRecovery(
+          scan: (addresses, timeout) async {
+            expect(addresses, [original, bootloader]);
+            scans.add(timeout);
+            return scans.length == 1 ? [] : [advert];
+          },
+          wait: (duration) async {
+            waits.add(duration);
+          },
+          transfer: (address, path, force, events) async {
+            expect(path, '/test/companion.zip');
+            calls.add('$address/$force');
+            if (calls.length == 1) {
+              events.onError?.call(
+                address,
+                errorCode,
+                2,
+                'GATT connection failed',
+              );
+              throw PlatformException(
+                code: '$errorCode',
+                message: 'GATT connection failed',
+              );
+            }
+          },
+        );
+        expect(
+          await recovery.update(
+            originalAddress: original,
+            path: '/test/companion.zip',
+            board: 'Heltec T096',
+            applicationOnly: true,
+            onStatus: statuses.add,
+          ),
+          bootloader,
+        );
+        expect(
+          statuses,
+          contains(
+            'Bluetooth DFU error (code=$errorCode, type=2): GATT connection failed',
+          ),
+        );
+        expect(calls, ['$original/false', '$bootloader/true']);
+        expect(scans, [const Duration(seconds: 2), const Duration(seconds: 8)]);
+        expect(waits, [const Duration(seconds: 2)]);
+      },
+    );
+  }
 
   for (final address in [original, bootloader]) {
     test(
@@ -484,7 +604,9 @@ void main() {
       () async {
         var calls = 0;
         final recovery = NrfDfuRecovery(
-          scan: (_, _) async => [DfuAdvertisement(address, 'T096_DFU', [])],
+          scan: (_, _) async => [
+            DfuAdvertisement(address, 'T096_DFU', [legacyDfuServiceUuid]),
+          ],
           transfer: (found, _, force, _) async {
             calls++;
             expect(found, address);
@@ -561,6 +683,7 @@ void main() {
 
   for (final reason in [
     'progress',
+    'possible first bytes',
     'validation',
     'system image',
     'file',
@@ -581,13 +704,16 @@ void main() {
           if (reason == 'progress') {
             events.onProgressChanged?.call(address, 1, 0, 0, 1, 1);
           }
+          if (reason == 'possible first bytes') {
+            events.onDfuProcessStarted?.call(address);
+          }
           if (reason == 'validation') {
             events.onFirmwareValidating?.call(address);
           }
           if (reason == 'remote rejection') {
             events.onError?.call(address, 8, 3, 'Rejected');
           }
-          throw PlatformException(code: reason == 'file' ? '4101' : '8');
+          throw PlatformException(code: reason == 'file' ? '4098' : '8');
         },
       );
       await expectLater(
@@ -685,4 +811,422 @@ void main() {
       'ios-uuid',
     );
   });
+
+  test(
+    'verified factory address is explicit, never inferred from nearby names',
+    () {
+      const factory = 'CC:01:02:03:04:05';
+      const device = DfuAdvertisement(factory, 'T096_DFU', [
+        legacyDfuServiceUuid,
+      ]);
+      expect(
+        selectDfuBootloader(
+          [device],
+          originalAddress: original,
+          board: 'Heltec T096',
+        ),
+        isNull,
+      );
+      expect(
+        selectDfuBootloader(
+          [device],
+          originalAddress: original,
+          board: 'Heltec T096',
+          verifiedBootloaderAddress: factory,
+        ),
+        factory,
+      );
+      expect(
+        () => dfuCandidateAddresses(
+          original,
+          verifiedBootloaderAddress: 'invalid',
+        ),
+        throwsFormatException,
+      );
+      expect(
+        dfuCandidateAddresses(original, verifiedBootloaderAddress: original),
+        [original, bootloader],
+      );
+    },
+  );
+
+  test('unknown board never starts a scan or transfer', () async {
+    final recovery = NrfDfuRecovery(
+      scan: (_, _) async => fail('Unknown board must not scan'),
+      transfer: (_, _, _, _) async => fail('Unknown board must not write'),
+    );
+    await expectLater(
+      update(recovery, board: 'Custom nRF52 board'),
+      throwsStateError,
+    );
+  });
+
+  test(
+    'separate updater instances cannot overlap even during discovery',
+    () async {
+      final scanned = Completer<List<DfuAdvertisement>>();
+      final first = NrfDfuRecovery(
+        scan: (_, _) => scanned.future,
+        transfer: (_, _, _, _) async {},
+      );
+      final second = NrfDfuRecovery(
+        scan: (_, _) async => [],
+        transfer: (_, _, _, _) async {},
+      );
+      final pending = update(first);
+      await expectLater(update(second), throwsStateError);
+      scanned.complete([]);
+      await pending;
+      expect(await update(second), original);
+    },
+  );
+
+  test('cancel before transfer never asks native to write or abort', () async {
+    final scanned = Completer<List<DfuAdvertisement>>();
+    final recovery = NrfDfuRecovery(
+      scan: (_, _) => scanned.future,
+      transfer: (_, _, _, _) async => fail('Cancelled before transfer'),
+      abort: () async => fail('No active native transfer'),
+    );
+    final pending = update(recovery);
+    final failed = expectLater(pending, throwsStateError);
+    await recovery.cancel();
+    scanned.complete([]);
+    await failed;
+    expect(recovery.nativeTerminationConfirmed, isTrue);
+    expect(recovery.isQuarantined, isFalse);
+  });
+
+  testWidgets(
+    'hung native Future is aborted, quarantine prevents any second service',
+    (tester) async {
+      final native = Completer<void>();
+      var writes = 0, aborts = 0;
+      DfuEventHandler? callbacks;
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async => [],
+        transfer: (_, _, _, events) {
+          writes++;
+          callbacks = events;
+          return native.future;
+        },
+        abort: () async {
+          aborts++;
+        },
+      );
+      final pending = update(recovery);
+      final failed = expectLater(
+        pending,
+        throwsA(
+          isA<DfuStoppedException>().having(
+            (e) => e.nativeTerminationConfirmed,
+            'no terminal confirmation',
+            isFalse,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 60));
+      await tester.pump(const Duration(seconds: 10));
+      await failed;
+      expect(aborts, 1);
+      expect(writes, 1);
+      expect(recovery.isQuarantined, isTrue);
+      expect(recovery.nativeTerminationConfirmed, isFalse);
+      final other = NrfDfuRecovery(
+        scan: (_, _) async => [],
+        transfer: (_, _, _, _) async =>
+            fail('Quarantined service must own native DFU'),
+      );
+      await expectLater(update(other), throwsStateError);
+      // A late true terminal event is proof that the OS service finally stopped.
+      callbacks!.onDfuAborted?.call(original);
+      await tester.pump();
+      expect(recovery.isQuarantined, isFalse);
+      expect(recovery.nativeTerminationConfirmed, isTrue);
+      native.complete();
+      await tester.pump();
+      other.dispose();
+    },
+  );
+
+  testWidgets(
+    'abort acknowledgement plus true terminal Future safely clears ownership',
+    (tester) async {
+      final native = Completer<void>();
+      var writes = 0, aborts = 0;
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async => [],
+        transfer: (_, _, _, _) {
+          writes++;
+          return native.future;
+        },
+        abort: () async {
+          aborts++;
+          native.completeError(PlatformException(code: 'ABORTED'));
+        },
+      );
+      final pending = update(recovery);
+      final failed = expectLater(
+        pending,
+        throwsA(
+          isA<DfuStoppedException>().having(
+            (e) => e.nativeTerminationConfirmed,
+            'terminal confirmed',
+            isTrue,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 60));
+      await tester.pump();
+      await failed;
+      expect(aborts, 1);
+      expect(writes, 1);
+      expect(recovery.isQuarantined, isFalse);
+      expect(recovery.nativeTerminationConfirmed, isTrue);
+    },
+  );
+
+  testWidgets(
+    'payload starts before progress; deadline never automatically retries',
+    (tester) async {
+      final native = Completer<void>();
+      var writes = 0, scans = 0;
+      late DfuEventHandler callbacks;
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async {
+          scans++;
+          return [];
+        },
+        transfer: (address, _, _, events) {
+          writes++;
+          callbacks = events;
+          events.onDfuProcessStarted?.call(address);
+          return native.future;
+        },
+        abort: () async {
+          callbacks.onDfuAborted?.call(original);
+        },
+      );
+      final pending = update(recovery);
+      final failed = expectLater(pending, throwsA(isA<DfuStoppedException>()));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 60));
+      await tester.pump();
+      await failed;
+      expect(scans, 1);
+      expect(writes, 1);
+      native.complete();
+      await tester.pump();
+    },
+  );
+
+  testWidgets('progress resets inactivity but cannot bypass overall deadline', (
+    tester,
+  ) async {
+    final native = Completer<void>();
+    late DfuEventHandler events;
+    final recovery = NrfDfuRecovery(
+      overallTimeout: const Duration(seconds: 90),
+      scan: (_, _) async => [],
+      transfer: (_, _, _, e) {
+        events = e;
+        return native.future;
+      },
+      abort: () async {
+        events.onDfuAborted?.call(original);
+      },
+    );
+    final pending = update(recovery);
+    final failed = expectLater(
+      pending,
+      throwsA(
+        isA<DfuStoppedException>().having(
+          (e) => e.message,
+          'overall limit',
+          contains('overall'),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 45));
+    events.onProgressChanged?.call(original, 10, 0, 0, 1, 1);
+    await tester.pump(const Duration(seconds: 45));
+    await tester.pump();
+    await failed;
+    native.complete();
+    await tester.pump();
+  });
+
+  testWidgets('dispose aborts native and suppresses late callbacks', (
+    tester,
+  ) async {
+    final native = Completer<void>();
+    final progress = <int>[];
+    late DfuEventHandler events;
+    var aborts = 0;
+    final recovery = NrfDfuRecovery(
+      scan: (_, _) async => [],
+      transfer: (_, _, _, e) {
+        events = e;
+        return native.future;
+      },
+      abort: () async {
+        aborts++;
+        events.onDfuAborted?.call(original);
+      },
+    );
+    final pending = recovery.update(
+      originalAddress: original,
+      path: '/test/file.zip',
+      board: 'Heltec T096',
+      applicationOnly: true,
+      onProgress: progress.add,
+    );
+    final failed = expectLater(pending, throwsStateError);
+    await tester.pump();
+    recovery.dispose();
+    events.onProgressChanged?.call(original, 75, 0, 0, 1, 1);
+    await tester.pump();
+    await failed;
+    expect(aborts, 1);
+    expect(progress, isEmpty);
+    expect(recovery.nativeTerminationConfirmed, isTrue);
+    native.complete();
+    await tester.pump();
+  });
+
+  testWidgets(
+    'late first-attempt events cannot finish a new recovery attempt',
+    (tester) async {
+      var writes = 0, scans = 0;
+      late DfuEventHandler oldEvents;
+      final second = Completer<void>();
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async => ++scans == 1 ? [] : [advert],
+        wait: (_) async {},
+        transfer: (_, _, _, events) {
+          writes++;
+          if (writes == 1) {
+            oldEvents = events;
+            return Future.error(PlatformException(code: '8'));
+          }
+          return second.future;
+        },
+      );
+      var completed = false;
+      final pending = update(recovery).then((value) {
+        completed = true;
+        return value;
+      });
+      await tester.pump();
+      expect(writes, 2);
+      oldEvents.onDfuCompleted?.call(original);
+      oldEvents.onError?.call(original, 133, 2, 'late');
+      await tester.pump();
+      expect(completed, isFalse);
+      second.complete();
+      await tester.pump();
+      expect(await pending, bootloader);
+    },
+  );
+
+  testWidgets('OS proof is required to release a callback-lost quarantine', (
+    tester,
+  ) async {
+    final native = Completer<void>();
+    final recovery = NrfDfuRecovery(
+      scan: (_, _) async => [],
+      transfer: (_, _, _, _) => native.future,
+      abort: () async {},
+    );
+    final pending = update(recovery);
+    final failed = expectLater(pending, throwsStateError);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 70));
+    await failed;
+    expect(recovery.isQuarantined, isTrue);
+    expect(
+      await recovery.recoverQuarantine(verifyStopped: () async => false),
+      isFalse,
+    );
+    expect(
+      await recovery.recoverQuarantine(
+        verifyStopped: () async => throw StateError('no OS proof'),
+      ),
+      isFalse,
+    );
+    expect(recovery.isQuarantined, isTrue);
+    expect(
+      await recovery.recoverQuarantine(verifyStopped: () async => true),
+      isTrue,
+    );
+    expect(recovery.nativeTerminationConfirmed, isTrue);
+    expect(recovery.isQuarantined, isFalse);
+    native.complete();
+    await tester.pump();
+  });
+
+  test(
+    'verification itself holds native ownership and refuses active transfers',
+    () async {
+      final proof = Completer<bool>();
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async => [],
+        transfer: (_, _, _, _) async {},
+      );
+      final verifying = recovery.recoverQuarantine(
+        verifyStopped: () => proof.future,
+      );
+      final other = NrfDfuRecovery(
+        scan: (_, _) async => [],
+        transfer: (_, _, _, _) async {},
+      );
+      await expectLater(update(other), throwsStateError);
+      expect(
+        await other.recoverQuarantine(
+          verifyStopped: () async => fail('Must not verify another owner'),
+        ),
+        isFalse,
+      );
+      proof.complete(true);
+      expect(await verifying, isTrue);
+      expect(await update(other), original);
+    },
+  );
+
+  testWidgets(
+    'late terminal callback cannot release ownership during OS proof and persistent flag update',
+    (tester) async {
+      final native = Completer<void>();
+      final proof = Completer<bool>();
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async => [],
+        transfer: (_, _, _, _) => native.future,
+        abort: () async {},
+      );
+      final pending = update(recovery);
+      final failed = expectLater(pending, throwsStateError);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 70));
+      await failed;
+      final verifying = recovery.recoverQuarantine(
+        verifyStopped: () => proof.future,
+      );
+      native.complete();
+      await tester.pump();
+      final scan = Completer<List<DfuAdvertisement>>();
+      final other = NrfDfuRecovery(
+        scan: (_, _) => scan.future,
+        transfer: (_, _, _, _) async {},
+      );
+      await expectLater(update(other), throwsStateError);
+      proof.complete(true);
+      expect(await verifying, isTrue);
+      final otherPending = update(other);
+      scan.complete([]);
+      await otherPending;
+    },
+  );
 }

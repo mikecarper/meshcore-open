@@ -192,6 +192,14 @@ class MeshCoreConnector extends ChangeNotifier {
 
   MeshCoreConnectionState _state = MeshCoreConnectionState.disconnected;
   BluetoothDevice? _device;
+  bool _hasNordicDfuControl = false;
+  BluetoothCharacteristic? _nordicDfuControl;
+
+  /// Actual application GATT capability, not inferred from a Nordic board.
+  bool get supportsNordicCompanionDfu =>
+      isConnected &&
+      activeTransport == MeshCoreTransportType.bluetooth &&
+      _hasNordicDfuControl;
   BluetoothCharacteristic? _rxCharacteristic;
   BluetoothCharacteristic? _txCharacteristic;
   BluetoothCharacteristic? _bleMotaRequestCharacteristic;
@@ -444,6 +452,76 @@ class MeshCoreConnector extends ChangeNotifier {
   // Getters
   MeshCoreConnectionState get state => _state;
   BluetoothDevice? get device => _device;
+
+  /// Validate DFU against the current radio's services. A bonded Android
+  /// database can retain NUS yet have stale DFU handles after USB flashing.
+  Future<void> refreshNordicDfuService() async {
+    final device = _device;
+    if (!isConnected ||
+        activeTransport != MeshCoreTransportType.bluetooth ||
+        device == null) {
+      throw StateError('Connect directly over Bluetooth before DFU.');
+    }
+    final identity = selfPublicKeyHex;
+    _hasNordicDfuControl = false;
+    _nordicDfuControl = null;
+    final services = await discoverWithDfuCacheRecovery(
+      isAndroid: PlatformInfo.isAndroid,
+      refreshBeforeDiscovery: true,
+      discover: () => device.discoverServices(
+        subscribeToServicesChanged: !PlatformInfo.isAndroid,
+      ),
+      refreshCache: device.clearGattCache,
+    );
+    if (!isConnected || _device != device || selfPublicKeyHex != identity) {
+      throw StateError('Companion changed while checking Bluetooth DFU.');
+    }
+    _hasNordicDfuControl = supportsLegacyApplicationDfu(services);
+    if (!_hasNordicDfuControl) {
+      throw StateError(
+        'This Companion has no writable Nordic DFU control service. Use USB recovery.',
+      );
+    }
+    _nordicDfuControl = legacyApplicationDfuControl(services);
+  }
+
+  /// Enter the bootloader on the authenticated Companion link. Reconnecting
+  /// only to send this opcode can trigger the firmware's no-UART watchdog.
+  /// This sends no firmware; the updater must independently find the expected
+  /// bootloader before allowing the native transfer.
+  Future<void> enterNordicDfu() async {
+    final device = _device;
+    final control = _nordicDfuControl;
+    if (!supportsNordicCompanionDfu || device == null || control == null) {
+      throw StateError('Refresh the connected Nordic DFU service first.');
+    }
+    final identity = selfPublicKeyHex;
+    final wasManualDisconnect = _manualDisconnect;
+    try {
+      await enterLegacyApplicationDfu(
+        control: control,
+        isCurrentCompanion: () =>
+            isConnected && _device == device && selfPublicKeyHex == identity,
+        isDisconnected: () => !device.isConnected,
+        beforeWrite: () {
+          // The bootloader may disconnect before write() returns. Suppress
+          // normal reconnection before sending, not after receiving the reset.
+          _manualDisconnect = true;
+          _cancelReconnectTimer();
+          _stopBatteryPolling();
+          _stopRadioStatsPolling();
+        },
+      );
+    } catch (_) {
+      if (isConnected && _device == device) {
+        _manualDisconnect = wasManualDisconnect;
+        _startBatteryPolling();
+        _startRadioStatsPolling();
+      }
+      rethrow;
+    }
+  }
+
   String? get deviceId => _deviceId;
   String get deviceIdLabel => _deviceId ?? 'Unknown';
 
@@ -529,6 +607,7 @@ class MeshCoreConnector extends ChangeNotifier {
   /// the phone's DFU service takes over. Keep its progress page on screen.
   void setPreserveUpdateScreenOnDisconnect(bool value) {
     _preserveUpdateScreenOnDisconnect = value;
+    if (value) _cancelReconnectTimer();
   }
 
   bool get isBleMotaChannelReady =>
@@ -2591,6 +2670,7 @@ class MeshCoreConnector extends ChangeNotifier {
       }
 
       BluetoothService? uartService;
+      _hasNordicDfuControl = supportsLegacyApplicationDfu(services);
       for (var service in services) {
         if (service.uuid.toString().toLowerCase() == MeshCoreUuids.service) {
           uartService = service;
@@ -3191,11 +3271,13 @@ class MeshCoreConnector extends ChangeNotifier {
   }
 
   void _scheduleReconnect() {
+    if (_preserveUpdateScreenOnDisconnect) return;
     if (!_shouldAutoReconnect) return;
     if (_reconnectTimer?.isActive == true) return;
 
     final delayMs = _nextReconnectDelayMs();
     _reconnectTimer = Timer(Duration(milliseconds: delayMs), () async {
+      if (_preserveUpdateScreenOnDisconnect) return;
       if (!_shouldAutoReconnect) return;
       if (_state == MeshCoreConnectionState.connecting ||
           _state == MeshCoreConnectionState.connected) {
@@ -3361,6 +3443,8 @@ class MeshCoreConnector extends ChangeNotifier {
     }
 
     _device = null;
+    _hasNordicDfuControl = false;
+    _nordicDfuControl = null;
     _rxCharacteristic = null;
     _txCharacteristic = null;
     _bleMotaRequestCharacteristic = null;
@@ -7788,6 +7872,8 @@ class MeshCoreConnector extends ChangeNotifier {
     _connectionSubscription = null;
 
     _device = null;
+    _hasNordicDfuControl = false;
+    _nordicDfuControl = null;
     _rxCharacteristic = null;
     _txCharacteristic = null;
     _bleMotaRequestCharacteristic = null;

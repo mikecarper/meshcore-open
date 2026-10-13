@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:meshcore_open/services/companion_firmware_inspector.dart';
 import 'package:meshcore_open/services/esp32_wifi_ota_service.dart';
 
+import '../support/companion_firmware_test_data.dart';
+
 Uint8List _image({int length = 0x21000}) {
   final bytes = Uint8List(length);
   bytes[0] = 0xE9;
@@ -70,7 +72,7 @@ void main() {
   });
 
   test('app-only ESP32 bytes are a phone-update image', () {
-    final image = _image();
+    final image = testEspApplication();
 
     expect(
       CompanionFirmwareInspector.inspectEsp32(image),

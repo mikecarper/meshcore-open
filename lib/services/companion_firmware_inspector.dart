@@ -1,60 +1,18 @@
 import 'dart:typed_data';
 
+import 'companion_board_catalog.dart';
+
 enum Esp32FirmwareLayout { application, fullFlash }
 
-/// Selects the phone-update format only when the reported board family is
-/// unambiguous. Unknown boards keep both file types available for inspection.
+/// Uses exact firmware board identities, not vendor/MCU substring guesses.
 class CompanionFirmwareInspector {
-  static bool isTowerV2Board(String? board) {
-    final name = board?.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-    return const {
-      'heltectowerv2',
-      'heltecmeshtowerv2',
-      'meshtowerv2',
-      'towerv2',
-      'heltectowerv2sd',
-      'heltecmeshtowerv2sd',
-      'meshtowerv2sd',
-      'towerv2sd',
-      'heltectowerv2sdcard',
-      'heltecmeshtowerv2sdcard',
-      'meshtowerv2sdcard',
-      'towerv2sdcard',
-    }.contains(name);
-  }
+  static bool isTowerV2Board(String? board) =>
+      CompanionBoardCatalog.lookup(board)?.id == 'heltec-tower-v2';
 
-  static String? updateExtensionForBoard(String? board) {
-    if (board == null) return null;
-    final name = board.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-    if (name.isEmpty || name.startsWith('unknown')) return null;
-    if (isTowerV2Board(board)) return 'zip';
-
-    if (name.contains('xiaos3') ||
-        name.contains('xiaoesp32') ||
-        name.contains('esp32') ||
-        name.startsWith('heltecv') ||
-        name.startsWith('heltecwireless') ||
-        name.contains('stationg2') ||
-        name.contains('eoras3') ||
-        name.contains('tdeck') ||
-        name.contains('tbeam') ||
-        name.contains('tlora') ||
-        name.contains('sensecapindicator')) {
-      return 'bin';
-    }
-    if (name.contains('nrf52') ||
-        name.contains('rak4631') ||
-        name.contains('rak3401') ||
-        name.contains('t096') ||
-        name.contains('t114') ||
-        name.contains('techo') ||
-        name.contains('t1000') ||
-        name.contains('thinknode') ||
-        name.startsWith('xiao')) {
-      return 'zip';
-    }
-    return null;
-  }
+  /// The file family does not itself promise an available wireless transport.
+  /// For example, current Xiao C6 Companion firmware is known wired-only.
+  static String? updateExtensionForBoard(String? board) =>
+      CompanionBoardCatalog.lookup(board)?.updateExtension;
 
   /// The ESP image header alone occurs in both app-only and full-flash files.
   /// A partition table or an embedded second image marks a full-flash file.

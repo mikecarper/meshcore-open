@@ -12,16 +12,31 @@ import 'package:meshcore_open/screens/companion_update_screen.dart';
 import 'package:meshcore_open/services/esp32_partition_catalog.dart';
 import 'package:meshcore_open/services/repeater_command_service.dart';
 import 'package:provider/provider.dart';
+import 'package:meshcore_open/services/nrf_dfu_recovery_store.dart';
+import '../support/companion_firmware_test_data.dart';
+import '../support/async_button.dart';
+
+class _NoRecoveryStore extends NrfDfuRecoveryStore {
+  @override
+  Future<bool> hasUnconfirmedNativeTransfer() async => false;
+  @override
+  Future<NrfDfuRecoveryRecord?> load() async => null;
+}
 
 const _layout =
     '> int:esp32=4096K ext:none; '
     'nvs@0x9000+20K,otadata@0xE000+8K,'
     'app0*@0x10000+1280K,app1@0x150000+1280K,spiffs@0x290000+1472K';
 
-XFile _image(int size) => XFile.fromData(
-  Uint8List(size)
-    ..[0] = 0xe9
-    ..[1] = 2,
+XFile _image(int size, {bool companion = false}) => XFile.fromData(
+  testEspApplication(
+    hardwareId: 'Heltec_v3',
+    chip: 9,
+    dataBytes: size,
+    targetEnv: companion
+        ? 'Heltec_v3_companion_radio_ble'
+        : 'Heltec_v3_repeater',
+  ),
   name: 'Heltec_v3-application.bin',
   path: 'Heltec_v3-application.bin',
 );
@@ -49,6 +64,8 @@ class _Commands extends RepeaterCommandService {
       'ver' => 'v1.17.1-d929643 (Build: today)',
       'get storage.layout' => storage,
       'start ota' => 'Started: http://192.168.4.1/update',
+      'get ota.identity' =>
+        'OTA1 s=0123456789abcdef0123456789abcdef d=123456789abc c=9 slot=1310720 hw=Heltec_v3',
       _ => throw StateError('Unexpected command: $command'),
     };
   }
@@ -106,11 +123,9 @@ void main() {
             ),
           ),
         );
-        await tester.tap(find.text('Choose application .bin'));
+        await pressAsyncButton(tester, 'Choose application .bin');
         await tester.pumpAndSettle();
-        await tester.runAsync(
-          () => tester.tap(find.text('Start updater on radio')),
-        );
+        await pressAsyncButton(tester, 'Start updater on radio');
         await tester.pumpAndSettle();
         expect(commands.calls, ['board', 'ver', 'get storage.layout']);
         expect(
@@ -128,15 +143,13 @@ void main() {
         // Changing files invalidates both the result and any old endpoint.
         size = 2048;
         await tester.ensureVisible(find.text('Choose application .bin'));
-        await tester.tap(find.text('Choose application .bin'));
+        await pressAsyncButton(tester, 'Choose application .bin');
         await tester.pumpAndSettle();
         expect(
           find.textContaining('Partition expansion is needed'),
           findsNothing,
         );
-        await tester.runAsync(
-          () => tester.tap(find.text('Start updater on radio')),
-        );
+        await pressAsyncButton(tester, 'Start updater on radio');
         await tester.pumpAndSettle();
         expect(commands.calls.last, 'start ota');
         expect(find.textContaining('The selected image fits'), findsOneWidget);
@@ -156,7 +169,8 @@ void main() {
         value: connector,
         child: MaterialApp(
           home: CompanionUpdateScreen(
-            pickFirmware: () async => _image(2000000),
+            pickFirmware: () async => _image(2000000, companion: true),
+            recoveryStore: _NoRecoveryStore(),
           ),
         ),
       ),
@@ -166,7 +180,7 @@ void main() {
     await tester.tap(find.text('Use a firmware file'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Browse files'));
-    await tester.tap(find.text('Browse files'));
+    await pressAsyncButton(tester, 'Browse files');
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Start Wi-Fi updater'));
     await tester.tap(find.text('Start Wi-Fi updater'));

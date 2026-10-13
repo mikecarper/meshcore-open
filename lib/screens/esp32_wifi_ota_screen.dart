@@ -3,12 +3,16 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:provider/provider.dart';
 
 import '../connector/meshcore_connector.dart';
 import '../connector/meshcore_protocol.dart';
 import '../models/contact.dart';
 import '../services/esp32_partition_catalog.dart';
+import '../services/companion_board_catalog.dart';
+import '../services/nrf_dfu_target_catalog.dart';
+import '../services/usb_firmware_package.dart';
 import '../services/esp32_wifi_ota_service.dart';
 import '../services/esp32_partition_migration_package.dart';
 import '../services/esp32_migration_decision.dart';
@@ -17,6 +21,29 @@ import '../services/local_mota_builder.dart';
 import '../services/repeater_command_service.dart';
 import '../services/update_battery_note.dart';
 import '../widgets/update_status_card.dart';
+
+Esp32PartitionMigrationPackage _inspectMigrationBundle(Uint8List bytes) =>
+    Esp32PartitionMigrationPackage.load(bytes);
+
+UsbFirmwareImage _inspectRepeaterImage(
+  (String, Uint8List, String, String) input,
+) {
+  final spec = CompanionBoardCatalog.lookup(input.$3);
+  final image = Esp32WifiOtaService.inspectImage(input.$1, input.$2);
+  final identity = image.endf;
+  if (spec == null ||
+      spec.family != CompanionChipFamily.esp32 ||
+      !spec.supportsWifiOta ||
+      image.chip != spec.espChipId ||
+      identity == null ||
+      !spec.hardwareIds.contains(identity.hardwareId) ||
+      !NrfDfuTargetCatalog.supports(identity.targetId, spec, input.$4)) {
+    throw const FormatException(
+      'This image is not a verified exact-board build of the selected repeater/server role. Use a supported release or wired installer.',
+    );
+  }
+  return image;
+}
 
 class Esp32WifiOtaScreen extends StatefulWidget {
   const Esp32WifiOtaScreen({
@@ -46,6 +73,7 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
   String? _filename;
   Uri? _url;
   Esp32WifiOtaProbe? _probe;
+  Esp32WifiOtaBinding? _binding;
   String? _reportedBoard;
   String? _versionBefore;
   Esp32PartitionAssessment? _partition;
@@ -104,7 +132,7 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
         : await widget.pickApplication!();
     if (file == null) return;
     final bytes = await file.readAsBytes();
-    Esp32WifiOtaService.validateImage(file.name, bytes);
+    await Esp32WifiOtaService.inspectImageAsync(file.name, bytes);
     if (!mounted) return;
     setState(() {
       _image = bytes;
@@ -176,8 +204,10 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
         if (await file.length() > 32 * 1024 * 1024) {
           throw const FormatException('Migration ZIP is too large.');
         }
-        final package = Esp32PartitionMigrationPackage.load(
+        final package = await compute(
+          _inspectMigrationBundle,
           await file.readAsBytes(),
+          debugLabel: 'Partition migration validation',
         );
         _setMigrationPackage(package, source: 'Local ZIP');
       });
@@ -363,6 +393,15 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    final binding = Esp32WifiOtaBinding.parse(
+      await _commands.sendCommand(
+        widget.repeater,
+        'get ota.identity',
+        retries: 2,
+        minimumTimeoutMs: 15000,
+      ),
+      board: board,
+    );
     final reply = await _commands.sendCommand(
       widget.repeater,
       'start ota',
@@ -375,6 +414,7 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
       _reportedBoard = board;
       _versionBefore = version;
       _url = url;
+      _binding = binding;
       _probe = null;
       _migrationStep = 0;
       _migrationStarted = true;
@@ -397,6 +437,7 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
       protocol: probe.protocol,
       filename: 'wifi-bridge.bin',
       image: package.bridge,
+      binding: probe.binding,
     );
     if (!mounted) return;
     setState(() {
@@ -410,7 +451,11 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
   });
 
   Future<void> _checkMigrationReady() => _run(() async {
-    final state = await _wifi.probeMigrationBridge();
+    final binding = _binding;
+    if (binding == null) {
+      throw StateError('The original radio identity was not verified.');
+    }
+    final state = await _wifi.probeMigrationBridge(binding: binding);
     if (!mounted) return;
     setState(() {
       if (state == Esp32MigrationBridgeState.ready) {
@@ -453,7 +498,11 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
     );
     if (confirmed != true || !mounted) return;
     await _run(() async {
-      if (await _wifi.probeMigrationBridge() !=
+      final binding = _binding;
+      if (binding == null) {
+        throw StateError('The original radio identity was not verified.');
+      }
+      if (await _wifi.probeMigrationBridge(binding: binding) !=
           Esp32MigrationBridgeState.ready) {
         throw StateError('The bridge is not ready for the final image.');
       }
@@ -463,6 +512,7 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
         protocol: Esp32WifiOtaProtocol.elegant,
         filename: 'full-application.bin',
         image: package.application,
+        binding: binding,
       );
       if (!mounted) return;
       setState(() {
@@ -543,6 +593,12 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
       minimumTimeoutMs: 15000,
     );
     final partition = await _checkPartitions(board, version, _image!.length);
+    await compute(_inspectRepeaterImage, (
+      _filename!,
+      _image!,
+      board,
+      widget.repeater.type == advTypeRoom ? 'roomServer' : 'repeater',
+    ), debugLabel: 'Repeater firmware validation');
     if (!mounted) return;
     setState(() {
       _partition = partition;
@@ -556,6 +612,20 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
       );
       return;
     }
+    final binding = Esp32WifiOtaBinding.parse(
+      await _commands.sendCommand(
+        widget.repeater,
+        'get ota.identity',
+        retries: 2,
+        minimumTimeoutMs: 15000,
+      ),
+      board: board,
+    );
+    if (_image!.length > binding.slot) {
+      throw StateError(
+        'This image exceeds the measured inactive OTA partition. Use a verified wired migration.',
+      );
+    }
     final reply = await _commands.sendCommand(
       widget.repeater,
       'start ota',
@@ -566,6 +636,7 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
     if (!mounted) return;
     setState(() {
       _url = url;
+      _binding = binding;
       _probe = null;
       _migrationStarted = false;
       _reportedBoard = board;
@@ -579,7 +650,11 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
   Future<void> _checkConnection() => _run(() async {
     final url = _url;
     if (url == null) throw StateError('Start the radio updater first.');
-    final probe = await _wifi.probe(url);
+    final binding = _binding;
+    if (binding == null) {
+      throw StateError('Read the authenticated OTA identity first.');
+    }
+    final probe = await _wifi.probe(url, binding: binding);
     if (!mounted) return;
     setState(() {
       _probe = probe;
@@ -636,6 +711,7 @@ class _Esp32WifiOtaScreenState extends State<Esp32WifiOtaScreen> {
         protocol: probe.protocol,
         filename: filename,
         image: image,
+        binding: probe.binding,
       );
       if (!mounted) return;
       setState(() {

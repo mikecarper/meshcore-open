@@ -1,6 +1,8 @@
 package com.meshcore.meshcore_open
 
 import android.content.Intent
+import android.app.ActivityManager
+import android.content.Context
 import android.provider.Settings
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.embedding.android.FlutterActivity
@@ -21,6 +23,23 @@ class MainActivity : FlutterActivity() {
             if (call.method == "openWifiSettings") {
                 startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
                 result.success(null)
+            } else if (call.method == "isNativeDfuStopped") {
+                try {
+                    val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                    // Android restricts this to our own app on newer releases;
+                    // that is exactly the scope required here. Never inspect
+                    // other apps or assume that an abort broadcast stopped it.
+                    @Suppress("DEPRECATION")
+                    val running = manager.getRunningServices(Int.MAX_VALUE)
+                    val active = running.any { service ->
+                        service.service.packageName == packageName &&
+                            service.service.className.matches(
+                                Regex("dev\\.steenbakker\\.nordicdfu\\.DfuService[2-8]?"))
+                    }
+                    result.success(!active)
+                } catch (error: Exception) {
+                    result.error("DFU_STATUS_UNAVAILABLE", "Native DFU lifetime could not be verified.", null)
+                }
             } else {
                 result.notImplemented()
             }

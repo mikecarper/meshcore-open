@@ -1,5 +1,11 @@
 # Update a Companion from the phone (nRF52 Bluetooth or ESP32 Wi-Fi)
 
+For the newer safety checks, explicit reinstall/downgrade picker, wrong-board
+recovery, and isolated Tower upgrade evidence, see
+[Phone flashing hardening](FLASHING_HARDENING.md). The screenshots below retain
+their original test versions; they do not qualify the newer Wi-Fi binding
+contract against old firmware.
+
 These are real screenshots from the Android 5.1.1 phone and two Full Companions on the Mercerwood Pi Zero bench: a RAK4631 (nRF52) and a Heltec V4.3 OLED (ESP32-S3). Use **Settings > Update Companion** on the phone. This updates the Companion the phone is directly connected to, not a remote repeater over LoRa.
 
 **Test status:** The ESP32 update from `v1.17.1.5` to `v1.17.1.6` completed, the phone reconnected, and the app displayed the new version. The original RAK4631 nRF52 lab downgrade reached 100% and was verified over USB, but its phone-side reconnection was not verified. A later **T096 Bluetooth upgrade to 1.17.1.9 was verified both over USB and on the reconnected Android 5.1.1 phone**; see the T096 test below. Do not treat the DFU completion screen alone as end-to-end proof.

@@ -17,6 +17,8 @@ import 'package:meshcore_open/services/esp32_partition_catalog.dart';
 import 'package:meshcore_open/services/esp32_partition_migration_package.dart';
 import 'package:meshcore_open/services/repeater_command_service.dart';
 import 'package:provider/provider.dart';
+import '../support/companion_firmware_test_data.dart';
+import '../support/async_button.dart';
 
 const _targetId = 0x11223344;
 
@@ -182,7 +184,7 @@ void main() {
       await tester.tap(find.text('Partition upgrade'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Choose migration ZIP'));
-      await tester.tap(find.text('Choose migration ZIP'));
+      await pressAsyncButton(tester, 'Choose migration ZIP');
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text('Check this upgrade'),
@@ -244,7 +246,7 @@ void main() {
     await tester.tap(find.text('Partition upgrade'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Choose migration ZIP'));
-    await tester.tap(find.text('Choose migration ZIP'));
+    await pressAsyncButton(tester, 'Choose migration ZIP');
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.text('Check this upgrade'),
@@ -286,12 +288,16 @@ Uint8List _bundle({
   String role = 'repeater',
   String board = 'test-board',
 }) {
-  final bridge = Uint8List(1024)
-    ..[0] = 0xE9
-    ..[1] = 2;
-  final body = Uint8List(0x110000)
-    ..[0] = 0xE9
-    ..[1] = 2;
+  final bridge = testEspApplication(
+    marked: false,
+    appendedHash: false,
+    dataBytes: 976,
+  );
+  final body = testEspApplication(
+    marked: false,
+    appendedHash: false,
+    dataBytes: 0x110000 - 48,
+  );
   final app = Uint8List(body.length + 56)..setRange(0, body.length, body);
   final trailer = ByteData.sublistView(app, body.length);
   app.setRange(body.length, body.length + 4, 'EndF'.codeUnits);

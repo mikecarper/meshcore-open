@@ -95,9 +95,10 @@ class UsbEndfIdentity {
       end--;
     }
     final hardware = _ascii(trailer.sublist(24, end));
-    if (version == 0 ||
-        target == 0 ||
-        !RegExp(r'^[A-Za-z0-9_-]{1,32}$').hasMatch(hardware)) {
+    // Full Companion firmware is a source-only LoRa OTA seeder and explicitly
+    // carries target ID zero. Role and migration eligibility are separate
+    // policy checks, not a reason to reject its valid EndF structure.
+    if (version == 0 || !RegExp(r'^[A-Za-z0-9_-]{1,32}$').hasMatch(hardware)) {
       usbReject('MeshCore EndF hardware identity is invalid.');
     }
     return UsbEndfIdentity(version, target, hardware);
