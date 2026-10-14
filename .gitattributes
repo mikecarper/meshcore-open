@@ -2,3 +2,6 @@
 *.aab filter=lfs diff=lfs merge=lfs -text
 *.so filter=lfs diff=lfs merge=lfs -text
 *.jar filter=lfs diff=lfs merge=lfs -text
+
+# Raw RGB image fixtures must retain exact bytes.
+assets/native_codec_smoke/*.ppm binary
