@@ -190,7 +190,10 @@ void main() async {
 /// `image_codec_service.dart` (and so the store stays testable without an
 /// 872 MB ONNX graph).
 class ImageCodecServiceDecoder
-    implements ReceivedImageDecoder, ReceivedImageRecoveryDecoder {
+    implements
+        ReceivedImageDecoder,
+        ReceivedImageRecoveryDecoder,
+        ReceivedImageJobControl {
   final ImageCodecService service;
 
   const ImageCodecServiceDecoder(this.service);
@@ -200,6 +203,17 @@ class ImageCodecServiceDecoder
 
   @override
   bool get isBusy => service.isBusy;
+
+  @override
+  bool get canPause => service.canPause;
+  @override
+  bool get isPaused => service.isPaused;
+  @override
+  Future<void> pause() => service.pause();
+  @override
+  Future<void> resume() => service.resume();
+  @override
+  Future<void> cancel() => service.cancel();
 
   @override
   bool get supportsBestEffortRecovery => service.supportsBestEffortRecovery;

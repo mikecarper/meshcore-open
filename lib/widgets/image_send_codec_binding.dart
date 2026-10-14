@@ -180,6 +180,15 @@ abstract class ImageSendCodec {
   });
 }
 
+/// Optional controls for a codec that runs a cancellable native process.
+abstract class ImageSendCodecJobControl {
+  bool get canPause;
+  bool get isPaused;
+  Future<void> pause();
+  Future<void> resume();
+  Future<void> cancel();
+}
+
 /// A deterministic stand-in used for widget previews and tests.
 ///
 /// It produces a buffer of the measured mean size for the requested rate point

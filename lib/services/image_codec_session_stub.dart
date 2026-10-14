@@ -50,7 +50,11 @@ class ImageCodecSession {
     throw UnsupportedError('The image codec is not supported on web.');
   }
 
-  void cancel() {}
+  bool get canPause => false;
+  bool get isPaused => false;
+  Future<void> pause() async {}
+  Future<void> resume() async {}
+  Future<void> cancel() async {}
 
   Future<void> dispose() async {}
 }

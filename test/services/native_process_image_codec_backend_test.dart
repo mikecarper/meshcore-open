@@ -33,6 +33,10 @@ void main() {
   var starts = 0;
   var degraded = false;
   var completeMarker = true;
+  var hold = false;
+  var paused = false;
+  var cancelPolls = 0;
+  var delayCancel = false;
   String? workspace;
 
   setUp(() async {
@@ -51,6 +55,10 @@ void main() {
     starts = 0;
     degraded = false;
     completeMarker = true;
+    hold = false;
+    paused = false;
+    cancelPolls = 0;
+    delayCancel = false;
     workspace = null;
     bundle = ImageCodecBundle(
       decoderGraphPath: '',
@@ -91,20 +99,40 @@ void main() {
           return {'jobId': 'job'};
         case 'poll':
           polls++;
-          final done = cancelled || polls > 1;
+          final done = cancelled
+              ? (!delayCancel || ++cancelPolls >= 3)
+              : (!hold && polls > 1);
+          if (!done) {
+            expect(
+              await Directory(workspace!).exists(),
+              isTrue,
+              reason: 'scratch must remain while the process is active',
+            );
+          }
           return {
             'finished': done,
             'progress': done ? 1.0 : 0.5,
             'exitCode': done ? 0 : null,
             'complete': done && !cancelled && completeMarker,
             'cancelled': cancelled,
+            'pauseRequested': paused,
+            'paused': paused,
             'degraded': degraded,
             'recoveryEvents': degraded ? 2 : 0,
             'warnings': degraded
                 ? ['Recovered damaged entropy data.']
                 : <String>[],
           };
+        case 'pause':
+          paused = true;
+          return null;
+        case 'resume':
+          paused = false;
+          return null;
+        case 'activeJobs':
+          return cancelled && cancelPolls >= 3 ? <String>[] : ['job'];
         case 'cancel':
+          paused = false;
           cancelled = true;
           return null;
         case 'cancelAll':
@@ -123,6 +151,57 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
     await root.delete(recursive: true);
   });
+
+  test('pause and resume preserve an active job before its result', () async {
+    hold = true;
+    final job = backend.decode(
+      bitstream: framed(128),
+      ratePoint: AeicRatePoint.ft2,
+      resolution: 128,
+    );
+    while (starts == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    await backend.pause();
+    final deadline = DateTime.now().add(const Duration(seconds: 2));
+    while (!paused && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    expect(paused, isTrue);
+    expect(await Directory(workspace!).exists(), isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 180));
+    expect(cancelled, isFalse);
+    await backend.resume();
+    expect(paused, isFalse);
+    hold = false;
+    await job;
+    expect(await Directory(workspace!).exists(), isFalse);
+  });
+
+  test(
+    'cancel from pause waits for process completion before scratch cleanup',
+    () async {
+      hold = true;
+      delayCancel = true;
+      final job = backend.decode(
+        bitstream: framed(128),
+        ratePoint: AeicRatePoint.ft2,
+        resolution: 128,
+      );
+      final rejected = expectLater(job, throwsA(isA<ImageCodecCancelled>()));
+      while (starts == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      await backend.pause();
+      await backend.cancel();
+      await rejected;
+      expect(paused, isFalse);
+      expect(cancelPolls, greaterThanOrEqualTo(3));
+      expect(await Directory(workspace!).exists(), isFalse);
+    },
+  );
 
   test(
     'encode stages selected RGB geometry and cleans completed workspace',

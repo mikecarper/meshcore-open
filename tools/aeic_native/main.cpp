@@ -5,6 +5,9 @@
 #include "tiled_attention.h"
 #include "direct_allocator.h"
 #include "file_hash.h"
+#include "tensor_memory.h"
+#include "pause_counter.h"
+#include "process_supervisor.h"
 #include "net.h"
 #include <algorithm>
 #include <chrono>
@@ -24,6 +27,9 @@
 #include <vector>
 #if defined(__linux__)
 #include <sys/resource.h>
+#include <sys/prctl.h>
+#include <unistd.h>
+#include <signal.h>
 #endif
 
 namespace {
@@ -46,7 +52,10 @@ struct Args {
     std::string directory, bitstream, output, verify, dump, stage_only, stop_after;
     std::string input, bitstream_output;
     std::string hash_file;
+    std::string spill_dir;
+    std::string pause_file;
     bool hash_decimal = false;
+    bool supervise = false;
     std::vector<std::string> tensors;
     int threads = 2;
     int model_size = 0;
@@ -59,6 +68,7 @@ struct Args {
 };
 size_t recovery_events = 0;
 long isolated_peak_kb = 0;
+std::function<uint64_t()> pause_counter;
 void degraded(const std::string& category, const std::string& detail) {
     ++recovery_events;
     std::string clean = detail;
@@ -349,7 +359,8 @@ void validate_matrix_shapes(const std::string& path) {
         }
     }
 }
-std::vector<ncnn::Mat> extract_stage(const Args& args, const Stage& stage, Slots& slots) {
+std::vector<ncnn::Mat> extract_stage(const Args& args, const Stage& stage, Slots& slots,
+                                    const std::set<std::string>& consumed = {}) {
     auto started = Clock::now();
     for (auto& input : stage.inputs) {
         if (input.channels)
@@ -381,6 +392,10 @@ std::vector<ncnn::Mat> extract_stage(const Args& args, const Stage& stage, Slots
         extractor.set_light_mode(true);
         for (auto& input : stage.inputs)
             if (extractor.input(input.blob.c_str(), slot(slots, input.slot))) throw std::runtime_error("input failed " + stage.name + ":" + input.blob);
+        // The extractor now owns every input. Releasing a consumed slot lets
+        // ncnn reuse unique storage for supported in-place unary operations.
+        // Any retained alias keeps its refcount elevated, so ncnn clones it.
+        for (const auto& name : consumed) slots.at(name).release();
         // Extract all outputs before replacing a slot used by this stage's input.
         for (size_t i = 0; i < stage.outputs.size(); ++i) {
             if (extractor.extract(stage.outputs[i].blob.c_str(), outputs[i])) throw std::runtime_error("extract failed " + stage.name + ":" + stage.outputs[i].blob);
@@ -393,6 +408,83 @@ std::vector<ncnn::Mat> extract_stage(const Args& args, const Stage& stage, Slots
     }
     // Extracted Mats own their storage after the graph and its allocators die.
     return outputs;
+}
+struct SimpleGraph {
+    bool add = false;
+    int convolution_scale = 0;
+};
+SimpleGraph simple_graph(const std::string& path) {
+    std::ifstream file(path);
+    if (!file) return {};
+    std::vector<std::string> operations;
+    std::vector<std::map<int, float>> options;
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream fields(line); std::string type, name; int inputs, outputs;
+        if (!(fields >> type >> name >> inputs >> outputs)) continue;
+        if (inputs < 0 || outputs < 0 || inputs > 4 || outputs > 4) return {};
+        std::string word;
+        for (int i = 0; i < inputs + outputs; ++i) if (!(fields >> word)) return {};
+        if (type == "Input") continue;
+        std::map<int, float> parameters;
+        while (fields >> word) {
+            size_t equals = word.find('=');
+            if (equals == std::string::npos || word.find(',') != std::string::npos) return {};
+            try { parameters[std::stoi(word.substr(0, equals))] = std::stof(word.substr(equals + 1)); }
+            catch (...) { return {}; }
+        }
+        operations.push_back(type); options.push_back(parameters);
+    }
+    if (operations.size() == 1 && operations[0] == "BinaryOp" && options[0][0] == 0 && options[0][1] == 0)
+        return {true, 0};
+    int scale = 1;
+    if (operations.size() == 2 && operations[0] == "Interp") {
+        const auto& interpolation = options[0];
+        auto get = [&interpolation](int key, float value) { auto found = interpolation.find(key); return found == interpolation.end() ? value : found->second; };
+        if (get(0, 0) != 1 || get(1, 0) != 2 || get(2, 0) != 2 || get(3, 0) != 0 || get(4, 0) != 0) return {};
+        scale = 2;
+    } else if (operations.size() != 1) return {};
+    if (operations.back() != "Convolution") return {};
+    const auto& convolution = options.back();
+    auto get = [&convolution](int key, float value) { auto found = convolution.find(key); return found == convolution.end() ? value : found->second; };
+    float kernel = get(1, 0), padding = kernel == 3 ? 1.f : 0.f;
+    if ((kernel != 1 && kernel != 3) || get(11, kernel) != kernel || get(2, 1) != 1 || get(12, 1) != 1 ||
+        get(3, 1) != 1 || get(13, 1) != 1 || get(4, 0) != padding || get(14, padding) != padding ||
+        get(15, padding) != padding || get(16, padding) != padding) return {};
+    return {false, scale};
+}
+std::vector<ncnn::Mat> extract_row_tiled(const Args& args, const Stage& stage, Slots& slots, int scale) {
+    const auto& source = slot(slots, stage.inputs.at(0).slot);
+    const auto& output = stage.outputs.at(0);
+    chw(source, stage.inputs[0].channels, stage.inputs[0].height, stage.inputs[0].width, stage.name + " tiled input");
+    if (output.height != source.h * scale || output.width != source.w * scale)
+        throw std::runtime_error("tiled convolution output dimensions disagree " + stage.name);
+    ncnn::Mat result(output.width, output.height, output.channels);
+    if (result.empty()) throw std::runtime_error("cannot allocate tiled convolution output");
+    auto tiles = aeic::convolution_row_tiles(source.h, scale);
+    std::printf("ROW_TILED %s tiles=%zu rows=64 scale=%d\n", stage.name.c_str(), tiles.size(), scale);
+    for (const auto& tile : tiles) {
+        Stage local = stage;
+        local.inputs[0].height = tile.input_end - tile.input_first;
+        local.outputs[0].height = local.inputs[0].height * scale;
+        ncnn::Mat input(source.w, local.inputs[0].height, source.c);
+        if (input.empty()) throw std::runtime_error("cannot allocate row tile input");
+        for (int c = 0; c < source.c; ++c) {
+            const float* values = source.channel(c);
+            std::memcpy(input.channel(c), values + size_t(tile.input_first) * source.w,
+                size_t(local.inputs[0].height) * source.w * sizeof(float));
+        }
+        Slots tile_slots; tile_slots[local.inputs[0].slot] = input; input.release();
+        auto extracted = extract_stage(args, local, tile_slots, {local.inputs[0].slot});
+        const auto& produced = extracted.at(0);
+        for (int c = 0; c < output.channels; ++c) {
+            const float* values = produced.channel(c); float* destination = result.channel(c);
+            std::memcpy(destination + size_t(tile.output_first) * output.width,
+                values + size_t(tile.crop_first) * output.width,
+                size_t(tile.output_end - tile.output_first) * output.width * sizeof(float));
+        }
+    }
+    return {result};
 }
 ncnn::Mat owned_tensor(aeic_recovery::Shape shape, const float* values, size_t elements) {
     size_t expected = 0; std::string reason;
@@ -434,23 +526,47 @@ ncnn::Mat fallback_tensor(const Stage& stage, Slots& slots, std::string& strateg
     }
     return output;
 }
-void execute(const Args& args, const Stage& stage, Slots& slots) {
+void execute(const Args& args, const Stage& stage, Slots& slots,
+             const std::set<std::string>& consumed = {}, bool renderer_memory = false) {
     auto started = Clock::now();
     std::printf("STAGE_BEGIN %s rss_kb=%ld peak_kb=%ld isolated=%s\n",
         stage.name.c_str(), rss_kb(), peak_kb(), args.best_effort ? "true" : "false"); std::fflush(stdout);
     std::vector<ncnn::Mat> outputs;
-    if (!args.best_effort) outputs = extract_stage(args, stage, slots);
+    SimpleGraph graph;
+    if (renderer_memory) graph = simple_graph(join(args.directory, stage.param));
+    bool tiled = graph.convolution_scale && stage.inputs.size() == 1 && stage.outputs.size() == 1 &&
+        stage.outputs[0].channels && stage.inputs[0].channels &&
+        (uint64_t(stage.outputs[0].channels) * stage.outputs[0].height * stage.outputs[0].width * 4 >= (32u << 20) ||
+         uint64_t(stage.inputs[0].channels) * stage.inputs[0].height * stage.inputs[0].width * 4 >= (32u << 20));
+    auto extract = [&]() {
+        if (tiled) return extract_row_tiled(args, stage, slots, graph.convolution_scale);
+        return extract_stage(args, stage, slots, consumed);
+    };
+    if (!args.best_effort) {
+        bool reused = graph.add && stage.inputs.size() == 2 && stage.outputs.size() == 1 &&
+            exists(join(args.directory, stage.weights)) &&
+            consumed.count(stage.inputs[0].slot) &&
+            aeic::add_unique_inplace(slot(slots, stage.inputs[0].slot), slot(slots, stage.inputs[1].slot));
+        if (reused) {
+            std::printf("INPLACE_ADD %s consumed_slot=%s\n", stage.name.c_str(), stage.inputs[0].slot.c_str());
+            outputs.push_back(slot(slots, stage.inputs[0].slot));
+            canonical_chw(outputs[0], stage.name);
+            const auto& shape = stage.outputs[0];
+            chw(outputs[0], shape.channels, shape.height, shape.width, stage.name + " reused output");
+        } else outputs = extract();
+    }
     else {
         if (stage.outputs.size() != 1 || !stage.outputs[0].channels)
             throw std::runtime_error("best-effort requires one output with known CHW metadata: " + stage.name);
         const auto& shape = stage.outputs[0];
         aeic_recovery::Options options; options.timeout_ms = args.stage_timeout_ms;
         options.max_output_bytes = 256u << 20;
+        options.paused_ms = pause_counter;
         // This trusted callback validates and copies every logical element.
         // Touch IPC pages only after model weights/intermediates are released.
         options.initialize_output = false;
         auto shared = aeic_recovery::run_isolated_shared({shape.channels, shape.height, shape.width}, options, [&](float* target, size_t count) {
-            auto extracted = extract_stage(args, stage, slots);
+            auto extracted = extract();
             const auto& output = extracted.at(0);
             size_t plane = size_t(output.h) * output.w;
             if (output.dims != 3 || output.elempack != 1 || output.elemsize != 4 || plane * output.c != count)
@@ -490,6 +606,29 @@ void release_unused(Slots& slots, const std::vector<Stage>& stages, size_t next,
     for (auto it = slots.begin(); it != slots.end();) {
         if (!needed.count(it->first)) it = slots.erase(it); else ++it;
     }
+}
+std::set<std::string> consumed_renderer_inputs(const Stage& stage, const std::vector<Stage>& stages, size_t next) {
+    std::set<std::string> consumed;
+    for (const auto& input : stage.inputs) consumed.insert(input.slot);
+    for (size_t i = next; i < stages.size(); ++i)
+        for (const auto& input : stages[i].inputs) consumed.erase(input.slot);
+    return consumed;
+}
+void spill_renderer_skips(aeic::TensorSpillStore& storage, Slots& slots,
+                          const std::vector<Stage>& stages, size_t next, const std::string& output) {
+    std::set<std::string> next_inputs, live;
+    if (next < stages.size()) for (const auto& input : stages[next].inputs) next_inputs.insert(input.slot);
+    for (auto& entry : slots) {
+        live.insert(entry.first);
+        auto& tensor = entry.second;
+        if (tensor.empty() || entry.first == output || next_inputs.count(entry.first)) continue;
+        size_t bytes = size_t(tensor.c) * tensor.h * tensor.w * sizeof(float);
+        if (bytes < (8u << 20)) continue;
+        storage.spill(entry.first, tensor);
+        tensor.release();
+        std::printf("TENSOR_SPILLED slot=%s bytes=%zu rss_kb=%ld\n", entry.first.c_str(), bytes, rss_kb());
+    }
+    storage.discard_except(live);
 }
 void crop_base(ncnn::Mat& base, int channels, int height, int width) {
     if (base.w == width && base.h == height) { chw(base, channels, height, width, "base"); return; }
@@ -899,6 +1038,7 @@ Args arguments(int argc, char** argv) {
         if (key == "--strict-verify") { result.strict = true; continue; }
         if (key == "--best-effort") { result.best_effort = true; continue; }
         if (key == "--hash-decimal") { result.hash_decimal = true; continue; }
+        if (key == "--supervise") { result.supervise = true; continue; }
         if (key == "--help") {
             std::printf("aeic_decode --model-dir DIR --bitstream FILE --output FILE.png|FILE.ppm\n"
                 "aeic_decode --encode --model-dir DIR --input FILE.ppm --bitstream-output FILE.aeic\n"
@@ -907,6 +1047,9 @@ Args arguments(int argc, char** argv) {
                 "  [--verify-integers-only] (skip optional float references)\n"
                 "  [--model-size N] (128..576, divisible by 64; override codec metadata)\n"
                 "  [--best-effort] [--stage-timeout-ms N] (recover with DEGRADED warnings)\n"
+                "  [--spill-dir DIR] (exact FP32 renderer scratch and bounded row tiles)\n"
+                "  [--pause-time-file FILE] (private cumulative paused-ms counter)\n"
+                "  [--supervise] (app launcher stays in Android's process-reaper group)\n"
                 "Diagnostics only: --stage-only NAME --tensor SLOT=C,H,W:FILE.f32\n");
             std::printf("File integrity: aeic_decode --hash-file FILE [--hash-decimal]\n");
             std::exit(0);
@@ -919,6 +1062,8 @@ Args arguments(int argc, char** argv) {
         else if (key == "--input") result.input = value;
         else if (key == "--bitstream-output") result.bitstream_output = value;
         else if (key == "--hash-file") result.hash_file = value;
+        else if (key == "--spill-dir") result.spill_dir = value;
+        else if (key == "--pause-time-file") result.pause_file = value;
         else if (key == "--verify-dir") result.verify = value;
         else if (key == "--dump-dir") result.dump = value;
         else if (key == "--threads") result.threads = std::stoi(value);
@@ -950,18 +1095,25 @@ Args arguments(int argc, char** argv) {
 }
 }
 
-int main(int argc, char** argv) {
+int codec_main(const Args& args, bool supervised_worker) {
     try {
-        Args args = arguments(argc, argv);
-        if (!args.hash_file.empty()) {
-            const auto hash = aeic::hash_file_streamed(args.hash_file);
-            std::printf("HASH_FILE bytes=%llu fnv1a64=%s", static_cast<unsigned long long>(hash.bytes),
-                aeic::hash_hex(hash.fnv1a64).c_str());
-            if (args.hash_decimal) std::printf(" fnv1a64_decimal=%llu", static_cast<unsigned long long>(hash.fnv1a64));
-            std::printf(" path=%s\n", args.hash_file.c_str());
-            return 0;
+#if defined(__linux__)
+        // A job owns its process group, including recovery children, so the app
+        // can pause/resume/cancel it without sending signals to unrelated jobs.
+        if (!supervised_worker) {
+            pid_t parent = getppid();
+            if (setpgid(0, 0) != 0 || getpgrp() != getpid()) throw std::runtime_error("cannot create codec process group");
+            if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0) throw std::runtime_error("cannot guard codec parent lifetime");
+            if (getppid() != parent) { raise(SIGKILL); return 1; }
+            std::printf("PROCESS_INFO pid=%ld group=%ld\n", static_cast<long>(getpid()), static_cast<long>(getpgrp()));
+            std::fflush(stdout);
         }
+#endif
         if (args.integers_only) std::printf("VERIFY_MODE exact_integer_references_only=true float_references=false\n");
+        if (!args.pause_file.empty()) {
+            auto reader = std::make_shared<aeic::PauseCounter>(args.pause_file);
+            pause_counter = [reader]() { return (*reader)(); };
+        }
         if (args.best_effort) std::printf("RECOVERY_MODE enabled=true isolated_model_stages=true fallback_may_change_image=true\n");
         auto started = Clock::now();
         Manifest codec = manifest(join(args.directory, "codec.tsv"));
@@ -1012,9 +1164,20 @@ int main(int argc, char** argv) {
         if (renderer.stages.empty()) throw std::runtime_error("renderer has no stages");
         std::string output_slot = renderer.settings.count("output_slot") ? renderer.settings.at("output_slot") : "rgb";
         std::string range = renderer.settings.count("rgb_range") ? renderer.settings.at("rgb_range") : "-1,1";
+        std::unique_ptr<aeic::TensorSpillStore> spill;
+        if (!args.spill_dir.empty()) {
+            spill.reset(new aeic::TensorSpillStore(args.spill_dir));
+            std::printf("RENDERER_MEMORY exact_fp32=true spill=true row_tiles=64 consumed_input_reuse=true\n");
+        }
         for (size_t i = 0; i < renderer.stages.size(); ++i) {
-            execute(args, renderer.stages[i], slots);
+            const auto& stage = renderer.stages[i];
+            if (spill) for (const auto& input : stage.inputs) if (spill->contains(input.slot)) {
+                slots[input.slot] = spill->restore(input.slot);
+                std::printf("TENSOR_RESTORED slot=%s rss_kb=%ld\n", input.slot.c_str(), rss_kb());
+            }
+            execute(args, stage, slots, spill ? consumed_renderer_inputs(stage, renderer.stages, i + 1) : std::set<std::string>{}, bool(spill));
             release_unused(slots, renderer.stages, i + 1, {output_slot});
+            if (spill) spill_renderer_skips(*spill, slots, renderer.stages, i + 1, output_slot);
             if (stop(args, renderer.stages[i].name)) return 0;
         }
         ppm(args.output, slot(slots, output_slot), stream.height, stream.width, range);
@@ -1025,6 +1188,29 @@ int main(int argc, char** argv) {
         std::printf("RESULT_STATUS degraded=%s recovery_events=%zu child_peak_kb=%ld\n",
             recovery_events ? "true" : "false", recovery_events, isolated_peak_kb);
         return 0;
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "AEIC_ERROR %s\n", error.what());
+        return 1;
+    }
+}
+
+int main(int argc, char** argv) {
+    try {
+        Args args = arguments(argc, argv);
+        if (!args.hash_file.empty()) {
+            const auto hash = aeic::hash_file_streamed(args.hash_file);
+            std::printf("HASH_FILE bytes=%llu fnv1a64=%s", static_cast<unsigned long long>(hash.bytes),
+                aeic::hash_hex(hash.fnv1a64).c_str());
+            if (args.hash_decimal) std::printf(" fnv1a64_decimal=%llu", static_cast<unsigned long long>(hash.fnv1a64));
+            std::printf(" path=%s\n", args.hash_file.c_str());
+            return 0;
+        }
+        if (args.supervise) {
+            return aeic::supervise_job([&]() { return codec_main(args, true); },
+                [](int pid) { std::printf("PROCESS_INFO pid=%d group=%d\n", pid, pid); std::fflush(stdout); },
+                [](int pid) { std::printf("PROCESS_EXIT pid=%d group=%d\n", pid, pid); std::fflush(stdout); });
+        }
+        return codec_main(args, false);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "AEIC_ERROR %s\n", error.what());
         return 1;

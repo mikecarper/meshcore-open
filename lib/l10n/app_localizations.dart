@@ -8865,6 +8865,174 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Connect to a companion to access repeater and room server features.'**
   String get dialog_connectCompanion;
+
+  /// No description provided for @imageSend_resolutionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Image size'**
+  String get imageSend_resolutionLabel;
+
+  /// No description provided for @imageSend_nativeSizeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Smaller images usually send faster and open faster on older phones, but keep less detail. Size depends on the photo.'**
+  String get imageSend_nativeSizeHint;
+
+  /// No description provided for @imageSend_measuringSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Calculating compressed size…'**
+  String get imageSend_measuringSize;
+
+  /// No description provided for @imageSend_centerCropSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Center square · {size} × {size}'**
+  String imageSend_centerCropSize(int size);
+
+  /// No description provided for @imageMessages_nativeModelDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'The phone image model uses about 2 GB of storage and supports image sizes from 128 to 576 pixels.'**
+  String get imageMessages_nativeModelDescription;
+
+  /// No description provided for @imageMessages_importNativeModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Import phone model'**
+  String get imageMessages_importNativeModel;
+
+  /// No description provided for @imageMessages_validateNativeModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Check installed phone model'**
+  String get imageMessages_validateNativeModel;
+
+  /// No description provided for @imageMessages_nativeImportFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The phone model could not be verified. Check that the complete model package is available.'**
+  String get imageMessages_nativeImportFailed;
+
+  /// No description provided for @imageMessages_legacyModelUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Older image models are unavailable in this Android 5.1 build. Import the phone model to use image messages.'**
+  String get imageMessages_legacyModelUnavailable;
+
+  /// No description provided for @receivedImage_nativeDecoding.
+  ///
+  /// In en, this message translates to:
+  /// **'Reconstructing image… This may take several minutes.'**
+  String get receivedImage_nativeDecoding;
+
+  /// No description provided for @receivedImage_recover.
+  ///
+  /// In en, this message translates to:
+  /// **'Recover image'**
+  String get receivedImage_recover;
+
+  /// No description provided for @receivedImage_recoveryExplanation.
+  ///
+  /// In en, this message translates to:
+  /// **'Try recovering this image? Some detail may be missing.'**
+  String get receivedImage_recoveryExplanation;
+
+  /// No description provided for @receivedImage_recovered.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovered image. Some detail may be missing.'**
+  String get receivedImage_recovered;
+
+  /// No description provided for @translation_legacyUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Translation is unavailable in this Android 5.1 build.'**
+  String get translation_legacyUnavailable;
+
+  /// No description provided for @imageCodec_pause.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get imageCodec_pause;
+
+  /// No description provided for @imageCodec_resume.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get imageCodec_resume;
+
+  /// No description provided for @imageCodec_paused.
+  ///
+  /// In en, this message translates to:
+  /// **'Image task paused'**
+  String get imageCodec_paused;
+
+  /// No description provided for @imageCodec_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get imageCodec_cancel;
+
+  /// No description provided for @imageCodec_cancelling.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopping image task…'**
+  String get imageCodec_cancelling;
+
+  /// No description provided for @imageCodec_controlFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not change the image task. Try again.'**
+  String get imageCodec_controlFailed;
+
+  /// No description provided for @imageSend_compressedSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Compressed photo'**
+  String get imageSend_compressedSize;
+
+  /// No description provided for @imageSend_preparationTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparation (measured)'**
+  String get imageSend_preparationTime;
+
+  /// No description provided for @imageSend_estimatedSendTime.
+  ///
+  /// In en, this message translates to:
+  /// **'LoRa send (estimated)'**
+  String get imageSend_estimatedSendTime;
+
+  /// No description provided for @imageSend_sendEstimateHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Uses current radio settings, packet headers and spacing. Routing and a busy mesh can add time.'**
+  String get imageSend_sendEstimateHint;
+
+  /// No description provided for @imageSend_compareSizes.
+  ///
+  /// In en, this message translates to:
+  /// **'Compare image sizes'**
+  String get imageSend_compareSizes;
+
+  /// No description provided for @imageSend_compareSizesHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Results are measured for this photo, with paused time excluded. Try a size to compare it; tried sizes are saved here.'**
+  String get imageSend_compareSizesHint;
+
+  /// No description provided for @imageSend_calculateChoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Select to calculate this photo'**
+  String get imageSend_calculateChoice;
+
+  /// No description provided for @imageSend_measuredChoice.
+  ///
+  /// In en, this message translates to:
+  /// **'{size}\nPrepared: {prepare} · Send estimate: {send}'**
+  String imageSend_measuredChoice(String size, String prepare, String send);
 }
 
 class _AppLocalizationsDelegate

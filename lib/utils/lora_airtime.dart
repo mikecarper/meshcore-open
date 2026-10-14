@@ -29,17 +29,31 @@ export '../services/image_chunk_transport.dart'
 /// Extra on-air bytes added by the MeshCore transport/routing header around a
 /// GRP_DATA packet.
 ///
-/// This value is NOT derivable from this repository, so it defaults to 0 and
-/// the resulting airtime is therefore a lower bound for the chunk frame itself
-/// (header + payload). Callers may pass a measured value to
-/// [estimateSend] once the real overhead is known. Do not guess it here.
+/// Additional path/transport bytes beyond the selected framing model. The
+/// preview includes known origin GRP_DATA framing via [meshCoreGroupDataBytes];
+/// relay paths and channel contention remain unknown.
 const int kMeshCoreOnAirOverheadBytes = 0;
+
+/// Physical LoRa payload length for one origin GRP_DATA image blob.
+/// BaseChatMesh adds data_type(2)+length(1), AES pads to 16 bytes, then Mesh
+/// adds channel hash(1)+MAC(2) and Packet adds raw header/path-length(2).
+/// Flood scope transport codes add four bytes; origin flood paths are empty.
+/// Primary sources: MeshCore src/helpers/BaseChatMesh.cpp (sendGroupData),
+/// src/Utils.cpp (encrypt), src/Mesh.cpp (createGroupDatagram), and
+/// https://github.com/meshcore-dev/MeshCore/blob/main/src/Packet.cpp
+int meshCoreGroupDataBytes(int blobBytes, {bool scoped = false}) {
+  if (blobBytes < 0) throw ArgumentError.value(blobBytes, 'blobBytes');
+  return 5 + 16 * ((blobBytes + 3 + 15) ~/ 16) + (scoped ? 4 : 0);
+}
 
 /// MeshCore MAX_TRANS_UNIT — the largest packet that can go on air.
 /// Useful as a worst-case airtime reference.
 const int kMeshCoreMaxTransUnit = 255;
 
 /// Standard LoRa time-on-air.
+/// SF5/6 use the SX126x symbol adjustment from Semtech's official driver:
+/// https://github.com/Lora-net/sx126x_driver/blob/master/src/sx126x.c#L1004
+/// The usual SF7-12 formula does not apply unchanged to those two settings.
 ///
 /// ## Relationship to `connector/meshcore_protocol.dart:calculateLoRaAirtime()`
 ///
@@ -107,8 +121,10 @@ Duration loraTimeOnAir({
   final de = tsymMs > 16.0 ? 1 : 0;
   final ih = explicitHeader ? 0 : 1;
 
-  final numerator = 8 * pl - 4 * sf + 28 + 16 * (crc ? 1 : 0) - 20 * ih;
-  final denominator = 4 * (sf - 2 * de);
+  final lowSf = sf <= 6;
+  final numerator =
+      8 * pl - 4 * sf + (lowSf ? 20 : 28) + 16 * (crc ? 1 : 0) - 20 * ih;
+  final denominator = 4 * (sf - (lowSf ? 0 : 2 * de));
 
   final payloadSymbols = math.max(
     (numerator / denominator).ceil() * codingRate,
@@ -117,7 +133,7 @@ Duration loraTimeOnAir({
 
   final preamble = preambleSymbols ?? meshCorePreambleSymbols(sf);
   final preambleMs = (preamble + 4.25) * tsymMs;
-  final payloadMs = (8 + payloadSymbols) * tsymMs;
+  final payloadMs = (8 + (lowSf ? 2 : 0) + payloadSymbols) * tsymMs;
 
   return Duration(microseconds: ((preambleMs + payloadMs) * 1000).round());
 }
@@ -217,9 +233,11 @@ class SendEstimate {
   /// for, show [pacedWallClock] instead.
   final Duration? totalAirtime;
 
-  /// Realistic wall clock for the whole send: [totalAirtime] plus the
-  /// inter-chunk pacing gap ([imageSendChunkGap]) after every packet but the
-  /// last. Null exactly when [totalAirtime] is null.
+  /// Estimated finish time on a quiet channel. The sender queues packets at
+  /// fixed intervals based on average airtime; transmission occupies those
+  /// intervals rather than being added twice. Radio ACK latency, relay paths
+  /// and channel contention can make the actual wait longer.
+  /// Null exactly when [totalAirtime] is null.
   ///
   /// Equal to [totalAirtime] for a single-packet send.
   final Duration? pacedWallClock;
@@ -304,11 +322,15 @@ List<int> imageChunkPayloadSizes(int payloadBytes) {
 /// [parity] adds exactly one XOR parity packet (GRP_DATA is unacknowledged, so
 /// parity allows recovery of a single lost chunk). No parity packet is added
 /// for an empty payload.
+/// [meshCoreGroupData] includes encrypted packet framing; [scoped] adds the
+/// four transport-code bytes used by region-scoped origin floods.
 SendEstimate estimateSend({
   required int payloadBytes,
   required RadioSettings? radio,
   bool parity = true,
   int onAirOverheadBytes = kMeshCoreOnAirOverheadBytes,
+  bool meshCoreGroupData = false,
+  bool scoped = false,
 }) {
   return estimateSendFromRadioParams(
     payloadBytes: payloadBytes,
@@ -317,6 +339,8 @@ SendEstimate estimateSend({
     codingRate: radio?.codingRate.value,
     parity: parity,
     onAirOverheadBytes: onAirOverheadBytes,
+    meshCoreGroupData: meshCoreGroupData,
+    scoped: scoped,
   );
 }
 
@@ -331,6 +355,8 @@ SendEstimate estimateSendFromRadioParams({
   required int? codingRate,
   bool parity = true,
   int onAirOverheadBytes = kMeshCoreOnAirOverheadBytes,
+  bool meshCoreGroupData = false,
+  bool scoped = false,
 }) {
   final payload = math.max(payloadBytes, 0);
   final sizes = imageChunkPayloadSizes(payload);
@@ -346,16 +372,19 @@ SendEstimate estimateSendFromRadioParams({
   // every data chunk, and sizing parity from the largest data body, understated
   // a 110-byte payload as 232 on-air bytes when the real total is 278.
   final packetBytes = <int>[];
+  int frameBytes(int blobBytes) =>
+      (meshCoreGroupData
+          ? meshCoreGroupDataBytes(blobBytes, scoped: scoped)
+          : blobBytes) +
+      onAirOverheadBytes;
   for (var i = 0; i < sizes.length; i++) {
     final meta = i == 0 ? kImageChunkZeroMetadataBytes : 0;
-    packetBytes.add(
-      kImageChunkHeaderBytes + meta + sizes[i] + onAirOverheadBytes,
-    );
+    packetBytes.add(frameBytes(kImageChunkHeaderBytes + meta + sizes[i]));
   }
   if (withParity) {
     // Always the full blob: the XOR body is zero-padded to kImageChunkBodyBytes
     // regardless of how short the data chunks are.
-    packetBytes.add(kImageChunkBlobBytes + onAirOverheadBytes);
+    packetBytes.add(frameBytes(kImageChunkBlobBytes));
   }
 
   final totalBytes = packetBytes.fold<int>(0, (a, b) => a + b);
@@ -392,19 +421,28 @@ SendEstimate estimateSendFromRadioParams({
 
   // Airtime of a maximally-filled chunk packet, i.e. the cost of one "typical"
   // packet in the stream. A full blob is the whole kImageChunkBlobBytes.
-  final perPacket = airtimeFor(kImageChunkBlobBytes + onAirOverheadBytes);
+  final perPacket = airtimeFor(frameBytes(kImageChunkBlobBytes));
 
-  var totalMicros = 0;
-  // Wall clock adds a pacing gap after every packet except the last, so a
-  // single-packet send is unaffected. See [kImageSendChunkGapBase].
+  final airtimes = packetBytes.map(airtimeFor).toList();
+  final totalMicros = airtimes.fold<int>(
+    0,
+    (sum, time) => sum + time.inMicroseconds,
+  );
+  // channel_chat_screen passes this same average-based fixed delay to
+  // sendImageChunks, which waits once at every inter-packet boundary. A short
+  // final data packet and a full parity packet must both affect the average.
+  final average = Duration(
+    microseconds: chunkCount == 0 ? 0 : totalMicros ~/ chunkCount,
+  );
+  final queueInterval = imageSendChunkGap(average).inMicroseconds;
   var wallClockMicros = 0;
-  for (var i = 0; i < packetBytes.length; i++) {
-    final airtime = airtimeFor(packetBytes[i]);
-    totalMicros += airtime.inMicroseconds;
-    wallClockMicros += airtime.inMicroseconds;
-    if (i != packetBytes.length - 1) {
-      wallClockMicros += imageSendChunkGap(airtime).inMicroseconds;
-    }
+  for (var i = 0; i < airtimes.length; i++) {
+    // ACK means accepted/queued, not transmitted (sendImageChunks docs).
+    // A radio transmits one packet at a time. If a slow first packet is still
+    // on air when the next is queued, the next waits for that transmission.
+    wallClockMicros =
+        math.max(wallClockMicros, i * queueInterval) +
+        airtimes[i].inMicroseconds;
   }
 
   return SendEstimate(

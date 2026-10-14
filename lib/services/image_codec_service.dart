@@ -9,7 +9,8 @@ import '../utils/app_logger.dart';
 import '../utils/image_codec_raster.dart';
 import '../widgets/image_send_codec_binding.dart';
 import 'app_settings_service.dart';
-import 'image_codec_backend.dart' show kImageCodecBitstreamPathAvailable;
+import 'image_codec_backend.dart'
+    show kImageCodecBitstreamPathAvailable, ImageCodecCancelled;
 import 'image_codec_file_store.dart';
 import 'image_codec_session.dart';
 import 'image_codec_settings_store.dart';
@@ -62,7 +63,8 @@ import 'image_codec_settings_store.dart';
 /// `pickAndPreviewImage` bind to it with no adapter — replace
 /// `FakeImageSendCodec()` at the two call sites in `chat_screen.dart` /
 /// `channel_chat_screen.dart` with `context.read<ImageCodecService>()`.
-class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
+class ImageCodecService extends ChangeNotifier
+    implements ImageSendCodec, ImageSendCodecJobControl {
   final AppSettingsService _appSettingsService;
   final ImageCodecFileStore _fileStore;
   final ImageCodecSettingsStore _settingsStore;
@@ -89,6 +91,8 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   // ---- state (naming/order mirrors TranslationService:50-62) ----------------
   bool _disposed = false;
   bool _isBusy = false;
+  bool _preparingEncode = false;
+  int _codecGeneration = 0;
   bool _isDownloading = false;
   bool _cancelDownloadRequested = false;
   String? _lastError;
@@ -108,7 +112,11 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   String? _codecStage;
 
   // ---- getters (mirror translation_service.dart:64-76) ---------------------
-  bool get isBusy => _isBusy;
+  bool get isBusy => _isBusy || _preparingEncode;
+  @override
+  bool get canPause => _codecStage != null && _session?.canPause == true;
+  @override
+  bool get isPaused => _session?.isPaused == true;
   bool get isDownloading => _isDownloading;
   String? get lastError => _lastError;
   int get downloadedBytes => _downloadedBytes;
@@ -1091,20 +1099,32 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     if (!supportedResolutions.contains(size)) {
       throw ArgumentError.value(size, 'resolution');
     }
-    final result = await encodeImage(
-      rgbBytes: await _toSquareRgb(
+    if (isBusy) throw StateError('Image processing is already running.');
+    final generation = _codecGeneration;
+    _preparingEncode = true;
+    _notify();
+    try {
+      final rgb = await _toSquareRgb(
         imageBytes,
         resolution: size,
         centerCrop: installedBundle?.isNativeFt2 == true,
-      ),
-      ratePoint: aeicRatePointForUi(rate),
-      resolution: size,
-    );
-    final bitstream = result?.bitstream;
-    if (bitstream == null) {
-      throw StateError(_lastError ?? 'Image codec is not available.');
+      );
+      if (generation != _codecGeneration) throw const ImageCodecCancelled();
+      final result = await encodeImage(
+        rgbBytes: rgb,
+        ratePoint: aeicRatePointForUi(rate),
+        resolution: size,
+      );
+      if (generation != _codecGeneration) throw const ImageCodecCancelled();
+      final bitstream = result?.bitstream;
+      if (bitstream == null) {
+        throw StateError(_lastError ?? 'Image codec is not available.');
+      }
+      return bitstream;
+    } finally {
+      _preparingEncode = false;
+      _notify();
     }
-    return bitstream;
   }
 
   /// Encodes an already-decoded RGB image.
@@ -1267,6 +1287,7 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
         status: ImageCodecStatus.failed,
       );
     }
+    final generation = _codecGeneration;
     final result = await _runCodecJob(
       stage: 'Decoding…',
       ratePoint: ratePoint,
@@ -1297,9 +1318,18 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
       return result;
     }
     // Both forms: RGB for anything that wants pixels, PNG for `Image.memory`.
+    final png = await rgbToPng(rgb, result.resolution);
+    if (generation != _codecGeneration) {
+      return ImageCodecResult(
+        ratePoint: result.ratePoint,
+        resolution: result.resolution,
+        durationMs: result.durationMs,
+        status: ImageCodecStatus.failed,
+      );
+    }
     return ImageCodecResult(
       rgbBytes: rgb,
-      pngBytes: await rgbToPng(rgb, result.resolution),
+      pngBytes: png,
       ratePoint: result.ratePoint,
       resolution: result.resolution,
       durationMs: result.durationMs,
@@ -1408,17 +1438,37 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     }
   }
 
-  /// Cooperative cancel for a long encode/decode, mirroring [cancelDownload].
-  ///
-  /// The worker polls a flag between backend stages; a backend stuck inside one
-  /// blocking native call will not notice until that call returns. For a hard
-  /// stop use [handleMemoryPressure] / [releaseModel], which kill the isolate.
-  void cancelCodecJob() {
-    final session = _session;
-    if (session == null || _codecStage == null) return;
-    _lastError = 'Image processing stopped.';
-    session.cancel();
+  @override
+  Future<void> pause() async {
+    if (!canPause) return;
+    await _session!.pause();
     _notify();
+  }
+
+  @override
+  Future<void> resume() async {
+    if (!isPaused) return;
+    await _session!.resume();
+    _notify();
+  }
+
+  @override
+  Future<void> cancel() async {
+    _codecGeneration++;
+    _lastError = 'Image processing stopped.';
+    final queued = _queue;
+    await _session?.cancel();
+    await queued;
+    _notify();
+  }
+
+  /// Compatibility entry point for lifecycle callers that cannot await.
+  void cancelCodecJob() {
+    unawaited(
+      cancel().catchError((Object error) {
+        appLogger.warn('Image cancellation failed: $error', tag: 'ImageCodec');
+      }),
+    );
   }
 
   Future<ImageCodecResult?> _runCodecJob({
@@ -1431,6 +1481,7 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     final bundle = bundleOverride ?? installedBundle;
     if (bundle == null) return null;
     final started = DateTime.now();
+    final generation = _codecGeneration;
     try {
       return await _runExclusive(() async {
         _setCodecStage('Loading model…', 0);
@@ -1438,8 +1489,10 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
         if (session == null) {
           return null;
         }
+        if (generation != _codecGeneration) throw const ImageCodecCancelled();
         _setCodecStage(stage, 0);
         final bytes = await action(session);
+        if (generation != _codecGeneration) throw const ImageCodecCancelled();
         return wrap(bytes, DateTime.now().difference(started).inMilliseconds);
       });
     } catch (error) {
@@ -1601,6 +1654,8 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   /// closing sessions alone does not.
   Future<void> handleMemoryPressure({bool keepEntropySession = false}) async {
     final session = _session;
+    final nativeProcess = _loadedBundle?.isNativeFt2 == true;
+    if (!keepEntropySession || nativeProcess) _codecGeneration++;
     if (session == null && _loadedBundle == null) {
       return;
     }
@@ -1608,7 +1663,7 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     // while a decode may be mid-flight and holding the lock, and that decode is
     // exactly what has to die. Killing the isolate fails its pending futures,
     // which _runCodecJob reports as a failed result.
-    if (keepEntropySession && session != null) {
+    if (keepEntropySession && session != null && !nativeProcess) {
       await session.release(decoder: true);
       appLogger.info(
         'Image codec decoder evicted (entropy session kept)',
@@ -1625,7 +1680,7 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
       // Ask for the big half back before the shutdown handshake, so the peak
       // does not have to wait on isolate teardown.
       final release = () async {
-        await session.release(decoder: true);
+        if (!nativeProcess) await session.release(decoder: true);
         await session.dispose();
       }();
       _pendingRelease = release;
