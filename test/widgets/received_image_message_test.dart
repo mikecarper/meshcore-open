@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -71,6 +72,66 @@ class _RecoveryDecoder extends _FakeDecoder
   }
 }
 
+class _ControlledDecoder extends _FakeDecoder
+    implements ReceivedImageJobControl {
+  _ControlledDecoder({this.completeLate = false})
+    : super(ImageCodecAvailability.ready);
+  final bool completeLate;
+  final result = Completer<ImageCodecResult?>();
+  final stop = Completer<void>();
+  int pauses = 0;
+  int resumes = 0;
+  bool stopped = false;
+  @override
+  bool isPaused = false;
+  @override
+  bool get canPause => isBusy;
+  @override
+  Future<ImageCodecResult?> decodeBitstream({
+    required Uint8List bitstream,
+    required AeicRatePoint ratePoint,
+    required int resolution,
+  }) {
+    decodeCalls++;
+    isBusy = true;
+    return result.future;
+  }
+
+  @override
+  Future<void> pause() async {
+    pauses++;
+    isPaused = true;
+  }
+
+  @override
+  Future<void> resume() async {
+    resumes++;
+    isPaused = false;
+  }
+
+  @override
+  Future<void> cancel() async {
+    cancelCalls++;
+    await stop.future;
+    stopped = true;
+    isBusy = false;
+    isPaused = false;
+    result.complete(
+      ImageCodecResult(
+        ratePoint: AeicRatePoint.ft2,
+        resolution: 128,
+        durationMs: 1,
+        status: completeLate
+            ? ImageCodecStatus.completed
+            : ImageCodecStatus.failed,
+        pngBytes: completeLate
+            ? Uint8List.fromList(base64Decode(_png1x1))
+            : null,
+      ),
+    );
+  }
+}
+
 /// Builds a store holding one entry that is `reassembled + needsManualDecode`,
 /// i.e. the "bitstream complete, waiting for the user" placeholder state.
 Future<ReceivedImageStore> _awaitingStore({
@@ -128,6 +189,79 @@ Future<void> _pumpBubble(
 }
 
 void main() {
+  testWidgets(
+    'cancellation discards a completed decoder result arriving during stop',
+    (tester) async {
+      final decoder = _ControlledDecoder(completeLate: true);
+      final store = await _awaitingStore(decoder: decoder, rate: 0);
+      await _pumpBubble(tester, store);
+      await tester.tap(find.text('Tap to process'));
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('received-image-pause-resume')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('received-image-cancel')));
+      await tester.pump();
+      expect(decoder.cancelCalls, 1);
+      decoder.stop.complete();
+      await tester.pumpAndSettle();
+      final entry = store.entryFor('await1')!;
+      expect(entry.state, ReceivedImageState.reassembled);
+      expect(entry.needsManualDecode, isTrue);
+      expect(entry.bitstreamStored, isTrue);
+      expect(entry.pngStored, isFalse);
+      expect(await store.blobs.readPng('await1'), isNull);
+      store.dispose();
+    },
+  );
+
+  testWidgets('received native controls pause, resume and await cancellation', (
+    tester,
+  ) async {
+    final decoder = _ControlledDecoder();
+    final store = await _awaitingStore(decoder: decoder, rate: 0);
+    await _pumpBubble(tester, store);
+    await tester.tap(find.text('Tap to process'));
+    await tester.pump();
+    await tester.pump();
+    expect(decoder.decodeCalls, 1);
+    expect(store.canPauseDecode('await1'), isTrue);
+    await tester.tap(find.byKey(const ValueKey('received-image-pause-resume')));
+    await tester.pump();
+    expect(decoder.pauses, 1);
+    expect(find.text('Paused'), findsOneWidget);
+    expect(find.text('Resume'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('received-image-pause-resume')));
+    await tester.pump();
+    expect(decoder.resumes, 1);
+    expect(find.text('Paused'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('received-image-pause-resume')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('received-image-cancel')));
+    await tester.pump();
+    expect(decoder.cancelCalls, 1);
+    expect(decoder.stopped, isFalse);
+    expect(store.entryFor('await1')!.state, ReceivedImageState.decoding);
+    expect(
+      tester
+          .widget<TextButton>(
+            find.byKey(const ValueKey('received-image-cancel')),
+          )
+          .onPressed,
+      isNull,
+    );
+    decoder.stop.complete();
+    await tester.pumpAndSettle();
+    expect(decoder.stopped, isTrue);
+    expect(store.entryFor('await1')!.state, ReceivedImageState.reassembled);
+    expect(store.entryFor('await1')!.needsManualDecode, isTrue);
+    expect(store.entryFor('await1')!.pngStored, isFalse);
+    expect(find.text('Tap to process'), findsOneWidget);
+    store.dispose();
+  });
+
   testWidgets(
     'native recovery requires a deliberate confirmation and labels the picture',
     (tester) async {

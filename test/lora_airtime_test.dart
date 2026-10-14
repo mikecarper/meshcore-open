@@ -22,6 +22,78 @@ RadioSettings _radio({
 );
 
 void main() {
+  group('MeshCore origin GRP_DATA framing', () {
+    test('AES boundaries include the encrypted three-byte data header', () {
+      for (final entry in {
+        0: 21,
+        13: 21,
+        14: 37,
+        142: 165,
+        162: 181,
+        163: 181,
+      }.entries) {
+        expect(meshCoreGroupDataBytes(entry.key), entry.value);
+        expect(
+          meshCoreGroupDataBytes(entry.key, scoped: true),
+          entry.value + 4,
+        );
+      }
+    });
+    test('137-byte and 1783-byte photos include full parity framing', () {
+      for (final entry in {137: 346, 1783: 2241}.entries) {
+        final estimate = estimateSend(
+          payloadBytes: entry.key,
+          radio: _radio(),
+          meshCoreGroupData: true,
+        );
+        expect(estimate.totalBytes, entry.value);
+        final scoped = estimateSend(
+          payloadBytes: entry.key,
+          radio: _radio(),
+          meshCoreGroupData: true,
+          scoped: true,
+        );
+        expect(scoped.totalBytes, entry.value + 4 * estimate.chunkCount);
+        final noParity = estimateSend(
+          payloadBytes: entry.key,
+          radio: _radio(),
+          meshCoreGroupData: true,
+          parity: false,
+        );
+        expect(noParity.totalBytes, entry.value - 181);
+      }
+    });
+  });
+  group('Semtech SX126x SF5/6 reference values', () {
+    test('full image chunk, explicit header, CRC and 32-symbol preamble', () {
+      for (final entry in {5: 96320, 6: 164480}.entries) {
+        expect(
+          loraTimeOnAir(
+            payloadBytes: 163,
+            spreadingFactor: entry.key,
+            bandwidthHz: 125000,
+            codingRate: 5,
+          ).inMicroseconds,
+          entry.value,
+        );
+      }
+    });
+    test('implicit header without CRC clamps negative payload symbols', () {
+      for (final entry in {5: 11840, 6: 23680}.entries) {
+        expect(
+          loraTimeOnAir(
+            payloadBytes: 0,
+            spreadingFactor: entry.key,
+            bandwidthHz: 125000,
+            codingRate: 5,
+            crc: false,
+            explicitHeader: false,
+          ).inMicroseconds,
+          entry.value,
+        );
+      }
+    });
+  });
   group('loraTimeOnAir reference values (255-byte packet)', () {
     test('SF9, CR 4/8, BW 250 kHz -> 992 ms', () {
       final toa = loraTimeOnAir(
@@ -389,43 +461,84 @@ void main() {
       expect(est.pacedWallClock, est.totalAirtime);
     });
 
-    test('multi-packet send adds one gap per inter-packet boundary', () {
-      final est = estimateSend(payloadBytes: 209, radio: _radio());
-      expect(est.chunkCount, 3); // 2 data + parity
-      final sizes = imageChunkPayloadSizes(209);
-      const framing = kImageChunkHeaderBytes + kImageParityLengthBytes;
-      final packetBytes = <int>[
-        framing + kImageChunkZeroMetadataBytes + sizes[0],
-        framing + sizes[1],
-        // parity body is as large as the largest data body
-        framing +
-            (sizes[0] + kImageChunkZeroMetadataBytes > sizes[1]
-                ? sizes[0] + kImageChunkZeroMetadataBytes
-                : sizes[1]),
-      ];
-      var airtime = 0;
-      var wall = 0;
-      for (var i = 0; i < packetBytes.length; i++) {
-        final toa = loraTimeOnAir(
-          payloadBytes: packetBytes[i],
+    test(
+      'short final data packet and parity use the sender fixed average gap',
+      () {
+        final est = estimateSend(payloadBytes: 209, radio: _radio());
+        expect(est.chunkCount, 3); // 2 data + parity
+        final sizes = imageChunkPayloadSizes(209);
+        final packetBytes = <int>[
+          kImageChunkHeaderBytes + kImageChunkZeroMetadataBytes + sizes[0],
+          kImageChunkHeaderBytes + sizes[1],
+          kImageChunkBlobBytes,
+        ];
+        var airtime = 0;
+        for (var i = 0; i < packetBytes.length; i++) {
+          final toa = loraTimeOnAir(
+            payloadBytes: packetBytes[i],
+            spreadingFactor: 10,
+            bandwidthHz: 250000,
+            codingRate: 5,
+          );
+          airtime += toa.inMicroseconds;
+        }
+        final average = Duration(microseconds: airtime ~/ packetBytes.length);
+        final last = loraTimeOnAir(
+          payloadBytes: packetBytes.last,
           spreadingFactor: 10,
           bandwidthHz: 250000,
           codingRate: 5,
         );
-        airtime += toa.inMicroseconds;
-        wall += toa.inMicroseconds;
-        if (i != packetBytes.length - 1) {
-          wall += imageSendChunkGap(toa).inMicroseconds;
-        }
-      }
-      expect(est.totalAirtime!.inMicroseconds, airtime);
-      expect(est.pacedWallClock!.inMicroseconds, wall);
-      // Two boundaries, so at least two base delays of extra wall clock.
-      expect(
-        wall - airtime,
-        greaterThanOrEqualTo(2 * kImageSendChunkGapBase.inMicroseconds),
+        // Transmission of earlier packets occupies the queue intervals.
+        final wall =
+            (packetBytes.length - 1) *
+                imageSendChunkGap(average).inMicroseconds +
+            last.inMicroseconds;
+        expect(est.totalAirtime!.inMicroseconds, airtime);
+        expect(est.pacedWallClock!.inMicroseconds, wall);
+        expect(wall, greaterThan(airtime));
+      },
+    );
+
+    test('without parity the short final chunk still changes fixed pacing', () {
+      final est = estimateSend(
+        payloadBytes: 158,
+        radio: _radio(),
+        parity: false,
       );
+      expect(est.chunkCount, 2);
+      final average = Duration(
+        microseconds: est.totalAirtime!.inMicroseconds ~/ 2,
+      );
+      expect(
+        est.pacedWallClock,
+        imageSendChunkGap(average) +
+            loraTimeOnAir(
+              payloadBytes: kImageChunkHeaderBytes + 1,
+              spreadingFactor: 10,
+              bandwidthHz: 250000,
+              codingRate: 5,
+            ),
+      );
+      expect(average, lessThan(est.perPacketAirtime!));
     });
+
+    test(
+      'queued packets wait for a slow radio instead of overlapping transmission',
+      () {
+        final estimate = estimateSendFromRadioParams(
+          payloadBytes: 158,
+          spreadingFactor: 12,
+          bandwidthHz: 125000,
+          codingRate: 5,
+          parity: false,
+        );
+        // The second chunk is queued before the first finishes. Its airtime
+        // follows the first; the queue delay cannot be charged twice.
+        expect(estimate.pacedWallClock, estimate.totalAirtime);
+        expect(estimate.pacedWallClock!.inMicroseconds, 7421952);
+      },
+    );
 
     test('the gap is the documented base plus airtime factor', () {
       const toa = Duration(milliseconds: 300);
@@ -564,7 +677,24 @@ void main() {
     // full. A 110-byte payload was reported as 232 on-air bytes against a real
     // 278 — a 17% understatement of airtime on the smallest, most common image.
     // Compare against buildImageChunks() rather than restating the arithmetic.
-    for (final payload in <int>[1, 110, 156, 157, 158, 209, 288, 409]) {
+    for (final payload in <int>[
+      1,
+      110,
+      156,
+      157,
+      158,
+      209,
+      288,
+      409,
+      137,
+      270,
+      407,
+      602,
+      804,
+      1122,
+      1363,
+      1783,
+    ]) {
       test('$payload-byte payload matches buildImageChunks byte for byte', () {
         for (final parity in <bool>[false, true]) {
           final set = buildImageChunks(

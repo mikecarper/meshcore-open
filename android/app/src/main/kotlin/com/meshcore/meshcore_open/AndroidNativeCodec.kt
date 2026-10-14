@@ -3,7 +3,11 @@ package com.meshcore.meshcore_open
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
+import android.system.Os
+import android.system.OsConstants
+import android.system.ErrnoException
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -17,6 +21,7 @@ class AndroidNativeCodec(context: Context) {
     private val app = context.applicationContext
     private val debugLogging = app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     private val executor = Executors.newSingleThreadExecutor()
+    private val controlExecutor = Executors.newCachedThreadPool()
     private val lock = Any()
     private val jobs = LinkedHashMap<String, Job>()
     private var channel: MethodChannel? = null
@@ -24,7 +29,7 @@ class AndroidNativeCodec(context: Context) {
     private val workRoot get() = File(app.cacheDir, "native_image_codec").canonicalFile
     private val executable get() = File(app.applicationInfo.nativeLibraryDir, "libaeic_codec_exec.so")
 
-    private class Job(val id: String, val workspace: File, val operation: String, val stages: Int) {
+    private class Job(val id: String, val workspace: File, val operation: String, val stages: Int, val debugLogging: Boolean) {
         @Volatile var process: Process? = null
         @Volatile var cancelled = false
         var finished = false
@@ -37,6 +42,29 @@ class AndroidNativeCodec(context: Context) {
         var recoveryEvents = 0
         val warnings = ArrayList<String>()
         val tail = StringBuilder()
+        val control = NativeCodecProcessControl(
+            signal = { target, code ->
+                try { Os.kill(target, code) }
+                catch (error: ErrnoException) {
+                    if (error.errno != OsConstants.ESRCH) throw error
+                }
+            },
+            stopSignal = OsConstants.SIGSTOP,
+            continueSignal = OsConstants.SIGCONT,
+            terminateSignal = OsConstants.SIGTERM,
+            killSignal = OsConstants.SIGKILL,
+            clockMillis = { SystemClock.uptimeMillis() }, // CLOCK_MONOTONIC, excluding deep sleep
+            recordPausedMillis = { milliseconds ->
+                try {
+                    val temporary = File(workspace, "pause-ms.tmp")
+                    temporary.writeText("$milliseconds\n", Charsets.UTF_8)
+                    check(temporary.renameTo(File(workspace, "pause-ms"))) { "Cannot update pause counter" }
+                } catch (error: Exception) {
+                    // Cancellation must resume/terminate even if scratch storage fails.
+                    if (debugLogging) Log.e("AEICNativeCodec", "Pause counter failed", error)
+                }
+            },
+        )
     }
 
     fun configureFlutterEngine(engine: FlutterEngine) {
@@ -68,11 +96,35 @@ class AndroidNativeCodec(context: Context) {
                         val job = jobs[id] ?: error("Unknown codec job")
                         mapOf("finished" to job.finished, "exitCode" to job.exitCode,
                             "cancelled" to job.cancelled, "progress" to job.progress,
+                            "pauseRequested" to job.control.pauseRequested, "paused" to job.control.paused,
+                            "processId" to job.control.processId, "processGroup" to job.control.groupId,
                             "complete" to job.sawCompletion, "error" to job.error,
                             "degraded" to job.degraded, "recoveryEvents" to job.recoveryEvents,
                             "warnings" to job.warnings.toList(), "logTail" to if (job.finished) job.tail.toString() else "")
                     })
                 }
+                "pauseAll", "resumeAll" -> {
+                    val paused = call.method == "pauseAll"
+                    val ids = synchronized(lock) {
+                        jobs.values.filter { !it.finished }.map {
+                            if (paused) it.control.pause() else it.control.resume()
+                            it.id
+                        }
+                    }
+                    result.success(ids)
+                }
+                "pause", "resume" -> {
+                    val id = call.argument<String>("jobId") ?: error("jobId is required")
+                    synchronized(lock) {
+                        val job = jobs[id] ?: error("Unknown codec job")
+                        check(!job.finished) { "Codec job already finished" }
+                        if (call.method == "pause") job.control.pause() else job.control.resume()
+                    }
+                    result.success(null)
+                }
+                "activeJobs" -> result.success(synchronized(lock) {
+                    jobs.values.filter { !it.finished }.map { it.id }
+                })
                 "cancel" -> {
                     val id = call.argument<String>("jobId") ?: error("jobId is required")
                     synchronized(lock) { jobs[id]?.let(::cancel) }
@@ -120,17 +172,22 @@ class AndroidNativeCodec(context: Context) {
         require(!output.exists()) { "Codec output must be a new file" }
         val required = listOf("codec.tsv", "encoder.tsv", "renderer.tsv", "metadata.tsv")
         require(required.all { File(model, it).isFile }) { "Native bundle is incomplete" }
+        val spill = File(workspace, "spill").canonicalFile
+        require(spill.parentFile == workspace && !spill.exists()) { "Invalid spill directory" }
+        check(spill.mkdir()) { "Cannot create codec scratch space" }
+        val pauseTime = File(workspace, "pause-ms")
+        pauseTime.writeText("0\n", Charsets.UTF_8)
         val stageCount = if (operation == "encode") countStages(File(model, "encoder.tsv")) + 5
             else countStages(File(model, "codec.tsv")) + countStages(File(model, "renderer.tsv"))
         val id = UUID.randomUUID().toString()
-        val job = Job(id, workspace, operation, stageCount.coerceAtLeast(1))
+        val job = Job(id, workspace, operation, stageCount.coerceAtLeast(1), debugLogging)
         synchronized(lock) {
             check(jobs.values.none { !it.finished }) { "A codec job is already running" }
             while (jobs.size >= 8) jobs.remove(jobs.entries.first().key)
             jobs[id] = job
         }
-        val command = arrayListOf(executable.path, "--model-dir", model.path, "--model-size", size.toString(),
-            "--threads", threads.toString())
+        val command = arrayListOf(executable.path, "--supervise", "--model-dir", model.path, "--model-size", size.toString(),
+            "--threads", threads.toString(), "--spill-dir", spill.path, "--pause-time-file", pauseTime.path)
         if (operation == "encode") command.addAll(listOf("--encode", "--input", input.path,
             "--bitstream-output", output.path))
         else command.addAll(listOf("--bitstream", input.path, "--output", output.path))
@@ -140,11 +197,12 @@ class AndroidNativeCodec(context: Context) {
     }
 
     private fun run(job: Job, command: List<String>) {
+        var exitObserved = false
         try {
             if (job.cancelled) return
             val process = ProcessBuilder(command).directory(job.workspace).redirectErrorStream(true).start()
             job.process = process
-            if (job.cancelled) process.destroy()
+            if (job.cancelled) stopProcess(job)
             InputStreamReader(process.inputStream, Charsets.UTF_8).use { reader ->
                 val buffer = CharArray(2048)
                 val line = StringBuilder()
@@ -162,7 +220,11 @@ class AndroidNativeCodec(context: Context) {
                 }
                 if (line.isNotEmpty()) record(job, line.toString())
             }
+            // The native supervisor remains in the app group. Android 5's
+            // ProcessManager uses waitpid(0), so it cannot reap a detached worker.
             val exit = process.waitFor()
+            job.control.markExited()
+            exitObserved = true
             synchronized(lock) {
                 job.exitCode = exit
                 if (!job.cancelled && (exit != 0 || !job.sawCompletion))
@@ -172,13 +234,30 @@ class AndroidNativeCodec(context: Context) {
         } catch (error: Exception) {
             synchronized(lock) { job.error = error.message ?: error.javaClass.simpleName }
         } finally {
-            job.process?.destroy()
-            job.process = null
-            synchronized(lock) { job.finished = true }
+            // No caller may remove scratch while a child still owns file handles.
+            val process = job.process
+            if (process != null && !exitObserved) {
+                stopProcess(job)
+                try { job.exitCode = process.waitFor() } catch (_: InterruptedException) {
+                    job.control.forceKill()
+                    // waitFor clears the interrupted flag; reap before reporting finished.
+                    job.exitCode = process.waitFor()
+                }
+            }
+            synchronized(lock) {
+                job.control.markExited()
+                job.process = null
+                job.finished = true
+                if (debugLogging && job.error != null) {
+                    Log.e("AEICNativeCodec", "NATIVE_FAILURE operation=${job.operation} exit=${job.exitCode}\n${job.tail.takeLast(8192)}")
+                }
+            }
         }
     }
 
     private fun record(job: Job, line: String) = synchronized(lock) {
+        val lifecycle = job.control.acceptHandshake(line) || job.control.acceptExit(line)
+        if (lifecycle && debugLogging) Log.i("AEICNativeCodec", line)
         if (debugLogging && (line.startsWith("ENCODE_COMPLETE ") ||
                 line.startsWith("DECODE_COMPLETE ") || line.startsWith("RESULT_STATUS "))) {
             // Only final process measurements are logged in debug builds.
@@ -205,13 +284,42 @@ class AndroidNativeCodec(context: Context) {
         return roots.any { file.path.startsWith(it.path + File.separator) }
     }
     private fun countStages(file: File): Int = file.useLines { lines -> lines.count { it.startsWith("stage\t") } }
-    private fun cancel(job: Job) { job.cancelled = true; job.process?.destroy() }
-    fun cancelAll() = synchronized(lock) { jobs.values.filter { !it.finished }.forEach(::cancel) }
+    private fun stopProcess(job: Job) {
+        if (job.finished || job.control.hasExited) return
+        // Queue cancellation before the startup handshake. Keep reading so the
+        // trusted worker group can receive TERM; its supervisor must reap it.
+        job.control.cancel() // resumes a stopped group before SIGTERM
+        try { controlExecutor.execute {
+            Thread.sleep(500)
+            synchronized(lock) {
+                if (!job.finished && !job.control.hasExited && job.process != null) {
+                    job.control.forceKill()
+                    if (job.control.groupId == 0) job.process?.destroy()
+                }
+            }
+        } } catch (_: java.util.concurrent.RejectedExecutionException) {
+            synchronized(lock) {
+                if (!job.finished && !job.control.hasExited) {
+                    job.control.forceKill()
+                    if (job.control.groupId == 0) job.process?.destroy()
+                }
+            }
+        }
+    }
+    private fun cancel(job: Job) {
+        if (job.finished) return
+        job.cancelled = true
+        stopProcess(job)
+    }
+    fun cancelAll() = synchronized(lock) {
+        jobs.values.filter { !it.finished }.forEach(::cancel)
+    }
     fun dispose() {
         disposed = true
         cancelAll()
         channel?.setMethodCallHandler(null)
-        executor.shutdownNow()
+        executor.shutdown()
+        controlExecutor.shutdown()
     }
     companion object {
         const val CHANNEL = "com.meshcore.meshcore_open/native_image_codec"

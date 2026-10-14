@@ -16,8 +16,7 @@ class ImageSendPreviewResult {
   /// The encoded bitstream, ready to be chunked onto the air.
   final Uint8List payload;
 
-  /// The rate point the payload was encoded at. Always [kImageSendRatePoint] in
-  /// this build; carried through because the transport writes it on the wire.
+  /// The rate point used by the selected model, carried through to the wire.
   final ImageCodecRatePoint rate;
 
   /// Actual encoded square size. Legacy callers retain their 512-pixel default.
@@ -60,8 +59,7 @@ class ImageSendPreviewResult {
 /// the [MeshCoreConnector] in the widget tree. Pass it explicitly to preview
 /// this sheet without a connector.
 ///
-/// There is no quality/rate argument: ft32 ([kImageSendRatePoint]) is the only
-/// shipping model, so the sheet no longer offers a choice.
+/// The selected model supplies the rate point and supported image sizes.
 Future<ImageSendPreviewResult?> showImageSendPreviewSheet({
   required BuildContext context,
   required Uint8List imageBytes,
@@ -69,17 +67,21 @@ Future<ImageSendPreviewResult?> showImageSendPreviewSheet({
   required ImageSendCodec codec,
   ImageSendRadio? radio,
   bool initialParity = true,
+  bool scoped = false,
 }) {
   return showModalBottomSheet<ImageSendPreviewResult>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    isDismissible: false,
+    enableDrag: false,
     builder: (context) => ImageSendPreviewSheet(
       imageBytes: imageBytes,
       originalFileBytes: originalFileBytes,
       codec: codec,
       radio: radio,
       initialParity: initialParity,
+      scoped: scoped,
     ),
   );
 }
@@ -90,6 +92,7 @@ class ImageSendPreviewSheet extends StatefulWidget {
   final ImageSendCodec codec;
   final ImageSendRadio? radio;
   final bool initialParity;
+  final bool scoped;
 
   const ImageSendPreviewSheet({
     super.key,
@@ -98,6 +101,7 @@ class ImageSendPreviewSheet extends StatefulWidget {
     required this.codec,
     this.radio,
     this.initialParity = true,
+    this.scoped = false,
   });
 
   @override
@@ -119,8 +123,13 @@ class ImageSendRadio {
     this.rawCodingRate,
   });
 
-  bool get isKnown =>
-      spreadingFactor != null && bandwidthHz != null && rawCodingRate != null;
+  bool get isKnown => areLoRaParamsValid(
+    spreadingFactor: spreadingFactor,
+    bandwidthHz: bandwidthHz,
+    codingRate: rawCodingRate == null
+        ? null
+        : normalizeCodingRate(rawCodingRate!),
+  );
 }
 
 /// Packet/byte/airtime figures for one rate point.
@@ -142,9 +151,19 @@ class _RateEstimate {
   bool get isExact => payloadBytes != null;
 }
 
+/// Results for this photo only. Keeping the tiny bitstream avoids preparing a
+/// size again when the user returns to it; radio/parity estimates stay live.
+class _PreparedImage {
+  final Uint8List payload;
+  final Duration elapsed;
+
+  const _PreparedImage(this.payload, this.elapsed);
+}
+
 class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
-  /// The encoded ft32 bitstream, once the encode finishes.
+  /// The selected size's bitstream, once preparation finishes.
   Uint8List? _encoded;
+  final Map<int, _PreparedImage> _prepared = {};
 
   late bool _parity;
   late final ImageCodecRatePoint _rate;
@@ -155,6 +174,19 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
   bool _sending = false;
   bool _failed = false;
   bool _tooLarge = false;
+  bool _controlBusy = false;
+  bool _controlFailed = false;
+  bool _cancelling = false;
+  int _encodeGeneration = 0;
+  Listenable? _codecListenable;
+  Stopwatch? _preparationStopwatch;
+
+  ImageSendCodecJobControl? get _jobControl {
+    final codec = widget.codec;
+    return codec is ImageSendCodecJobControl
+        ? codec as ImageSendCodecJobControl
+        : null;
+  }
 
   bool get _isNative => _rate == ImageCodecRatePoint.nativeFt2;
 
@@ -165,6 +197,11 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
   @override
   void initState() {
     super.initState();
+    final codec = widget.codec;
+    if (codec is Listenable) {
+      _codecListenable = codec as Listenable;
+      _codecListenable!.addListener(_refreshJobControls);
+    }
     _parity = widget.initialParity;
     _rate = widget.codec.sendRatePoint;
     _resolutions = List<int>.of(widget.codec.supportedResolutions);
@@ -177,28 +214,59 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     }
   }
 
+  void _refreshJobControls() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _codecListenable?.removeListener(_refreshJobControls);
+    ++_encodeGeneration;
+    super.dispose();
+  }
+
   Future<Uint8List?> _encode() async {
     final cached = _encoded;
     if (cached != null) return cached;
+    final prepared = _prepared[_resolution];
+    if (prepared != null) {
+      setState(() {
+        _encoded = prepared.payload;
+        _encodedResolution = _resolution;
+        _encoding = false;
+        _failed = false;
+        _tooLarge = false;
+      });
+      return prepared.payload;
+    }
     setState(() {
       _encoding = true;
       _failed = false;
       _tooLarge = false;
     });
+    final generation = ++_encodeGeneration;
+    final stopwatch = Stopwatch()..start();
+    _preparationStopwatch = stopwatch;
     try {
       final bytes = await widget.codec.encode(
         widget.imageBytes,
         _rate,
         resolution: _resolution,
       );
+      stopwatch.stop();
+      if (!mounted || generation != _encodeGeneration) return null;
       if (_isNative) {
         if (bytes.length > 2369) {
           _tooLarge = true;
-          throw const FormatException('Image exceeds the mesh payload capacity.');
+          throw const FormatException(
+            'Image exceeds the mesh payload capacity.',
+          );
         }
         final header = NativeImageBitstreamHeader.tryParse(bytes);
         if (header == null || header.resolution != _resolution) {
-          throw const FormatException('Native image header does not match the selected size.');
+          throw const FormatException(
+            'Native image header does not match the selected size.',
+          );
         }
         _encodedResolution = header.resolution;
       } else {
@@ -207,16 +275,62 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
       if (!mounted) return bytes;
       setState(() {
         _encoded = bytes;
+        _prepared[_resolution] = _PreparedImage(bytes, stopwatch.elapsed);
         _encoding = false;
       });
       return bytes;
     } catch (_) {
-      if (!mounted) return null;
+      stopwatch.stop();
+      if (!mounted || generation != _encodeGeneration) return null;
       setState(() {
         _encoding = false;
         _failed = true;
       });
       return null;
+    }
+  }
+
+  Future<void> _togglePause() async {
+    final control = _jobControl;
+    if (control == null || !control.canPause || _controlBusy || _cancelling) {
+      return;
+    }
+    setState(() {
+      _controlBusy = true;
+      _controlFailed = false;
+    });
+    try {
+      if (control.isPaused) {
+        await control.resume();
+        if (_encoding) _preparationStopwatch?.start();
+      } else {
+        await control.pause();
+        if (_encoding) _preparationStopwatch?.stop();
+      }
+    } catch (_) {
+      if (mounted) setState(() => _controlFailed = true);
+    } finally {
+      if (mounted) setState(() => _controlBusy = false);
+    }
+  }
+
+  Future<void> _cancelAndClose() async {
+    if (_cancelling || _sending) return;
+    setState(() {
+      _cancelling = true;
+      _controlFailed = false;
+    });
+    ++_encodeGeneration;
+    try {
+      if (_encoding) await _jobControl?.cancel();
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _cancelling = false;
+          _controlFailed = true;
+        });
+      }
     }
   }
 
@@ -257,8 +371,11 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     // figure immediately rather than a spinner.
     if (_isNative) {
       // Native file sizes are content-dependent. No corpus estimate is shown.
-      return _RateEstimate(payloadBytes: null,
-          best: _estimate(0, radio), worst: _estimate(0, radio));
+      return _RateEstimate(
+        payloadBytes: null,
+        best: _estimate(0, radio),
+        worst: _estimate(0, radio),
+      );
     }
     final stats = ImageCodecRateStats.forRate(_rate);
     return _RateEstimate(
@@ -275,6 +392,8 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
       bandwidthHz: radio.bandwidthHz,
       codingRate: radio.rawCodingRate,
       parity: _parity,
+      meshCoreGroupData: true,
+      scoped: widget.scoped,
     );
   }
 
@@ -311,91 +430,154 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     final selected = _estimateFor(radio);
     final ready = widget.codec.availability == ImageCodecAvailability.ready;
 
-    return SafeArea(
-      top: false,
-      child: DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.9,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _grabHandle(colors),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      l10n.imageSend_title,
-                      style: theme.textTheme.titleLarge,
+    return PopScope<ImageSendPreviewResult>(
+      canPop: !_encoding && !_cancelling,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _cancelAndClose();
+      },
+      child: SafeArea(
+        top: false,
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.9,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _grabHandle(colors),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        l10n.imageSend_title,
+                        style: theme.textTheme.titleLarge,
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    tooltip: l10n.imageSend_cancel,
-                    onPressed: _sending
-                        ? null
-                        : () => Navigator.of(context).maybePop(),
-                  ),
-                ],
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      tooltip: l10n.imageSend_cancel,
+                      onPressed: _sending || _cancelling
+                          ? null
+                          : _cancelAndClose,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Expanded(
-              child: ListView(
-                controller: scrollController,
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                children: [
-                  _preview(theme, colors),
-                  const SizedBox(height: 16),
-                  if (!ready) _unavailableBanner(theme, colors),
-                  if (ready) ...[
-                    if (_isNative) ...[
-                      DropdownButtonFormField<int>(
-                        key: const ValueKey('native-image-resolution'),
-                        value: _resolution,
-                        decoration: InputDecoration(labelText: l10n.imageSend_resolutionLabel),
-                        items: [for (final size in _resolutions)
-                          DropdownMenuItem(value: size, child: Text('$size × $size'))],
-                        onChanged: _encoding || _sending ? null : _selectResolution,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(l10n.imageSend_nativeSizeHint,
-                          style: theme.textTheme.bodySmall),
-                      const SizedBox(height: 16),
-                    ],
-                    // Packet count and time on air lead: with the quality
-                    // selector gone they are the only decision the user makes.
-                    if (_isNative && _encoded == null) ...[
-                      if (_encoding) Text(l10n.imageSend_measuringSize),
-                    ] else ...[
-                      _headlineStats(theme, colors, selected),
-                      const SizedBox(height: 16),
-                      _sizeRow(theme, colors, selected),
-                      const SizedBox(height: 12),
-                      ..._warnings(theme, colors, radio, selected),
-                    ],
-                    const SizedBox(height: 4),
-                    _parityTile(theme, colors),
-                    if (_failed) ...[
-                      const SizedBox(height: 12),
-                      _banner(
-                        colors: colors,
-                        theme: theme,
-                        icon: Icons.error_outline,
-                        background: colors.errorContainer,
-                        foreground: colors.onErrorContainer,
-                        title: _tooLarge ? l10n.imageSend_tooLarge : l10n.imageSend_encodeFailed,
-                        body: null,
-                      ),
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  children: [
+                    _preview(theme, colors),
+                    const SizedBox(height: 16),
+                    if (!ready) _unavailableBanner(theme, colors),
+                    if (ready) ...[
+                      if (_isNative) ...[
+                        DropdownButtonFormField<int>(
+                          key: const ValueKey('native-image-resolution'),
+                          value: _resolution,
+                          decoration: InputDecoration(
+                            labelText: l10n.imageSend_resolutionLabel,
+                          ),
+                          items: [
+                            for (final size in _resolutions)
+                              DropdownMenuItem(
+                                value: size,
+                                child: Text('$size × $size'),
+                              ),
+                          ],
+                          onChanged: _encoding || _sending
+                              ? null
+                              : _selectResolution,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.imageSend_nativeSizeHint,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      // Packet count and time on air lead: with the quality
+                      // selector gone they are the only decision the user makes.
+                      if (_isNative && _encoded == null) ...[
+                        if (_encoding)
+                          Text(
+                            _cancelling
+                                ? l10n.imageCodec_cancelling
+                                : _jobControl?.isPaused == true
+                                ? l10n.imageCodec_paused
+                                : l10n.imageSend_measuringSize,
+                          ),
+                      ] else ...[
+                        _headlineStats(theme, colors, selected),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.imageSend_sendEstimateHint,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 16),
+                        _sizeRow(theme, colors, selected),
+                        if (_prepared[_resolution] case final prepared?) ...[
+                          const SizedBox(height: 12),
+                          _preparationStats(theme, colors, prepared),
+                        ],
+                        const SizedBox(height: 12),
+                        ..._warnings(theme, colors, radio, selected),
+                      ],
+                      const SizedBox(height: 4),
+                      if (_isNative && _encoding && _jobControl != null)
+                        OutlinedButton.icon(
+                          key: const ValueKey('image-codec-pause'),
+                          onPressed:
+                              _jobControl!.canPause &&
+                                  !_controlBusy &&
+                                  !_cancelling
+                              ? _togglePause
+                              : null,
+                          icon: Icon(
+                            _jobControl!.isPaused
+                                ? Icons.play_arrow
+                                : Icons.pause,
+                          ),
+                          label: Text(
+                            _jobControl!.isPaused
+                                ? l10n.imageCodec_resume
+                                : l10n.imageCodec_pause,
+                          ),
+                        ),
+                      if (_controlFailed)
+                        Text(
+                          l10n.imageCodec_controlFailed,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colors.error,
+                          ),
+                        ),
+                      if (_isNative) _sizeComparison(theme, colors, radio),
+                      _parityTile(theme, colors),
+                      if (_failed) ...[
+                        const SizedBox(height: 12),
+                        _banner(
+                          colors: colors,
+                          theme: theme,
+                          icon: Icons.error_outline,
+                          background: colors.errorContainer,
+                          foreground: colors.onErrorContainer,
+                          title: _tooLarge
+                              ? l10n.imageSend_tooLarge
+                              : l10n.imageSend_encodeFailed,
+                          body: null,
+                        ),
+                      ],
                     ],
                   ],
-                ],
+                ),
               ),
-            ),
-            _actions(theme, ready),
-          ],
+              _actions(theme, ready),
+            ],
+          ),
         ),
       ),
     );
@@ -411,8 +593,7 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     ),
   );
 
-  /// The square render. [BoxFit.fill] on a 1:1 box is exactly the 512x512
-  /// centre crop the codec will take, so what is shown is what is sent.
+  /// Native images use a center square crop; legacy images stretch to a square.
   ///
   /// The preview is deliberately capped in height: the packet count and airtime
   /// below it are the reason this screen exists and must not be pushed off the
@@ -490,6 +671,81 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     );
   }
 
+  Widget _preparationStats(
+    ThemeData theme,
+    ColorScheme colors,
+    _PreparedImage prepared,
+  ) {
+    return Wrap(
+      key: const ValueKey('image-preparation-stats'),
+      alignment: WrapAlignment.center,
+      spacing: 24,
+      runSpacing: 8,
+      children: [
+        _sizeChip(
+          theme,
+          colors,
+          context.l10n.imageSend_compressedSize,
+          _formatKilobytes(prepared.payload.length),
+          emphasised: true,
+        ),
+        _sizeChip(
+          theme,
+          colors,
+          context.l10n.imageSend_preparationTime,
+          _formatDuration(prepared.elapsed),
+        ),
+      ],
+    );
+  }
+
+  Widget _sizeComparison(
+    ThemeData theme,
+    ColorScheme colors,
+    ImageSendRadio radio,
+  ) {
+    final l10n = context.l10n;
+    return ExpansionTile(
+      key: const ValueKey('image-size-comparison'),
+      tilePadding: EdgeInsets.zero,
+      title: Text(l10n.imageSend_compareSizes),
+      subtitle: Text(
+        l10n.imageSend_compareSizesHint,
+        style: theme.textTheme.bodySmall,
+      ),
+      children: [
+        for (final size in _resolutions)
+          ListTile(
+            key: ValueKey('image-size-choice-$size'),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            selected: size == _resolution,
+            title: Text('$size × $size'),
+            subtitle: Text(_choiceDetails(size, radio)),
+            trailing: size == _resolution
+                ? Icon(Icons.check, color: colors.primary)
+                : const Icon(Icons.chevron_right),
+            onTap: _encoding || _sending ? null : () => _selectResolution(size),
+          ),
+      ],
+    );
+  }
+
+  String _choiceDetails(int size, ImageSendRadio radio) {
+    final l10n = context.l10n;
+    final prepared = _prepared[size];
+    if (prepared == null) {
+      return _encoding && size == _resolution
+          ? l10n.imageSend_measuringSize
+          : l10n.imageSend_calculateChoice;
+    }
+    final send = _estimate(prepared.payload.length, radio).pacedWallClock;
+    return l10n.imageSend_measuredChoice(
+      _formatKilobytes(prepared.payload.length),
+      _formatDuration(prepared.elapsed),
+      send == null ? l10n.imageSend_unknownValue : _formatDuration(send),
+    );
+  }
+
   Widget _sizeChip(
     ThemeData theme,
     ColorScheme colors,
@@ -550,9 +806,10 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
             child: _stat(
               theme,
               colors,
-              localizations.imageSend_airtimeLabel,
+              localizations.imageSend_estimatedSendTime,
               _airtimeText(estimate),
               emphasised: true,
+              valueKey: const ValueKey('image-send-time'),
             ),
           ),
         ],
@@ -569,12 +826,14 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     String label,
     String value, {
     bool emphasised = false,
+    Key? valueKey,
   }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           value,
+          key: valueKey,
           textAlign: TextAlign.center,
           style: theme.textTheme.headlineSmall?.copyWith(
             color: emphasised ? colors.primary : colors.onSurface,
@@ -758,17 +1017,15 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
 
   Widget _actions(ThemeData theme, bool ready) {
     final localizations = context.l10n;
-    final busy = _sending || _encoding;
+    final busy = _sending || _encoding || _cancelling;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Row(
         children: [
           Expanded(
             child: OutlinedButton(
-              onPressed: _sending
-                  ? null
-                  : () => Navigator.of(context).maybePop(),
-              child: Text(localizations.imageSend_cancel),
+              onPressed: _sending || _cancelling ? null : _cancelAndClose,
+              child: Text(localizations.imageCodec_cancel),
             ),
           ),
           const SizedBox(width: 12),
@@ -842,8 +1099,12 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
   }
 
   String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} kB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    if (bytes < 1000) return '$bytes B';
+    if (bytes < 1000000) return '${(bytes / 1000).toStringAsFixed(1)} kB';
+    return '${(bytes / 1000000).toStringAsFixed(1)} MB';
   }
+
+  /// Decimal kB, with exact bytes beside it so small mesh files stay legible.
+  String _formatKilobytes(int bytes) =>
+      '${(bytes / 1000).toStringAsFixed(3)} kB ($bytes B)';
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -38,6 +39,8 @@ Future<ImageSendPreviewResult?> _openSheet(
   WidgetTester tester, {
   required ImageSendRadio radio,
   ImageSendCodec codec = const FakeImageSendCodec(latency: Duration.zero),
+  bool waitForPreparation = true,
+  bool scoped = false,
   void Function(ImageSendPreviewResult?)? onResult,
 }) async {
   ImageSendPreviewResult? result;
@@ -58,6 +61,7 @@ Future<ImageSendPreviewResult?> _openSheet(
                   originalFileBytes: 2 * 1024 * 1024,
                   codec: codec,
                   radio: radio,
+                  scoped: scoped,
                 );
                 closed = true;
                 onResult?.call(result);
@@ -71,7 +75,13 @@ Future<ImageSendPreviewResult?> _openSheet(
   );
 
   await tester.tap(find.text('open'));
-  await tester.pumpAndSettle();
+  if (waitForPreparation) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+  }
   expect(closed, isFalse, reason: 'sheet should still be open');
   return result;
 }
@@ -84,69 +94,362 @@ List<String> _texts(WidgetTester tester) => tester
     .whereType<String>()
     .toList();
 
+Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    160,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.pumpAndSettle();
+}
+
 class _RecordingNativeCodec extends FakeImageSendCodec {
   final List<int?> requestedSizes = [];
 
   _RecordingNativeCodec()
-      : super(sendRatePoint: ImageCodecRatePoint.nativeFt2,
-          latency: Duration.zero);
+    : super(
+        sendRatePoint: ImageCodecRatePoint.nativeFt2,
+        latency: Duration.zero,
+      );
 
   @override
-  Future<Uint8List> encode(Uint8List bytes, ImageCodecRatePoint rate,
-      {int? resolution}) {
+  Future<Uint8List> encode(
+    Uint8List bytes,
+    ImageCodecRatePoint rate, {
+    int? resolution,
+  }) {
     requestedSizes.add(resolution);
     return super.encode(bytes, rate, resolution: resolution);
   }
 }
 
+class _ControlledNativeCodec extends FakeImageSendCodec
+    implements ImageSendCodecJobControl {
+  final calls = <String>[];
+  final pending = Completer<Uint8List>();
+  final cancelFinished = Completer<void>();
+
+  _ControlledNativeCodec()
+    : super(sendRatePoint: ImageCodecRatePoint.nativeFt2);
+
+  @override
+  bool get canPause => true;
+  @override
+  bool isPaused = false;
+
+  @override
+  Future<Uint8List> encode(
+    Uint8List bytes,
+    ImageCodecRatePoint rate, {
+    int? resolution,
+  }) => pending.future;
+
+  @override
+  Future<void> pause() async {
+    calls.add('pause');
+    isPaused = true;
+  }
+
+  @override
+  Future<void> resume() async {
+    calls.add('resume');
+    isPaused = false;
+  }
+
+  @override
+  Future<void> cancel() async {
+    calls.add('cancel');
+    await cancelFinished.future;
+    pending.completeError(StateError('Cancelled'));
+  }
+}
+
 void main() {
-  testWidgets('native preview defaults to 128 and sends its actual header size',
-      (tester) async {
-    final codec = _RecordingNativeCodec();
+  testWidgets('scoped native send estimate includes its transport-code bytes', (
+    tester,
+  ) async {
     ImageSendPreviewResult? sent;
-    await _openSheet(tester, radio: _knownRadio, codec: codec,
-        onResult: (result) => sent = result);
-    expect(codec.requestedSizes, [128]);
-    final selector = tester.widget<DropdownButtonFormField<int>>(
-        find.byKey(const ValueKey('native-image-resolution')));
-    expect(selector.initialValue, 128);
-    final dropdown = tester.widget<DropdownButton<int>>(
-        find.descendant(of: find.byKey(const ValueKey('native-image-resolution')),
-            matching: find.byType(DropdownButton<int>)));
-    expect(dropdown.items?.map((item) => item.value).toList(),
-        kNativeImageCodecResolutions);
-    expect(tester.widget<Image>(find.byType(Image)).fit, BoxFit.cover);
-    await tester.tap(find.byWidgetPredicate((widget) => widget is FilledButton));
+    await _openSheet(
+      tester,
+      radio: _knownRadio,
+      codec: _RecordingNativeCodec(),
+      scoped: true,
+      onResult: (result) => sent = result,
+    );
+    await tester.tap(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
     await tester.pumpAndSettle();
-    expect(sent?.rate, ImageCodecRatePoint.nativeFt2);
-    expect(sent?.resolution, 128);
-    expect(NativeImageBitstreamHeader.tryParse(sent!.payload)?.resolution, 128);
+    final expected = estimateSendFromRadioParams(
+      payloadBytes: 137,
+      spreadingFactor: 10,
+      bandwidthHz: 250000,
+      codingRate: 1,
+      meshCoreGroupData: true,
+      scoped: true,
+    );
+    expect(expected.totalBytes, 354);
+    expect(sent?.airtime, expected.totalAirtime);
+    expect(sent?.wallClock, expected.pacedWallClock);
   });
+
+  testWidgets('phone back waits for preparation cancellation', (tester) async {
+    final codec = _ControlledNativeCodec();
+    var closed = false;
+    await _openSheet(
+      tester,
+      radio: _knownRadio,
+      codec: codec,
+      waitForPreparation: false,
+      onResult: (_) => closed = true,
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(codec.calls, ['cancel']);
+    expect(closed, isFalse);
+    codec.cancelFinished.complete();
+    await tester.pumpAndSettle();
+    expect(closed, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('measured size controls fit a small phone screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 533);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await _openSheet(
+      tester,
+      radio: _knownRadio,
+      codec: _RecordingNativeCodec(),
+    );
+    await _scrollTo(
+      tester,
+      find.byKey(const ValueKey('image-preparation-stats')),
+    );
+    expect(_texts(tester), contains('0.137 kB (137 B)'));
+    await _scrollTo(
+      tester,
+      find.byKey(const ValueKey('image-size-comparison')),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'pauses and resumes preparation, then awaits cancellation before closing',
+    (tester) async {
+      final codec = _ControlledNativeCodec();
+      var closed = false;
+      await _openSheet(
+        tester,
+        radio: _knownRadio,
+        codec: codec,
+        waitForPreparation: false,
+        onResult: (_) => closed = true,
+      );
+      final pause = find.byKey(const ValueKey('image-codec-pause'));
+      await tester.ensureVisible(pause);
+      await tester.pump();
+      await tester.tap(pause);
+      await tester.pump();
+      expect(codec.calls, ['pause']);
+      expect(find.text('Resume'), findsOneWidget);
+      expect(find.text('Image task paused'), findsOneWidget);
+      await tester.tap(pause);
+      await tester.pump();
+      expect(codec.calls, ['pause', 'resume']);
+      expect(find.text('Pause'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      expect(codec.calls, ['pause', 'resume', 'cancel']);
+      expect(
+        closed,
+        isFalse,
+        reason: 'the native process must stop before dismissal',
+      );
+      codec.cancelFinished.complete();
+      await tester.pumpAndSettle();
+      expect(closed, isTrue);
+      expect(find.byType(ImageSendPreviewSheet), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'native preview defaults to 128 and sends its actual header size',
+    (tester) async {
+      final codec = _RecordingNativeCodec();
+      ImageSendPreviewResult? sent;
+      await _openSheet(
+        tester,
+        radio: _knownRadio,
+        codec: codec,
+        onResult: (result) => sent = result,
+      );
+      expect(codec.requestedSizes, [128]);
+      final selector = tester.widget<DropdownButtonFormField<int>>(
+        find.byKey(const ValueKey('native-image-resolution')),
+      );
+      expect(selector.initialValue, 128);
+      final dropdown = tester.widget<DropdownButton<int>>(
+        find.descendant(
+          of: find.byKey(const ValueKey('native-image-resolution')),
+          matching: find.byType(DropdownButton<int>),
+        ),
+      );
+      expect(
+        dropdown.items?.map((item) => item.value).toList(),
+        kNativeImageCodecResolutions,
+      );
+      expect(tester.widget<Image>(find.byType(Image)).fit, BoxFit.cover);
+      await tester.tap(
+        find.byWidgetPredicate((widget) => widget is FilledButton),
+      );
+      await tester.pumpAndSettle();
+      expect(sent?.rate, ImageCodecRatePoint.nativeFt2);
+      expect(sent?.resolution, 128);
+      expect(
+        NativeImageBitstreamHeader.tryParse(sent!.payload)?.resolution,
+        128,
+      );
+    },
+  );
 
   testWidgets('changing native size re-encodes before sending', (tester) async {
     final codec = _RecordingNativeCodec();
     ImageSendPreviewResult? sent;
-    await _openSheet(tester, radio: _knownRadio, codec: codec,
-        onResult: (result) => sent = result);
+    await _openSheet(
+      tester,
+      radio: _knownRadio,
+      codec: codec,
+      onResult: (result) => sent = result,
+    );
     await tester.tap(find.byKey(const ValueKey('native-image-resolution')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('576 × 576').last);
     await tester.tap(find.text('576 × 576').last);
     await tester.pumpAndSettle();
     expect(codec.requestedSizes, [128, 576]);
-    await tester.tap(find.byWidgetPredicate((widget) => widget is FilledButton));
+    await tester.tap(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
     await tester.pumpAndSettle();
     expect(sent?.resolution, 576);
     expect(sent?.payload.length, 1783);
     expect(NativeImageBitstreamHeader.tryParse(sent!.payload)?.resolution, 576);
   });
 
-  testWidgets('legacy preview retains the 512 stretch without a size selector',
-      (tester) async {
-    await _openSheet(tester, radio: _knownRadio);
-    expect(find.byKey(const ValueKey('native-image-resolution')), findsNothing);
-    expect(tester.widget<Image>(find.byType(Image)).fit, BoxFit.fill);
-  });
+  testWidgets(
+    'legacy preview retains the 512 stretch without a size selector',
+    (tester) async {
+      await _openSheet(tester, radio: _knownRadio);
+      expect(
+        find.byKey(const ValueKey('native-image-resolution')),
+        findsNothing,
+      );
+      expect(tester.widget<Image>(find.byType(Image)).fit, BoxFit.fill);
+    },
+  );
+
+  testWidgets(
+    'shows measured compressed bytes and preparation separately from send estimate',
+    (tester) async {
+      final codec = _RecordingNativeCodec();
+      await _openSheet(tester, radio: _knownRadio, codec: codec);
+      expect(_texts(tester), contains('LoRa send (estimated)'));
+      await _scrollTo(
+        tester,
+        find.byKey(const ValueKey('image-preparation-stats')),
+      );
+      await tester.pumpAndSettle();
+      expect(_texts(tester), contains('0.137 kB (137 B)'));
+      expect(_texts(tester), contains('Preparation (measured)'));
+      expect(codec.requestedSizes, [
+        128,
+      ], reason: 'other sizes are not prepared automatically');
+    },
+  );
+
+  testWidgets(
+    'comparison retains real choices and reuses a previously prepared bitstream',
+    (tester) async {
+      final codec = _RecordingNativeCodec();
+      ImageSendPreviewResult? sent;
+      await _openSheet(
+        tester,
+        radio: _knownRadio,
+        codec: codec,
+        onResult: (result) => sent = result,
+      );
+      final comparison = find.byKey(const ValueKey('image-size-comparison'));
+      await _scrollTo(tester, comparison);
+      await tester.tap(
+        find.descendant(
+          of: comparison,
+          matching: find.text('Compare image sizes'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Select to calculate this photo'), findsNWidgets(7));
+      final choice576 = find.byKey(const ValueKey('image-size-choice-576'));
+      await _scrollTo(tester, choice576);
+      await tester.tap(choice576);
+      await tester.pumpAndSettle();
+      expect(codec.requestedSizes, [128, 576]);
+      expect(
+        _texts(tester).any((text) => text.startsWith('1.783 kB (1783 B)\n')),
+        isTrue,
+      );
+      expect(
+        _texts(tester).any((text) => text.startsWith('0.137 kB (137 B)\n')),
+        isTrue,
+      );
+      final choice128 = find.byKey(const ValueKey('image-size-choice-128'));
+      await _scrollTo(tester, choice128);
+      await tester.tap(choice128);
+      await tester.pumpAndSettle();
+      expect(
+        codec.requestedSizes,
+        [128, 576],
+        reason: 'returning to a measured size uses its cached bytes',
+      );
+      await tester.tap(
+        find.byWidgetPredicate((widget) => widget is FilledButton),
+      );
+      await tester.pumpAndSettle();
+      expect(sent?.resolution, 128);
+      expect(sent?.payload.length, 137);
+    },
+  );
+
+  testWidgets(
+    'parity updates measured choice send estimates without another encode',
+    (tester) async {
+      final codec = _RecordingNativeCodec();
+      await _openSheet(tester, radio: _knownRadio, codec: codec);
+      final comparison = find.byKey(const ValueKey('image-size-comparison'));
+      await _scrollTo(tester, comparison);
+      await tester.tap(
+        find.descendant(
+          of: comparison,
+          matching: find.text('Compare image sizes'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      String measured() => _texts(
+        tester,
+      ).singleWhere((text) => text.startsWith('0.137 kB (137 B)\n'));
+      final withParity = measured();
+      final switchTile = find.byType(SwitchListTile);
+      await _scrollTo(tester, switchTile);
+      await tester.tap(switchTile);
+      await tester.pumpAndSettle();
+      expect(measured(), isNot(withParity));
+      expect(codec.requestedSizes, [128]);
+    },
+  );
 
   testWidgets('renders with a fake codec and shows the image preview', (
     tester,
@@ -156,7 +459,9 @@ void main() {
     expect(find.byType(ImageSendPreviewSheet), findsOneWidget);
     expect(find.byType(Image), findsOneWidget);
     // The send action is enabled once the encode has settled.
-    final send = tester.widget<FilledButton>(find.byWidgetPredicate((widget) => widget is FilledButton));
+    final send = tester.widget<FilledButton>(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
     expect(send.onPressed, isNotNull);
   });
 
@@ -172,6 +477,7 @@ void main() {
       spreadingFactor: 10,
       bandwidthHz: 250000,
       codingRate: 1,
+      meshCoreGroupData: true,
     );
     expect(expected.chunkCount, inInclusiveRange(2, 3));
     expect(_texts(tester), contains('${expected.chunkCount}'));
@@ -206,6 +512,7 @@ void main() {
       spreadingFactor: 10,
       bandwidthHz: 250000,
       codingRate: 1,
+      meshCoreGroupData: true,
     );
     // Two packets, so pacing must have widened the figure.
     expect(
@@ -232,12 +539,36 @@ void main() {
     // The em dash placeholder, never a fabricated duration.
     expect(texts, contains('—'));
     expect(
-      texts.any((t) => RegExp(r'^\d+(\.\d)? s$').hasMatch(t)),
-      isFalse,
-      reason: 'no duration may be invented; got: $texts',
+      tester.widget<Text>(find.byKey(const ValueKey('image-send-time'))).data,
+      '—',
+      reason: 'send duration cannot be invented; preparation time is measured',
     );
+    await _scrollTo(
+      tester,
+      find.byKey(const ValueKey('image-preparation-stats')),
+    );
+    expect(_texts(tester), contains('Preparation (measured)'));
     // The packet count is still meaningful and must survive.
     expect(texts, contains('$_expectedPackets'));
+  });
+
+  testWidgets('zero-valued radio settings show unavailable send time', (
+    tester,
+  ) async {
+    await _openSheet(
+      tester,
+      radio: const ImageSendRadio(
+        spreadingFactor: 0,
+        bandwidthHz: 0,
+        rawCodingRate: 0,
+      ),
+    );
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('image-send-time'))).data,
+      '—',
+    );
+    await _scrollTo(tester, find.text('Radio settings unknown'));
+    expect(_texts(tester), contains('Radio settings unknown'));
   });
 
   testWidgets('offers no quality selector', (tester) async {
@@ -325,7 +656,9 @@ void main() {
 
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byWidgetPredicate((widget) => widget is FilledButton));
+    await tester.tap(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
     await tester.pumpAndSettle();
 
     expect(result, isNotNull);
@@ -355,7 +688,9 @@ void main() {
 
     final l10n = await AppLocalizations.delegate.load(const Locale('en'));
     expect(_texts(tester), contains(l10n.imageSend_codecDownloading));
-    final send = tester.widget<FilledButton>(find.byWidgetPredicate((widget) => widget is FilledButton));
+    final send = tester.widget<FilledButton>(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
     expect(send.onPressed, isNull);
   });
 
@@ -383,7 +718,9 @@ void main() {
       isNot(contains(l10n.imageSend_codecUnavailable)),
       reason: 'the concrete reason must REPLACE the generic sentence',
     );
-    final send = tester.widget<FilledButton>(find.byWidgetPredicate((widget) => widget is FilledButton));
+    final send = tester.widget<FilledButton>(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
     expect(send.onPressed, isNull);
   });
 

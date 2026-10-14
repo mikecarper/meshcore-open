@@ -44,6 +44,10 @@ cmake --build build-entropy
 ctest --test-dir build-entropy --output-on-failure
 ```
 
+All ten native host CTests pass, including process supervision and
+paused-time recovery deadlines. The current supervisor build still needs
+phone verification; 576-pixel phone PNG completion remains unverified.
+
 ## Model interface
 
 `codec.tsv` and `renderer.tsv` contain tab-separated rows:
@@ -113,6 +117,38 @@ Decode that phone-generated bitstream:
   --output /data/local/tmp/aeic/sample.png --threads 2 \
   --verify-dir /data/local/tmp/aeic/model256/references
 ```
+
+Use `--spill-dir /path/to/job/scratch` for the app memory profile. The directory
+must belong to the codec process. Each run creates a fresh private child
+directory and removes only its own files on normal exit or exceptions. The app
+also removes its job workspace after cancellation. Retained renderer tensors
+are stored as exact FP32 CHW bytes with streamed checksums, bounded I/O, and
+page-cache release advice. Current tensors stay in memory; restoring a skip
+does not alter its values. Large 1x1 and same-padding 3x3 convolutions, including
+nearest-neighbor upsampling graphs, run in 64-row sections with valid halos.
+Consumed inputs may reuse uniquely owned storage. Shared aliases are preserved.
+Encoder and entropy arithmetic are unchanged by this option.
+
+Direct CLI jobs create their own signal group and emit
+`PROCESS_INFO pid=N group=N` before model work. Parent-death guards prevent
+app or supervisor death from leaving a stopped worker behind. A paused group
+must be resumed before termination.
+App launches must add `--supervise`: Android 5's
+[Java process reaper](https://android.googlesource.com/platform/libcore/+/5d930ca/luni/src/main/java/java/lang/ProcessManager.java)
+uses `waitpid(0)`, so its direct launcher must remain in the app's inherited group.
+The launcher forks a guarded worker, creates only that worker's signal group,
+and emits the handshake before opening its inference startup gate. It waits
+for the worker, terminates any remaining group members while the leader PID
+is still reserved, reaps the leader, then emits `PROCESS_EXIT pid=N group=N`
+before returning the worker's exit status. The app retires that group and still
+waits for the Java launcher to finish before deleting the job workspace.
+`--pause-time-file FILE` reads the app's cumulative paused milliseconds. Its
+bounded monotonic counter excludes paused intervals from best-effort stage
+deadlines; ordinary strict inference has no per-stage recovery timeout.
+
+`validate_tensor_memory.py BASELINE_RUN CANDIDATE_RUN` verifies that completed
+host runs have identical hashes for every FP32 tensor and identical saved image
+bytes. Each run directory must contain `decode.log` with `DECODE_COMPLETE`.
 
 Float references use `stage.slot.f32`, plus `z_hat.f32`, `y_hat.f32`,
 `l_T.f32`, and `residual.f32`. Float differences are logged; add

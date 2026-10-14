@@ -1290,6 +1290,7 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
       imageBytes: sourceBytes,
       originalFileBytes: originalFileBytes,
       codec: codec,
+      scoped: connector.getChannelRegion(widget.channel.index).isNotEmpty,
     );
     if (result == null) return; // cancelled at the preview
     if (!mounted) return;
@@ -2597,5 +2598,9 @@ ReceivedImageStrings _receivedImageStrings(BuildContext context) {
     recoveryExplanation: l10n.receivedImage_recoveryExplanation,
     recovered: l10n.receivedImage_recovered,
     cancel: l10n.common_cancel,
+    pause: l10n.imageCodec_pause,
+    resume: l10n.imageCodec_resume,
+    paused: l10n.imageCodec_paused,
+    controlFailed: l10n.imageCodec_controlFailed,
   );
 }

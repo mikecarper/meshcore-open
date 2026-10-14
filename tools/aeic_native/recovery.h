@@ -27,6 +27,10 @@ struct Options {
     std::size_t max_output_bytes = 128u * 1024u * 1024u;
     std::uint64_t timeout_ms = 300000;
     unsigned poll_ms = 5;
+    // Optional cumulative paused milliseconds, read only in the parent.
+    // The baseline is captured once per stage; later monotonic increases are
+    // excluded from its deadline. elapsed_ms remains wall-clock time.
+    std::function<std::uint64_t()> paused_ms;
     // Disable only for a trusted callback that checks shape/count and writes
     // every plane after model execution. This avoids faulting IPC pages while
     // inference intermediates are resident, but cannot detect omitted writes.

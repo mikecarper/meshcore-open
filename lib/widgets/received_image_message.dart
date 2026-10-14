@@ -69,6 +69,10 @@ class ReceivedImageStrings {
   final String recoveryExplanation;
   final String recovered;
   final String cancel;
+  final String pause;
+  final String resume;
+  final String paused;
+  final String controlFailed;
 
   const ReceivedImageStrings({
     required this.incoming,
@@ -94,6 +98,10 @@ class ReceivedImageStrings {
         'Try recovering this image? Some detail may be missing.',
     this.recovered = 'Recovered image. Some detail may be missing.',
     this.cancel = 'Cancel',
+    this.pause = 'Pause',
+    this.resume = 'Resume',
+    this.paused = 'Paused',
+    this.controlFailed = 'Image processing could not be controlled.',
   });
 
   // TODO(l10n): replace with context.l10n.receivedImage_* once app_en.arb has
@@ -178,6 +186,7 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
   /// a bool left over from the previous stream meant the new one's pixels were
   /// never requested and the bubble sat on a spinner forever.
   String? _pngRequestedFor;
+  bool _changingJobControl = false;
 
   ReceivedImageStore? _resolveStore() {
     final injected = widget.store;
@@ -298,15 +307,53 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
         );
 
       case ReceivedImageState.decoding:
+        final paused = store.isDecodePaused(entry.streamId);
         return _box(
           context,
-          _progressBody(
-            context,
-            progress: null,
-            label: entry.rate == AeicRatePoint.ft2
-                ? _s.nativeDecoding
-                : _s.decoding,
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _progressBody(
+                context,
+                progress: paused ? 0 : null,
+                label: paused
+                    ? _s.paused
+                    : entry.rate == AeicRatePoint.ft2
+                    ? _s.nativeDecoding
+                    : _s.decoding,
+              ),
+              if (store.canControlDecode(entry.streamId))
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 4,
+                  children: [
+                    TextButton(
+                      key: const ValueKey('received-image-pause-resume'),
+                      onPressed:
+                          _changingJobControl ||
+                              (!paused && !store.canPauseDecode(entry.streamId))
+                          ? null
+                          : () => _controlJob(
+                              () => paused
+                                  ? store.resumeDecode(entry.streamId)
+                                  : store.pauseDecode(entry.streamId),
+                            ),
+                      child: Text(paused ? _s.resume : _s.pause),
+                    ),
+                    TextButton(
+                      key: const ValueKey('received-image-cancel'),
+                      onPressed: _changingJobControl
+                          ? null
+                          : () => _controlJob(
+                              () => store.cancelDecode(entry.streamId),
+                            ),
+                      child: Text(_s.cancel),
+                    ),
+                  ],
+                ),
+            ],
           ),
+          fitContent: store.canControlDecode(entry.streamId),
         );
 
       case ReceivedImageState.failedIncomplete:
@@ -399,8 +446,9 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
         ],
       ),
     );
-    if (accepted == true && mounted)
+    if (accepted == true && mounted) {
       store.requestDecode(entry.streamId, bestEffort: true);
+    }
   }
 
   /// The one tap handler for the awaiting-action card.
@@ -420,15 +468,38 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
     store.requestDecode(entry.streamId);
   }
 
+  Future<void> _controlJob(Future<void> Function() action) async {
+    setState(() => _changingJobControl = true);
+    try {
+      await action();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_s.controlFailed)));
+      }
+    } finally {
+      if (mounted) setState(() => _changingJobControl = false);
+    }
+  }
+
   // ---- bodies --------------------------------------------------------------
 
-  /// 4:3 placeholder box, same discipline as `GifMessage`, so a bubble does not
-  /// resize as an image progresses.
-  Widget _box(BuildContext context, Widget child, {VoidCallback? onTap}) {
+  /// Keep ordinary placeholders at 4:3. Native controls may need more height
+  /// when labels wrap in a narrow bubble or at a larger text scale.
+  Widget _box(
+    BuildContext context,
+    Widget child, {
+    VoidCallback? onTap,
+    bool fitContent = false,
+  }) {
     final theme = Theme.of(context);
     final box = Container(
       width: widget.maxSize,
-      height: widget.maxSize * 0.75,
+      height: fitContent ? null : widget.maxSize * 0.75,
+      constraints: fitContent
+          ? BoxConstraints(minHeight: widget.maxSize * 0.75)
+          : null,
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),

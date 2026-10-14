@@ -2777,10 +2777,31 @@
   "pathMap_followPacket": "Lock view to packet",
   "pathMap_unfollowPacket": "Unlock view from packet",
   "imageSend_title": "Send image",
+  "imageCodec_pause": "Pause",
+  "imageCodec_resume": "Resume",
+  "imageCodec_paused": "Image task paused",
+  "imageCodec_cancel": "Cancel",
+  "imageCodec_cancelling": "Stopping image task…",
+  "imageCodec_controlFailed": "Could not change the image task. Try again.",
   "imageSend_cropNote": "Resized to 512 × 512 · aspect ratio not preserved",
   "imageSend_resolutionLabel": "Image size",
-  "imageSend_nativeSizeHint": "Smaller images need fewer packets. Compressed size depends on the photo.",
+  "imageSend_nativeSizeHint": "Smaller images usually send faster and open faster on older phones, but keep less detail. Size depends on the photo.",
   "imageSend_measuringSize": "Calculating compressed size…",
+  "imageSend_compressedSize": "Compressed photo",
+  "imageSend_preparationTime": "Preparation (measured)",
+  "imageSend_estimatedSendTime": "LoRa send (estimated)",
+  "imageSend_sendEstimateHint": "Uses current radio settings, packet headers and spacing. Routing and a busy mesh can add time.",
+  "imageSend_compareSizes": "Compare image sizes",
+  "imageSend_compareSizesHint": "Results are measured for this photo, with paused time excluded. Try a size to compare it; tried sizes are saved here.",
+  "imageSend_calculateChoice": "Select to calculate this photo",
+  "imageSend_measuredChoice": "{size}\nPrepared: {prepare} · Send estimate: {send}",
+  "@imageSend_measuredChoice": {
+    "placeholders": {
+      "size": {"type": "String"},
+      "prepare": {"type": "String"},
+      "send": {"type": "String"}
+    }
+  },
   "imageSend_centerCropSize": "Center square · {size} × {size}",
   "@imageSend_centerCropSize": {
     "placeholders": {"size": {"type": "int"}}

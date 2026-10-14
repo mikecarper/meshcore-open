@@ -538,6 +538,14 @@ abstract class ReceivedImageDecoder {
   void cancelCodecJob();
 }
 
+abstract interface class ReceivedImageJobControl {
+  bool get canPause;
+  bool get isPaused;
+  Future<void> pause();
+  Future<void> resume();
+  Future<void> cancel();
+}
+
 abstract interface class ReceivedImageRecoveryDecoder {
   bool get supportsBestEffortRecovery;
   Future<ImageCodecResult?> decodeRecoveredBitstream({
@@ -1085,6 +1093,50 @@ class ReceivedImageStore extends ChangeNotifier {
     }
   }
 
+  bool canControlDecode(String streamId) =>
+      _activeDecodeId == streamId &&
+      _entries[streamId]?.state == ReceivedImageState.decoding &&
+      _entries[streamId]?.rate == AeicRatePoint.ft2 &&
+      decoder is ReceivedImageJobControl;
+
+  bool canPauseDecode(String streamId) =>
+      canControlDecode(streamId) &&
+      (decoder as ReceivedImageJobControl).canPause;
+  bool isDecodePaused(String streamId) =>
+      canControlDecode(streamId) &&
+      (decoder as ReceivedImageJobControl).isPaused;
+
+  Future<void> pauseDecode(String streamId) async {
+    if (!canPauseDecode(streamId)) return;
+    await (decoder as ReceivedImageJobControl).pause();
+    final entry = _entries[streamId];
+    if (entry != null) _publish(entry.copyWith());
+    _notify();
+  }
+
+  Future<void> resumeDecode(String streamId) async {
+    if (!isDecodePaused(streamId)) return;
+    await (decoder as ReceivedImageJobControl).resume();
+    final entry = _entries[streamId];
+    if (entry != null) _publish(entry.copyWith());
+    _notify();
+  }
+
+  Future<void> cancelDecode(String streamId) async {
+    if (!canControlDecode(streamId)) return;
+    _cancelRequested = true;
+    _queue.clear();
+    _recoveryRequests.clear();
+    for (final entry in _entries.values.toList()) {
+      if (entry.state == ReceivedImageState.reassembled &&
+          !entry.needsManualDecode) {
+        await _store(entry.copyWith(needsManualDecode: true));
+      }
+    }
+    await (decoder as ReceivedImageJobControl).cancel();
+    await settle();
+  }
+
   /// User tapped "Decode" / "Try again" / "Decode again".
   Future<void> requestDecode(String streamId, {bool bestEffort = false}) async {
     final entry = _entries[streamId];
@@ -1220,6 +1272,7 @@ class ReceivedImageStore extends ChangeNotifier {
   /// once is not a slow app, it is an OOM kill. If this ever trips, the queue
   /// invariant is broken somewhere and the right answer is still to run one.
   bool _decodeInFlight = false;
+  String? _activeDecodeId;
 
   Future<void> _decodeOne(
     ReceivedImageEntry entry,
@@ -1233,10 +1286,12 @@ class ReceivedImageStore extends ChangeNotifier {
       return;
     }
     _decodeInFlight = true;
+    _activeDecodeId = entry.streamId;
     try {
       await _decodeOneExclusive(entry, decoder, bestEffort: bestEffort);
     } finally {
       _decodeInFlight = false;
+      _activeDecodeId = null;
     }
   }
 
@@ -1299,6 +1354,17 @@ class ReceivedImageStore extends ChangeNotifier {
     }
 
     final current = _entries[entry.streamId] ?? entry;
+    if (_cancelRequested) {
+      // Cancellation owns the pending operation even if its final pixels raced
+      // the stop request. Retain the original bitstream for an explicit retry.
+      await _store(
+        current.copyWith(
+          state: ReceivedImageState.reassembled,
+          needsManualDecode: true,
+        ),
+      );
+      return;
+    }
     if (result == null) {
       // canDecode false — the codec cannot run at all.
       await _store(

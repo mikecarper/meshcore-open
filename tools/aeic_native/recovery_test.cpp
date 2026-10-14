@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -63,6 +64,35 @@ int main() {
         short_deadline.timeout_ms = 250;
         Result hang = run_isolated(shape, short_deadline, []() -> Tensor { while (true) pause(); });
         require(hang.status == Status::Timeout && hang.elapsed_ms < 2000, "hung child was not killed promptly");
+        Options pause_aware = short_deadline;
+        auto pause_start = std::chrono::steady_clock::now();
+        pause_aware.paused_ms = [pause_start]() {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - pause_start).count();
+            // Simulate 400 ms of externally accounted paused time; a nonzero
+            // historical baseline must not count toward this stage's credit.
+            return std::uint64_t(1234) + std::min<std::uint64_t>(elapsed, 400);
+        };
+        SharedResult resumed = run_isolated_shared(shape, pause_aware,
+            [](float* target, std::size_t count) { usleep(500000); std::fill(target, target + count, .5f); });
+        require(resumed.result.ok() && resumed.result.elapsed_ms >= 450 && resumed.values[3] == .5f,
+                "paused wall time incorrectly consumed the stage deadline");
+        pause_start = std::chrono::steady_clock::now();
+        pause_aware.paused_ms = [pause_start]() {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - pause_start).count();
+            return std::uint64_t(1234) + std::min<std::uint64_t>(elapsed, 100);
+        };
+        Result resumed_hang = run_isolated(shape, pause_aware,
+            []() -> Tensor { while (true) pause(); });
+        require(resumed_hang.status == Status::Timeout && resumed_hang.elapsed_ms >= 300 &&
+                resumed_hang.elapsed_ms < 2000, "pause accounting disabled the active deadline");
+        unsigned reads = 0;
+        pause_aware.paused_ms = [&reads]() { return ++reads == 1 ? std::uint64_t(1234) : std::uint64_t(0); };
+        Result rollback = run_isolated(shape, pause_aware,
+            []() -> Tensor { while (true) pause(); });
+        require(rollback.status == Status::Timeout && rollback.elapsed_ms < 2000,
+                "paused counter regression underflowed the active deadline");
         Result invalid = run_isolated(Shape{std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
                                             std::numeric_limits<int>::max()}, options, [=]() {
             return image(shape, 1.f);
@@ -137,7 +167,7 @@ int main() {
         require(!bad.valid, "fallback bypassed dimension validation");
         int status = 0; errno = 0;
         require(waitpid(-1, &status, WNOHANG) == -1 && errno == ECHILD, "stage children were not reaped");
-        std::cout << "RECOVERY_TEST_PASS: vector/shared success, ownership, incomplete writes, crash, exception, shape, NaN, exit, timeout, bounds, fallback, reaping\n";
+        std::cout << "RECOVERY_TEST_PASS: vector/shared success, ownership, incomplete writes, crash, exception, shape, NaN, exit, timeout, pause accounting, bounds, fallback, reaping\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "RECOVERY_TEST_FAIL: " << error.what() << '\n';

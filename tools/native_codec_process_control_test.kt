@@ -1,0 +1,55 @@
+package com.meshcore.meshcore_open
+
+/** Pure JVM checks; no mocked neural output or Android process is involved. */
+fun main() {
+    val signals = mutableListOf<Pair<Int, Int>>()
+    fun control() = NativeCodecProcessControl({ pid, code -> signals.add(pid to code) }, 19, 18, 15, 9)
+    val pending = control()
+    pending.pause()
+    check(signals.isEmpty())
+    check(!pending.acceptHandshake("PROCESS_INFO pid=1 group=1"))
+    check(!pending.acceptHandshake("PROCESS_INFO pid=100 group=101"))
+    check(!pending.acceptHandshake("PROCESS_INFO pid=2147483648 group=2147483648"))
+    check(pending.acceptHandshake("PROCESS_INFO pid=100 group=100"))
+    check(signals == listOf(-100 to 19))
+    check(pending.paused)
+    pending.resume()
+    check(signals.last() == -100 to 18)
+    pending.pause()
+    pending.cancel()
+    check(signals.takeLast(3) == listOf(-100 to 19, -100 to 18, -100 to 15))
+    pending.forceKill()
+    check(signals.last() == -100 to 9)
+    check(!pending.acceptHandshake("PROCESS_INFO pid=200 group=200"))
+    signals.clear()
+    val earlyCancel = control()
+    earlyCancel.pause()
+    earlyCancel.cancel()
+    check(earlyCancel.acceptHandshake("PROCESS_INFO pid=101 group=101"))
+    check(signals == listOf(-101 to 15))
+    check(!earlyCancel.paused)
+    signals.clear()
+    var clock = 1_000L
+    val counters = mutableListOf<Long>()
+    val timed = NativeCodecProcessControl({ pid, code -> signals.add(pid to code) },
+        19, 18, 15, 9, { clock }, { counters.add(it) })
+    check(timed.acceptHandshake("PROCESS_INFO pid=102 group=102"))
+    timed.pause(); clock += 4_000; timed.resume()
+    timed.pause(); clock += 2_000; timed.cancel()
+    check(counters == listOf(4_000L, 6_000L))
+    check(signals.takeLast(2) == listOf(-102 to 18, -102 to 15))
+    // A reaped worker can no longer be signalled, even while Java is still
+    // reading output or waiting for the app-group supervisor's exit.
+    signals.clear()
+    val exiting = control()
+    check(!exiting.acceptExit("PROCESS_EXIT pid=103 group=103"))
+    check(exiting.acceptHandshake("PROCESS_INFO pid=103 group=103"))
+    check(!exiting.acceptExit("PROCESS_EXIT pid=103 group=104"))
+    check(exiting.acceptExit("PROCESS_EXIT pid=103 group=103"))
+    check(exiting.hasExited)
+    repeat(100) { exiting.pause(); exiting.resume(); exiting.cancel(); exiting.forceKill() }
+    check(signals.isEmpty())
+    check(!exiting.acceptHandshake("PROCESS_INFO pid=104 group=104"))
+    check(!exiting.acceptExit("PROCESS_EXIT pid=103 group=103"))
+    println("Native process control checks passed")
+}

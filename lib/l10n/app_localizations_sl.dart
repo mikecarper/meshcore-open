@@ -4965,8 +4965,70 @@ class AppLocalizationsSl extends AppLocalizations {
   String get imageSend_title => 'Sločaji slik';
 
   @override
+  String get imageCodec_pause => 'Pause';
+
+  @override
+  String get imageCodec_resume => 'Resume';
+
+  @override
+  String get imageCodec_paused => 'Image task paused';
+
+  @override
+  String get imageCodec_cancel => 'Cancel';
+
+  @override
+  String get imageCodec_cancelling => 'Stopping image task…';
+
+  @override
+  String get imageCodec_controlFailed =>
+      'Could not change the image task. Try again.';
+
+  @override
   String get imageSend_cropNote =>
       'Zadovoljno izmenjeno na 512 × 512 · vzorovni odnos ne ohranjen';
+
+  @override
+  String get imageSend_resolutionLabel => 'Image size';
+
+  @override
+  String get imageSend_nativeSizeHint =>
+      'Smaller images usually send faster and open faster on older phones, but keep less detail. Size depends on the photo.';
+
+  @override
+  String get imageSend_measuringSize => 'Calculating compressed size…';
+
+  @override
+  String get imageSend_compressedSize => 'Compressed photo';
+
+  @override
+  String get imageSend_preparationTime => 'Preparation (measured)';
+
+  @override
+  String get imageSend_estimatedSendTime => 'LoRa send (estimated)';
+
+  @override
+  String get imageSend_sendEstimateHint =>
+      'Uses current radio settings, packet headers and spacing. Routing and a busy mesh can add time.';
+
+  @override
+  String get imageSend_compareSizes => 'Compare image sizes';
+
+  @override
+  String get imageSend_compareSizesHint =>
+      'Results are measured for this photo, with paused time excluded. Try a size to compare it; tried sizes are saved here.';
+
+  @override
+  String get imageSend_calculateChoice => 'Select to calculate this photo';
+
+  @override
+  String imageSend_measuredChoice(String size, String prepare, String send) {
+    return '$size\nPrepared: $prepare · Send estimate: $send';
+  }
+
+  @override
+  String imageSend_centerCropSize(int size) {
+    return 'Center square · $size × $size';
+  }
 
   @override
   String get imageSend_originalSize =>
@@ -5199,6 +5261,43 @@ class AppLocalizationsSl extends AppLocalizations {
   @override
   String get repeater_pathHashFilterList =>
       'List saved forwarding rules. Use get fr.N for a copyable rule and del fr.N to remove that slot.';
+
+  @override
+  String get imageMessages_nativeModelDescription =>
+      'The phone image model uses about 2 GB of storage and supports image sizes from 128 to 576 pixels.';
+
+  @override
+  String get imageMessages_importNativeModel => 'Import phone model';
+
+  @override
+  String get imageMessages_validateNativeModel => 'Check installed phone model';
+
+  @override
+  String get imageMessages_nativeImportFailed =>
+      'The phone model could not be verified. Check that the complete model package is available.';
+
+  @override
+  String get imageMessages_legacyModelUnavailable =>
+      'Older image models are unavailable in this Android 5.1 build. Import the phone model to use image messages.';
+
+  @override
+  String get translation_legacyUnavailable =>
+      'Translation is unavailable in this Android 5.1 build.';
+
+  @override
+  String get receivedImage_nativeDecoding =>
+      'Reconstructing image… This may take several minutes.';
+
+  @override
+  String get receivedImage_recover => 'Recover image';
+
+  @override
+  String get receivedImage_recoveryExplanation =>
+      'Try recovering this image? Some detail may be missing.';
+
+  @override
+  String get receivedImage_recovered =>
+      'Recovered image. Some detail may be missing.';
 
   @override
   String chat_longMessageRetryNote(int count) {

@@ -21,6 +21,7 @@ class NativeProcessImageCodecBackend
   String? _activeJob;
   bool _busy = false;
   bool _disposed = false;
+  bool _pauseRequested = false;
 
   NativeProcessImageCodecBackend({MethodChannel? channel})
     : _channel = channel ?? const MethodChannel(channelName);
@@ -38,27 +39,78 @@ class NativeProcessImageCodecBackend
 
   /// A process survives a killed worker isolate. The owning session must call
   /// this before hard isolate teardown, including on memory pressure.
+  static Future<void> pauseAll() =>
+      const MethodChannel(channelName).invokeMethod<void>('pauseAll');
+  static Future<void> resumeAll() =>
+      const MethodChannel(channelName).invokeMethod<void>('resumeAll');
+  static Future<List<String>> activeJobs() async =>
+      await const MethodChannel(
+        channelName,
+      ).invokeListMethod<String>('activeJobs') ??
+      const [];
+
+  static Future<void> _waitForStopped(MethodChannel channel, String id) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (true) {
+      try {
+        final status = await channel.invokeMapMethod<String, dynamic>('poll', {
+          'jobId': id,
+        });
+        if (status?['finished'] == true) return;
+      } on PlatformException catch (error) {
+        // The worker may have forgotten an already-finished job while the root
+        // waits. The plugin rejects forget until all process handles are closed.
+        if (error.code == 'native_codec' &&
+            error.message == 'Unknown codec job') {
+          return;
+        }
+        rethrow;
+      }
+      if (DateTime.now().isAfter(deadline)) {
+        throw StateError('Image conversion has not stopped.');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+  }
+
   static Future<void> cancelAll() async {
     try {
       const channel = MethodChannel(channelName);
       final ids =
           await channel.invokeListMethod<String>('cancelAll') ?? const [];
-      final deadline = DateTime.now().add(const Duration(seconds: 10));
       for (final id in ids) {
-        while (true) {
-          final status = await channel.invokeMapMethod<String, dynamic>(
-            'poll',
-            {'jobId': id},
-          );
-          if (status?['finished'] == true) break;
-          if (DateTime.now().isAfter(deadline)) {
-            throw StateError('Image conversion has not stopped.');
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-        }
+        await _waitForStopped(channel, id);
       }
     } on MissingPluginException {
       // No native job can exist when the process plugin is unavailable.
+    }
+  }
+
+  Future<void> _setPaused(bool value) async {
+    if (!_busy) return;
+    _pauseRequested = value;
+    final id = _activeJob;
+    if (id == null) return; // Apply the request once this job has started.
+    try {
+      await _channel.invokeMethod<void>(value ? 'pause' : 'resume', {
+        'jobId': id,
+      });
+    } on PlatformException catch (error) {
+      if (error.code == 'native_codec' &&
+          error.message == 'Codec job already finished') {
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> pause() => _setPaused(true);
+  Future<void> resume() => _setPaused(false);
+  Future<void> cancel() async {
+    final id = _activeJob;
+    if (id != null) {
+      await _channel.invokeMethod<void>('cancel', {'jobId': id});
+      await _waitForStopped(_channel, id);
     }
   }
 
@@ -244,11 +296,20 @@ class NativeProcessImageCodecBackend
         throw StateError('Image conversion did not start.');
       }
       _activeJob = jobId;
+      if (_pauseRequested) {
+        await _channel.invokeMethod<void>('pause', {'jobId': jobId});
+      }
       final started = DateTime.now();
+      var pausedDuration = Duration.zero;
+      DateTime? pauseStarted;
       while (true) {
         if ((_disposed ||
                 shouldCancel?.call() == true ||
-                DateTime.now().difference(started) >
+                (DateTime.now().difference(started) -
+                        pausedDuration -
+                        (pauseStarted == null
+                            ? Duration.zero
+                            : DateTime.now().difference(pauseStarted))) >
                     const Duration(hours: 2)) &&
             !cancelSent) {
           cancelSent = true;
@@ -259,6 +320,13 @@ class NativeProcessImageCodecBackend
         });
         if (status == null) {
           throw StateError('Image conversion status is unavailable.');
+        }
+        final now = DateTime.now();
+        if (status['pauseRequested'] == true) {
+          pauseStarted ??= now;
+        } else if (pauseStarted != null) {
+          pausedDuration += now.difference(pauseStarted);
+          pauseStarted = null;
         }
         onProgress?.call(
           ((status['progress'] as num?)?.toDouble() ?? 0.0)
@@ -297,14 +365,20 @@ class NativeProcessImageCodecBackend
         if (!finished) {
           try {
             await _channel.invokeMethod<void>('cancel', {'jobId': jobId});
-          } catch (_) {}
-        } else {
+            await _waitForStopped(_channel, jobId);
+            finished = true;
+          } catch (_) {
+            // Keep scratch if termination cannot be confirmed.
+          }
+        }
+        if (finished) {
           try {
             await _channel.invokeMethod<void>('forget', {'jobId': jobId});
           } catch (_) {}
         }
       }
       _activeJob = null;
+      _pauseRequested = false;
       _busy = false;
       // Do not delete a workspace while a native process may still own it.
       if (workspace != null && (jobId == null || finished)) {

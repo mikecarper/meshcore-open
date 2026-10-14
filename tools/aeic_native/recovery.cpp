@@ -179,7 +179,11 @@ static Result run_shared_impl(
     header->reason[0] = '\0';
     auto* payload = reinterpret_cast<float*>(static_cast<char*>(shared->address()) + offset);
     std::uint64_t start = 0;
-    try { start = monotonic_ms(); }
+    std::uint64_t paused_baseline = 0;
+    try {
+        start = monotonic_ms();
+        if (options.paused_ms) paused_baseline = options.paused_ms();
+    }
     catch (const std::exception& error) {
         result.status = Status::SetupFailure; result.reason = error.what(); return result;
     }
@@ -230,6 +234,7 @@ static Result run_shared_impl(
     }
     Child child(pid);
     int status = 0;
+    std::uint64_t paused_total = paused_baseline;
     try {
         while (true) {
             rusage usage{};
@@ -241,14 +246,20 @@ static Result run_shared_impl(
                 return result;
             }
             result.elapsed_ms = monotonic_ms() - start;
-            if (result.elapsed_ms >= options.timeout_ms) {
+            if (options.paused_ms) paused_total = std::max(paused_total, options.paused_ms());
+            // Counter regressions cannot underflow or erase a previously
+            // observed pause. Clamp the current stage credit to its wall time.
+            const std::uint64_t paused_delta = paused_total - paused_baseline;
+            const std::uint64_t active_ms = result.elapsed_ms -
+                std::min(result.elapsed_ms, paused_delta);
+            if (active_ms >= options.timeout_ms) {
                 result.child_peak_kb = child.terminate();
                 result.elapsed_ms = monotonic_ms() - start;
                 result.status = Status::Timeout;
                 result.reason = "model stage exceeded its recovery deadline";
                 return result;
             }
-            const auto delay = std::min<std::uint64_t>(options.poll_ms, options.timeout_ms - result.elapsed_ms);
+            const auto delay = std::min<std::uint64_t>(options.poll_ms, options.timeout_ms - active_ms);
             timespec pause{time_t(delay / 1000u), long((delay % 1000u) * 1000000u)};
             while (nanosleep(&pause, &pause) < 0 && errno == EINTR) {}
         }

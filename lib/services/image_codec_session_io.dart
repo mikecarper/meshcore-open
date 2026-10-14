@@ -76,11 +76,15 @@ class ImageCodecSession {
   /// Whether the bundle handed to [spawn] carried a CDF table file.
   final bool hasTables;
   final bool _nativeProcess;
+  bool _paused = false;
+  bool get canPause => _nativeProcess && !_disposed && _pending.isNotEmpty;
+  bool get isPaused => _paused && canPause;
   bool lastDegraded = false;
   List<String> lastWarnings = const [];
   int lastRecoveryEvents = 0;
 
   final Map<int, _PendingJob> _pending = {};
+  final Map<int, Completer<void>> _pendingControls = {};
   final Map<int, Completer<void>> _pendingReleases = {};
   int _nextJobId = 1;
   bool _disposed = false;
@@ -296,27 +300,70 @@ class ImageCodecSession {
     return completer.future;
   }
 
-  /// Cooperative cancel.
-  ///
-  /// The worker sets a flag that the backend polls at stage boundaries. A
-  /// backend sitting inside one long blocking native call cannot be
-  /// interrupted this way — for a hard stop, call [dispose], which kills the
-  /// isolate outright and frees the model.
-  void cancel() {
+  Future<void> pause() async {
+    if (!canPause) return;
+    await _control('pause');
+    _paused = canPause;
+  }
+
+  Future<void> resume() async {
+    if (!_nativeProcess || _disposed || !_paused) return;
+    await _control('resume');
+    _paused = false;
+  }
+
+  Future<void> _control(String operation) {
+    final id = _nextJobId++;
+    final result = Completer<void>();
+    _pendingControls[id] = result;
+    _toWorker.send(<String, Object?>{
+      'type': 'control',
+      'id': id,
+      'op': operation,
+      'ids': _pending.keys.toList(),
+    });
+    return result.future;
+  }
+
+  /// Cancels this session's submitted jobs and waits for native termination.
+  Future<void> cancel() async {
     if (_disposed) return;
-    _toWorker.send(const <String, Object?>{'type': 'cancel'});
+    final pending = _pending.values.map((job) => job.completer.future).toList();
+    _toWorker.send(<String, Object?>{
+      'type': 'cancel',
+      'ids': _pending.keys.toList(),
+    });
+    if (_nativeProcess) await NativeProcessImageCodecBackend.cancelAll();
+    _paused = false;
+    if (_nativeProcess) {
+      await Future.wait(
+        pending.map((future) async {
+          try {
+            await future;
+          } catch (_) {}
+        }),
+      ).timeout(const Duration(seconds: 15));
+    }
   }
 
   void _handleMessage(Map<String, Object?> message) {
     final id = message['id'];
     final job = id is int ? _pending[id] : null;
     switch (message['type']) {
+      case 'controlResult':
+        final control = id is int ? _pendingControls.remove(id) : null;
+        if (message['error'] != null) {
+          control?.completeError(StateError(message['error'].toString()));
+        } else {
+          control?.complete();
+        }
       case 'progress':
         final value = message['value'];
         if (value is num) {
           job?.onProgress?.call(value.toDouble().clamp(0.0, 1.0));
         }
       case 'result':
+        _paused = false;
         lastDegraded = message['degraded'] == true;
         final warnings = message['warnings'];
         lastWarnings = warnings is List
@@ -340,6 +387,7 @@ class ImageCodecSession {
           }
         }
       case 'error':
+        _paused = false;
         if (id is int) {
           _pending.remove(id);
           // A release can fail too; never leave its caller hanging.
@@ -362,6 +410,11 @@ class ImageCodecSession {
         job.completer.completeError(error);
       }
     }
+    final controls = _pendingControls.values.toList();
+    _pendingControls.clear();
+    for (final control in controls) {
+      if (!control.isCompleted) control.completeError(error);
+    }
     // Releases resolve rather than fail: the isolate dying IS the memory being
     // freed, which is all the caller was waiting for.
     final releases = _pendingReleases.values.toList();
@@ -380,7 +433,23 @@ class ImageCodecSession {
     try {
       // A subprocess survives Dart isolate death. Stop it through the root
       // messenger before killing the worker, including memory-pressure exits.
-      if (_nativeProcess) await NativeProcessImageCodecBackend.cancelAll();
+      final pending = _pending.values
+          .map((job) => job.completer.future)
+          .toList();
+      _toWorker.send(<String, Object?>{
+        'type': 'cancel',
+        'ids': _pending.keys.toList(),
+      });
+      if (_nativeProcess) {
+        await NativeProcessImageCodecBackend.cancelAll();
+        await Future.wait(
+          pending.map((future) async {
+            try {
+              await future;
+            } catch (_) {}
+          }),
+        ).timeout(const Duration(seconds: 15));
+      }
       _toWorker.send(const <String, Object?>{'type': 'shutdown'});
       await Future<void>.delayed(const Duration(milliseconds: 50));
     } finally {
@@ -532,6 +601,8 @@ Future<void> _codecWorkerMain(List<Object?> boot) async {
 
   final commands = ReceivePort();
   var cancelRequested = false;
+  int? activeJobId;
+  final cancelledIds = <int>{};
   var queue = Future<void>.value();
 
   reply.send(<String, Object?>{
@@ -551,9 +622,34 @@ Future<void> _codecWorkerMain(List<Object?> boot) async {
     if (message is! Map) return;
     final map = message.cast<String, Object?>();
     switch (map['type']) {
+      case 'control':
+        final id = map['id'] as int?;
+        final ids = (map['ids'] as List? ?? const []).whereType<int>();
+        final action = () async {
+          try {
+            if (backend is NativeProcessImageCodecBackend &&
+                ids.contains(activeJobId)) {
+              if (map['op'] == 'pause') {
+                await backend.pause();
+              } else if (map['op'] == 'resume') {
+                await backend.resume();
+              }
+            }
+            reply.send(<String, Object?>{'type': 'controlResult', 'id': id});
+          } catch (error) {
+            reply.send(<String, Object?>{
+              'type': 'controlResult',
+              'id': id,
+              'error': error.toString(),
+            });
+          }
+        }();
+        unawaited(action);
       case 'cancel':
         // Handled on the event loop, so it lands between backend stages.
         cancelRequested = true;
+        final ids = map['ids'];
+        if (ids is List) cancelledIds.addAll(ids.whereType<int>());
       case 'shutdown':
         commands.close();
         unawaited(backend.dispose());
@@ -583,6 +679,7 @@ Future<void> _codecWorkerMain(List<Object?> boot) async {
         queue = queue.then((_) async {
           cancelRequested = false;
           final id = map['id'] as int;
+          activeJobId = id;
           try {
             final ratePoint = parseAeicRatePoint(
               map['rate'] as int? ?? kShippingAeicRatePoint.wireValue,
@@ -596,8 +693,9 @@ Future<void> _codecWorkerMain(List<Object?> boot) async {
               });
             }
 
-            bool shouldCancel() => cancelRequested;
+            bool shouldCancel() => cancelRequested || cancelledIds.contains(id);
 
+            if (shouldCancel()) throw const ImageCodecCancelled();
             final Uint8List result;
             switch (map['op']) {
               case 'decodeLatent':
@@ -643,6 +741,9 @@ Future<void> _codecWorkerMain(List<Object?> boot) async {
               'error': error.toString(),
               'stack': stackTrace.toString(),
             });
+          } finally {
+            activeJobId = null;
+            cancelledIds.remove(id);
           }
         });
     }
