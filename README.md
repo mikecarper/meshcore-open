@@ -35,6 +35,32 @@ MeshCore Open is a cross-platform mobile application for communicating with Mesh
 - **Message Reactions**: React to messages with emoji responses
 - **Message Replies**: Thread conversations with inline reply functionality
 
+### Native image messages
+
+The native AEIC FT2 phone model supports square images from **128 through 576
+pixels in steps of 64**. The send preview starts at 128 pixels, center-crops the
+photo, and compares actual compressed bytes, preparation time, and estimated
+local LoRa send time for sizes tried on that photo. Pause, Resume, and Cancel
+controls are available. Model weights install separately and use about **2 GB
+of storage**. Decoding is lossy and can take many minutes on older phones.
+Strict decoding is the default; an explicit recovery retry labels the picture
+"Recovered image. Some detail may be missing."
+
+All eight benchmark phone encodings match the original CPU codec byte for byte.
+Earlier native CLI reconstruction passed at 128, 256, and 512 pixels. App-service
+cycles have passed at 128 and 576 pixels. The supervised 576-pixel app run
+encoded the exact 1,783-byte stream and reconstructed a 755,951-byte PNG without
+recovery. Native decoding took 2,465.188 seconds (about 41 minutes) and peaked at
+287.2 MiB; service decoding took 2,465.714 seconds. Both decode measurements
+include a deliberate 1.249-second pause. Pause/resume and cancellation were
+verified on the Android 5.1 phone, with workers reaped and no active jobs left.
+Reconstruction remains lossy, and supported dimensions do not imply completed
+phone validation at every size.
+
+See [native packaging and validation](android/app/NATIVE_CODEC.md), the
+[Android 5.1 build profile](build_profiles/README.md), and the
+[AEIC mobile port on main](https://github.com/mikecarper/AEIC/tree/main/mobile).
+
 ### Mesh Network
 
 - **Path Visualization**: View routing paths and signal quality for each contact
