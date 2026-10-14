@@ -51,12 +51,15 @@ Failed native images offer an explicit **Recover image** retry; recovered
 pictures say “Recovered image. Some detail may be missing.”
 
 All eight benchmark phone encodings match the original CPU codec byte for byte.
-Full native CLI reconstruction has passed at 128, 256, and 512 pixels. The
-128-pixel app-service encode/decode cycle has also passed: its 137-byte file
-produced a 41,372-byte PNG without recovery. The app's 576-pixel encode produces
-the matching 1,783-byte file; its decode is running and the final phone PNG
-remains pending. Supported dimensions do not imply completed phone validation
-at every size.
+Earlier native CLI reconstruction passed at 128, 256, and 512 pixels. App-service
+cycles have passed at 128 and 576 pixels. The supervised 576-pixel app run
+encoded the exact 1,783-byte stream and reconstructed a 755,951-byte PNG without
+recovery. Native decoding took 2,465.188 seconds (about 41 minutes) and peaked at
+287.2 MiB; service decoding took 2,465.714 seconds. Both decode measurements
+include a deliberate 1.249-second pause. Pause/resume and cancellation were
+verified on the Android 5.1 phone, with workers reaped and no active jobs left.
+Reconstruction remains lossy, and supported dimensions do not imply completed
+phone validation at every size.
 
 The separate [Android 5.1 build profile](build_profiles/README.md) supports API21
 ARMv7 while keeping the modern dependency profile. Optional translation and

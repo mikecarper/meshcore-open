@@ -45,8 +45,14 @@ ctest --test-dir build-entropy --output-on-failure
 ```
 
 All ten native host CTests pass, including process supervision and
-paused-time recovery deadlines. The current supervisor build still needs
-phone verification; 576-pixel phone PNG completion remains unverified.
+paused-time recovery deadlines. The current ARMv7 supervisor build completed
+the real Android 5.1 app-service 576-pixel encode/decode cycle: 1,783 compressed
+bytes, a 755,951-byte PNG, 2,465.188 seconds native decode wall time, and
+287.2 MiB native peak RSS. The wall time includes a deliberate 1.249-second
+pause. Phone pause/resume and cancellation checks also passed with workers
+reaped and zero active jobs. These app measurements are separate from earlier
+CLI runs. The 576-pixel best-effort memory requirement remains unverified.
+See [app packaging and validation](../../android/app/NATIVE_CODEC.md).
 
 ## Model interface
 
