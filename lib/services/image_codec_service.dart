@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/image_codec_support.dart';
 import '../utils/app_logger.dart';
+import '../utils/image_codec_raster.dart';
 import '../widgets/image_send_codec_binding.dart';
 import 'app_settings_service.dart';
 import 'image_codec_backend.dart' show kImageCodecBitstreamPathAvailable;
@@ -1471,47 +1472,19 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     int resolution = kImageCodecSquareSize,
     bool centerCrop = false,
   }) async {
-    final codec = await ui.instantiateImageCodec(imageBytes);
-    final frame = await codec.getNextFrame();
-    final source = frame.image;
-    ui.Image? scaled;
+    final scaled = await renderImageCodecSquare(
+      imageBytes,
+      resolution: resolution,
+      centerCrop: centerCrop,
+    );
     try {
-      // Native FT2 uses a centered square crop. The legacy model retains its
-      // existing whole-frame stretch to 512.
-      final width = source.width.toDouble();
-      final height = source.height.toDouble();
-      final side = width < height ? width : height;
-      final src = centerCrop
-          ? ui.Rect.fromLTWH(
-              (width - side) / 2,
-              (height - side) / 2,
-              side,
-              side,
-            )
-          : ui.Rect.fromLTWH(0, 0, width, height);
-      final dstSize = resolution.toDouble();
-      final recorder = ui.PictureRecorder();
-      ui.Canvas(recorder).drawImageRect(
-        source,
-        src,
-        ui.Rect.fromLTWH(0, 0, dstSize, dstSize),
-        ui.Paint()..filterQuality = ui.FilterQuality.medium,
-      );
-      final picture = recorder.endRecording();
-      try {
-        scaled = await picture.toImage(resolution, resolution);
-      } finally {
-        picture.dispose();
-      }
       final rgba = await scaled.toByteData(format: ui.ImageByteFormat.rawRgba);
       if (rgba == null) {
         throw StateError('Could not rasterise the image.');
       }
       return _rgbaToRgb(rgba.buffer.asUint8List());
     } finally {
-      scaled?.dispose();
-      source.dispose();
-      codec.dispose();
+      scaled.dispose();
     }
   }
 

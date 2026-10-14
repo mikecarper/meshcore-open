@@ -964,7 +964,7 @@ class ReceivedImageStore extends ChangeNotifier {
   }
 
   /// Records the local user's own send so the outgoing bubble can show the real
-  /// 512x512 crop. [previewPng] is a photograph, not a decode, so the entry is
+  /// encoded square. [previewPng] is a photograph, not a decode, so the entry is
   /// never [ReceivedImageEntry.synthesized] and carries no R6 label.
   ///
   /// The send path must call this BEFORE it posts the message, and put the
@@ -993,6 +993,8 @@ class ReceivedImageStore extends ChangeNotifier {
     required int imgId,
     required Uint8List previewPng,
     required AeicRatePoint rate,
+    int resolution = kImageCodecSquareSize,
+    int aspectCode = 0,
     required int chunkCount,
     DateTime? at,
   }) async {
@@ -1013,6 +1015,8 @@ class ReceivedImageStore extends ChangeNotifier {
       receivedChunks: chunkCount,
       totalChunks: chunkCount,
       rate: rate,
+      resolution: resolution,
+      aspectCode: aspectCode,
       metadataAssumed: false,
       isOutgoing: true,
       pngStored: true,

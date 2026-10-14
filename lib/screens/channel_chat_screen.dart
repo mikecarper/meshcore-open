@@ -14,6 +14,7 @@ import '../connector/meshcore_connector.dart';
 import '../models/community.dart';
 import '../storage/community_store.dart';
 import '../utils/platform_info.dart';
+import '../utils/image_codec_raster.dart';
 import '../helpers/chat_scroll_controller.dart';
 import '../connector/meshcore_protocol.dart';
 import '../helpers/cyr2lat.dart';
@@ -1434,7 +1435,11 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
     } on ProviderNotFoundException {
       return; // screen test without the store
     }
-    final previewPng = await _squarePreviewPng(sourceBytes);
+    final previewPng = await _squarePreviewPng(
+      sourceBytes,
+      resolution: result.resolution,
+      centerCrop: result.rate == ImageCodecRatePoint.nativeFt2,
+    );
     if (previewPng == null) return;
     try {
       await store.registerOutgoing(
@@ -1445,6 +1450,8 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
         imgId: chunkSet.imgId,
         previewPng: previewPng,
         rate: aeicRatePointForUi(result.rate),
+        resolution: result.resolution,
+        aspectCode: 0,
         chunkCount: chunkSet.dataChunkCount,
       );
     } on Exception catch (error) {
@@ -1471,41 +1478,20 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
     }
   }
 
-  /// [imageBytes] stretched to 512x512, as PNG.
-  ///
-  /// This is what the preview sheet showed (`BoxFit.fill` on a 1:1 box is
-  /// exactly the stretch the codec applies) and what the codec actually
-  /// encoded, so the sender's bubble matches both. Deliberately not a decode of the
-  /// bitstream: that would cost ~2.16 GiB and ~1 s to reproduce, less well, an
-  /// image this device is already holding in memory.
-  ///
-  /// Returns null rather than throwing on an undecodable source — the send has
-  /// already happened by the time this runs.
-  static Future<Uint8List?> _squarePreviewPng(Uint8List imageBytes) async {
-    ui.Image? source;
+  /// Caches the same source square the codec encoded, without running a decode.
+  /// Native FT2 center-crops at the selected size; legacy FT32 stretches to 512.
+  /// Returns null on an undecodable source because the send already succeeded.
+  static Future<Uint8List?> _squarePreviewPng(
+    Uint8List imageBytes, {
+    required int resolution,
+    bool centerCrop = false,
+  }) async {
     ui.Image? square;
     try {
-      final codec = await ui.instantiateImageCodec(imageBytes);
-      source = (await codec.getNextFrame()).image;
-      final dst = kImageCodecSquareSize.toDouble();
-      final recorder = ui.PictureRecorder();
-      ui.Canvas(recorder).drawImageRect(
-        source,
-        // Whole frame, matching _toSquareRgb in image_codec_service.dart. If
-        // one of these two is a crop and the other a stretch, the sender's
-        // bubble silently stops matching what the receiver sees.
-        ui.Rect.fromLTWH(
-          0,
-          0,
-          source.width.toDouble(),
-          source.height.toDouble(),
-        ),
-        ui.Rect.fromLTWH(0, 0, dst, dst),
-        ui.Paint()..filterQuality = ui.FilterQuality.medium,
-      );
-      square = await recorder.endRecording().toImage(
-        kImageCodecSquareSize,
-        kImageCodecSquareSize,
+      square = await renderImageCodecSquare(
+        imageBytes,
+        resolution: resolution,
+        centerCrop: centerCrop,
       );
       final data = await square.toByteData(format: ui.ImageByteFormat.png);
       return data?.buffer.asUint8List();
@@ -1513,7 +1499,6 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
       debugPrint('outgoing image preview render failed: $error');
       return null;
     } finally {
-      source?.dispose();
       square?.dispose();
     }
   }

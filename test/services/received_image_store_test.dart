@@ -870,6 +870,38 @@ void main() {
   });
 
   group('outgoing', () {
+    for (final size in [128, 576]) {
+      test(
+        'native outgoing entry persists its $size square metadata',
+        () async {
+          final h = _build();
+          final entry = await h.store.registerOutgoing(
+            channelIndex: 1,
+            senderPrefix: kSelf,
+            imgId: 4,
+            previewPng: Uint8List.fromList(List<int>.filled(64, 1)),
+            rate: AeicRatePoint.ft2,
+            resolution: size,
+            aspectCode: 0,
+            chunkCount: 2,
+          );
+          expect(entry.resolution, size);
+          expect(entry.aspectCode, 0);
+          expect(entry.displayAspectRatio, isNull);
+          expect(entry.isOutgoing, isTrue);
+          expect(h.decoder.calls, 0);
+          h.store.dispose();
+          final reloaded = ReceivedImageStore(blobs: h.blobs);
+          await reloaded.load();
+          final saved = reloaded.entryFor(entry.streamId)!;
+          expect(saved.rate, AeicRatePoint.ft2);
+          expect(saved.resolution, size);
+          expect(saved.aspectCode, 0);
+          expect(saved.displayAspectRatio, isNull);
+          reloaded.dispose();
+        },
+      );
+    }
     test('registerOutgoing is decoded, not synthesized', () async {
       final h = _build();
       final entry = await h.store.registerOutgoing(
@@ -883,6 +915,8 @@ void main() {
       expect(entry.state, ReceivedImageState.decoded);
       expect(entry.isOutgoing, isTrue);
       expect(entry.synthesized, isFalse);
+      expect(entry.resolution, 512);
+      expect(entry.aspectCode, 0);
       expect(await h.store.ensurePng(entry.streamId), isNotNull);
       expect(h.decoder.calls, 0);
     });
