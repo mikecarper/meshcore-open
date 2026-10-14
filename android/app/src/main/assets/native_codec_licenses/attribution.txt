@@ -3,6 +3,9 @@ Native AEIC codec executable
 ncnn: Tencent, BSD3-Clause. Exact source revision:
 b0f97f43f266617ff5e5096d440dbe3f9a4c35b8.
 See ncnn.txt for the complete license and included third-party notices.
+The pinned ncnn source includes the allocation-only FP16 buffer correction
+in tools/aeic_native/patches/ncnn-fp16-buffer.patch. Weight values and entropy
+arithmetic are unchanged.
 
 rANS encoder/decoder: Copyright 2020 InterDigital Communications, Inc.
 Licensed under Apache License 2.0. See rans-apache-2.0.txt.
