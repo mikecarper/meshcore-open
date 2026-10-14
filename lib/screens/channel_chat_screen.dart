@@ -4,8 +4,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'secondary_radio_screen.dart';
-import 'node_notifications_screen.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -363,33 +361,9 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
             onSelected: (value) {
               if (value == 'clearChat') {
                 _confirmClearChat();
-              } else if (value == 'radioRoute') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        SecondaryRadioScreen(channel: widget.channel),
-                  ),
-                );
-              } else if (value == 'nodeAlerts') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        NodeNotificationsScreen(channel: widget.channel),
-                  ),
-                );
               }
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'radioRoute',
-                child: Text('Channel radio routing'),
-              ),
-              const PopupMenuItem(
-                value: 'nodeAlerts',
-                child: Text('Node alert rule'),
-              ),
               PopupMenuItem(
                 value: 'clearChat',
                 child: Row(
@@ -1358,12 +1332,14 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
         payload: result.payload,
         metadata: ImageStreamMetadata(
           rate: result.rate,
-          squareSize: kImageCodecSquareSize,
+          squareSize: result.resolution,
           // The codec stretched the whole frame into a square, which the
           // receiver cannot undo from pixels alone. Naming the source shape
           // here costs no extra bytes -- it rides in spare bits of the metadata
           // byte -- and lets the receiver letterbox back.
-          aspectCode: await _aspectCodeOf(sourceBytes),
+          aspectCode: result.rate == ImageCodecRatePoint.nativeFt2
+              ? 0
+              : await _aspectCodeOf(sourceBytes),
         ),
         senderPrefix: senderPrefix,
         imgId: _imageIds.next(),
@@ -2624,6 +2600,7 @@ ReceivedImageStrings _receivedImageStrings(BuildContext context) {
     awaiting: l10n.receivedImage_awaiting,
     tapToProcess: l10n.receivedImage_tapToProcess,
     decoding: l10n.receivedImage_decoding,
+    nativeDecoding: l10n.receivedImage_nativeDecoding,
     incomplete: l10n.receivedImage_incomplete,
     corrupt: l10n.receivedImage_corrupt,
     decoderMissing: l10n.receivedImage_decoderMissing,
@@ -2631,5 +2608,9 @@ ReceivedImageStrings _receivedImageStrings(BuildContext context) {
     retry: l10n.receivedImage_retry,
     decodeAgain: l10n.receivedImage_decodeAgain,
     openSettings: l10n.receivedImage_openSettings,
+    recover: l10n.receivedImage_recover,
+    recoveryExplanation: l10n.receivedImage_recoveryExplanation,
+    recovered: l10n.receivedImage_recovered,
+    cancel: l10n.common_cancel,
   );
 }

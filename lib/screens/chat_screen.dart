@@ -976,7 +976,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
                     child: DropdownButtonFormField<String>(
-                      initialValue: selectedCyr2LatProfileId,
+                      value: selectedCyr2LatProfileId,
                       decoration: InputDecoration(
                         labelText:
                             context.l10n.channels_cyr2latSettingsSubheading,

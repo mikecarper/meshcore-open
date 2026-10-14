@@ -201,6 +201,9 @@ class ReceivedImageEntry {
   bool get synthesized => !isOutgoing;
 
   final int? decodeMs;
+  final bool degraded;
+  final List<String> warnings;
+  final int recoveryEvents;
   final String? error;
 
   /// Auto-decode was skipped (burst cap); the bubble offers "Tap to decode".
@@ -232,6 +235,9 @@ class ReceivedImageEntry {
     this.recoveredWithParity = false,
     this.isOutgoing = false,
     this.decodeMs,
+    this.degraded = false,
+    this.warnings = const [],
+    this.recoveryEvents = 0,
     this.error,
     this.needsManualDecode = false,
     this.bitstreamStored = false,
@@ -268,6 +274,9 @@ class ReceivedImageEntry {
     bool? metadataAssumed,
     bool? recoveredWithParity,
     Object? decodeMs = _unset,
+    bool? degraded,
+    List<String>? warnings,
+    int? recoveryEvents,
     Object? error = _unset,
     bool? needsManualDecode,
     bool? bitstreamStored,
@@ -292,6 +301,9 @@ class ReceivedImageEntry {
       recoveredWithParity: recoveredWithParity ?? this.recoveredWithParity,
       isOutgoing: isOutgoing,
       decodeMs: identical(decodeMs, _unset) ? this.decodeMs : decodeMs as int?,
+      degraded: degraded ?? this.degraded,
+      warnings: warnings ?? this.warnings,
+      recoveryEvents: recoveryEvents ?? this.recoveryEvents,
       error: identical(error, _unset) ? this.error : error as String?,
       needsManualDecode: needsManualDecode ?? this.needsManualDecode,
       bitstreamStored: bitstreamStored ?? this.bitstreamStored,
@@ -320,6 +332,9 @@ class ReceivedImageEntry {
     'recoveredWithParity': recoveredWithParity,
     'isOutgoing': isOutgoing,
     'synthesized': synthesized,
+    'degraded': degraded,
+    'warnings': warnings,
+    'recoveryEvents': recoveryEvents,
     'needsManualDecode': needsManualDecode,
     'bitstreamStored': bitstreamStored,
     'pngStored': pngStored,
@@ -348,6 +363,10 @@ class ReceivedImageEntry {
       recoveredWithParity: json['recoveredWithParity'] as bool? ?? false,
       isOutgoing: json['isOutgoing'] as bool? ?? false,
       decodeMs: json['decodeMs'] as int?,
+      degraded: json['degraded'] as bool? ?? false,
+      warnings:
+          (json['warnings'] as List?)?.whereType<String>().toList() ?? const [],
+      recoveryEvents: json['recoveryEvents'] as int? ?? 0,
       error: json['error'] as String?,
       needsManualDecode: json['needsManualDecode'] as bool? ?? false,
       bitstreamStored: json['bitstreamStored'] as bool? ?? false,
@@ -519,6 +538,15 @@ abstract class ReceivedImageDecoder {
   void cancelCodecJob();
 }
 
+abstract interface class ReceivedImageRecoveryDecoder {
+  bool get supportsBestEffortRecovery;
+  Future<ImageCodecResult?> decodeRecoveredBitstream({
+    required Uint8List bitstream,
+    required AeicRatePoint ratePoint,
+    required int resolution,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // The store
 // ---------------------------------------------------------------------------
@@ -583,6 +611,7 @@ class ReceivedImageStore extends ChangeNotifier {
       <String, ValueNotifier<ReceivedImageEntry?>>{};
 
   final List<String> _queue = <String>[];
+  final Set<String> _recoveryRequests = <String>{};
   Future<void>? _pump;
 
   /// Set synchronously for as long as [_drain]'s body is running. A plain
@@ -1043,6 +1072,7 @@ class ReceivedImageStore extends ChangeNotifier {
     _cancelRequested = true;
     decoder?.cancelCodecJob();
     _queue.clear();
+    _recoveryRequests.clear();
     for (final entry in _entries.values.toList()) {
       if (entry.state == ReceivedImageState.reassembled &&
           !entry.needsManualDecode) {
@@ -1052,9 +1082,17 @@ class ReceivedImageStore extends ChangeNotifier {
   }
 
   /// User tapped "Decode" / "Try again" / "Decode again".
-  Future<void> requestDecode(String streamId) async {
+  Future<void> requestDecode(String streamId, {bool bestEffort = false}) async {
     final entry = _entries[streamId];
     if (entry == null) return;
+    final recoveryDecoder = decoder;
+    if (bestEffort &&
+        (entry.rate != AeicRatePoint.ft2 ||
+            recoveryDecoder is! ReceivedImageRecoveryDecoder ||
+            !(recoveryDecoder as ReceivedImageRecoveryDecoder)
+                .supportsBestEffortRecovery)) {
+      throw StateError('Recovery is available with the native FT2 model.');
+    }
     switch (entry.state) {
       case ReceivedImageState.reassembled:
       case ReceivedImageState.failedCorrupt:
@@ -1076,6 +1114,11 @@ class ReceivedImageStore extends ChangeNotifier {
       ),
     );
     _parkedOnBusyDecoder = false;
+    if (bestEffort) {
+      _recoveryRequests.add(streamId);
+    } else {
+      _recoveryRequests.remove(streamId);
+    }
     _enqueue(streamId, force: true);
     await settle();
   }
@@ -1157,7 +1200,11 @@ class ReceivedImageStore extends ChangeNotifier {
           return;
         }
         _queue.removeAt(0);
-        await _decodeOne(entry, decoder);
+        await _decodeOne(
+          entry,
+          decoder,
+          bestEffort: _recoveryRequests.remove(streamId),
+        );
       }
     } finally {
       // Synchronous with the end of the body, unlike the future's completion.
@@ -1172,8 +1219,9 @@ class ReceivedImageStore extends ChangeNotifier {
 
   Future<void> _decodeOne(
     ReceivedImageEntry entry,
-    ReceivedImageDecoder decoder,
-  ) async {
+    ReceivedImageDecoder decoder, {
+    bool bestEffort = false,
+  }) async {
     if (_decodeInFlight) {
       assert(false, 'ReceivedImageStore: concurrent decode attempted');
       debugPrint('received_image_store: refusing a concurrent decode');
@@ -1182,7 +1230,7 @@ class ReceivedImageStore extends ChangeNotifier {
     }
     _decodeInFlight = true;
     try {
-      await _decodeOneExclusive(entry, decoder);
+      await _decodeOneExclusive(entry, decoder, bestEffort: bestEffort);
     } finally {
       _decodeInFlight = false;
     }
@@ -1190,8 +1238,9 @@ class ReceivedImageStore extends ChangeNotifier {
 
   Future<void> _decodeOneExclusive(
     ReceivedImageEntry entry,
-    ReceivedImageDecoder decoder,
-  ) async {
+    ReceivedImageDecoder decoder, {
+    bool bestEffort = false,
+  }) async {
     final bitstream = await blobs.readBitstream(entry.streamId);
     if (bitstream == null || bitstream.isEmpty) {
       await _store(
@@ -1209,11 +1258,20 @@ class ReceivedImageStore extends ChangeNotifier {
 
     ImageCodecResult? result;
     try {
-      result = await decoder.decodeBitstream(
-        bitstream: bitstream,
-        ratePoint: entry.rate,
-        resolution: entry.resolution,
-      );
+      if (bestEffort && decoder is ReceivedImageRecoveryDecoder) {
+        result = await (decoder as ReceivedImageRecoveryDecoder)
+            .decodeRecoveredBitstream(
+              bitstream: bitstream,
+              ratePoint: entry.rate,
+              resolution: entry.resolution,
+            );
+      } else {
+        result = await decoder.decodeBitstream(
+          bitstream: bitstream,
+          ratePoint: entry.rate,
+          resolution: entry.resolution,
+        );
+      }
     } catch (error) {
       final current = _entries[entry.streamId] ?? entry;
       if (_cancelRequested) {
@@ -1275,6 +1333,10 @@ class ReceivedImageStore extends ChangeNotifier {
     await _store(
       current.copyWith(
         state: ReceivedImageState.decoded,
+        resolution: result.resolution,
+        degraded: result.degraded,
+        warnings: result.warnings,
+        recoveryEvents: result.recoveryEvents,
         pngStored: true,
         pngByteCount: png.length,
         pngBytes: png,

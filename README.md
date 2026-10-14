@@ -35,6 +35,37 @@ MeshCore Open is a cross-platform mobile application for communicating with Mesh
 - **Message Reactions**: React to messages with emoji responses
 - **Message Replies**: Thread conversations with inline reply functionality
 
+### Native image messages
+
+The native AEIC FT2 phone model encodes and reconstructs images at **128, 192,
+256, 320, 384, 448, 512, and 576 pixels**. The send preview starts at 128 pixels,
+uses a centered square crop, and displays the actual compressed file size before
+sending. Native wire code 2 carries dimensions in the bitstream header; existing
+FT32/FT16 wire formats remain unchanged.
+
+Model weights install separately and use about **2 GB of storage**. Graphs load
+one at a time to keep the full model out of RAM. Reconstruction is lossy and can
+take several minutes on older phones; the tiny compressed files depend on the
+photo and do not include the trained model. Strict decoding is the default.
+Failed native images offer an explicit **Recover image** retry; recovered
+pictures say “Recovered image. Some detail may be missing.”
+
+All eight benchmark phone encodings match the original CPU codec byte for byte.
+Full native CLI reconstruction has passed at 128, 256, and 512 pixels. The
+128-pixel app-service encode/decode cycle has also passed: its 137-byte file
+produced a 41,372-byte PNG without recovery. The app's 576-pixel encode produces
+the matching 1,783-byte file; its decode is running and the final phone PNG
+remains pending. Supported dimensions do not imply completed phone validation
+at every size.
+
+The separate [Android 5.1 build profile](build_profiles/README.md) supports API21
+ARMv7 while keeping the modern dependency profile. Optional translation and
+older ONNX image runtimes are unavailable in that legacy build; native FT2 remains
+available. See [native packaging and validation](android/app/NATIVE_CODEC.md)
+and the [AEIC mobile port on main](https://github.com/mikecarper/AEIC/tree/main/mobile)
+for exporters, native source, and CC0 examples. The linked AEIC source is published
+through [revision b0dba0b](https://github.com/mikecarper/AEIC/commit/b0dba0b).
+
 ### Mesh Network
 
 - **Path Visualization**: View routing paths and signal quality for each contact

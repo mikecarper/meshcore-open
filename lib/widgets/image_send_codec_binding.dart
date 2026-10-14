@@ -13,9 +13,46 @@ import 'dart:typed_data';
 // Packet-count and airtime maths deliberately live in
 // `lib/utils/lora_airtime.dart`, not here.
 
-/// Hard minimum resolution for the codec. Images are centre-cropped to this
-/// square before encoding; the decoder collapses below it.
+/// Static square size of the legacy ONNX model.
 const int kImageCodecSquareSize = 512;
+
+const List<int> kNativeImageCodecResolutions = <int>[
+  128,
+  192,
+  256,
+  320,
+  384,
+  448,
+  512,
+  576,
+];
+
+/// The native file carries three big-endian uint32 values, followed by its
+/// entropy payload. Rate code 2 identifies this container on the mesh.
+class NativeImageBitstreamHeader {
+  final int resolution;
+  final int payloadBytes;
+
+  const NativeImageBitstreamHeader._(this.resolution, this.payloadBytes);
+
+  static NativeImageBitstreamHeader? tryParse(
+    Uint8List bytes, {
+    int maxFileBytes = 2369,
+    bool allowPayloadLengthMismatch = false,
+  }) {
+    if (bytes.length <= 12 || bytes.length > maxFileBytes) return null;
+    final header = ByteData.sublistView(bytes, 0, 12);
+    final height = header.getUint32(0, Endian.big);
+    final width = header.getUint32(4, Endian.big);
+    final length = header.getUint32(8, Endian.big);
+    if (height != width ||
+        !kNativeImageCodecResolutions.contains(height) ||
+        (!allowPayloadLengthMismatch && length != bytes.length - 12)) {
+      return null;
+    }
+    return NativeImageBitstreamHeader._(height, length);
+  }
+}
 
 /// Availability of the image codec, as far as the UI is concerned.
 enum ImageCodecAvailability {
@@ -50,6 +87,9 @@ enum ImageCodecRatePoint {
   /// registry ships ft32 weights only. Retained so the ordinal stays reserved
   /// and so bitstreams produced elsewhere can still be identified on the wire.
   high,
+
+  /// Native ncnn FT2 bundle. Appended; its explicit mesh wire code is 2.
+  nativeFt2,
 }
 
 /// The single rate point the compose UI encodes at.
@@ -88,18 +128,31 @@ class ImageCodecRateStats {
     maxBytes: 409,
   );
 
+  /// Single-photo native benchmark sizes, used only by the deterministic fake.
+  /// The real preview waits for the actual encode instead of predicting size.
+  static const ImageCodecRateStats nativeFt2 = ImageCodecRateStats(
+    meanBytes: 137,
+    minBytes: 137,
+    maxBytes: 1783,
+  );
+
   static ImageCodecRateStats forRate(ImageCodecRatePoint rate) {
     switch (rate) {
       case ImageCodecRatePoint.standard:
         return standard;
       case ImageCodecRatePoint.high:
         return high;
+      case ImageCodecRatePoint.nativeFt2:
+        return nativeFt2;
     }
   }
 }
 
 /// The encode interface the preview sheet consumes.
 abstract class ImageSendCodec {
+  ImageCodecRatePoint get sendRatePoint;
+  List<int> get supportedResolutions;
+
   /// Current availability. The sheet renders a non-interactive explanation for
   /// anything other than [ImageCodecAvailability.ready].
   ImageCodecAvailability get availability;
@@ -120,7 +173,11 @@ abstract class ImageSendCodec {
   ///
   /// Implementations are expected to centre-crop to
   /// [kImageCodecSquareSize] square first.
-  Future<Uint8List> encode(Uint8List imageBytes, ImageCodecRatePoint rate);
+  Future<Uint8List> encode(
+    Uint8List imageBytes,
+    ImageCodecRatePoint rate, {
+    int? resolution,
+  });
 }
 
 /// A deterministic stand-in used for widget previews and tests.
@@ -128,6 +185,15 @@ abstract class ImageSendCodec {
 /// It produces a buffer of the measured mean size for the requested rate point
 /// so the sheet can be exercised end-to-end without the real codec.
 class FakeImageSendCodec implements ImageSendCodec {
+  @override
+  final ImageCodecRatePoint sendRatePoint;
+
+  @override
+  List<int> get supportedResolutions =>
+      sendRatePoint == ImageCodecRatePoint.nativeFt2
+      ? kNativeImageCodecResolutions
+      : const <int>[kImageCodecSquareSize];
+
   @override
   final ImageCodecAvailability availability;
 
@@ -139,6 +205,7 @@ class FakeImageSendCodec implements ImageSendCodec {
   final Duration latency;
 
   const FakeImageSendCodec({
+    this.sendRatePoint = ImageCodecRatePoint.standard,
     this.availability = ImageCodecAvailability.ready,
     this.unavailableReason,
     this.latency = const Duration(milliseconds: 250),
@@ -147,14 +214,37 @@ class FakeImageSendCodec implements ImageSendCodec {
   @override
   Future<Uint8List> encode(
     Uint8List imageBytes,
-    ImageCodecRatePoint rate,
-  ) async {
+    ImageCodecRatePoint rate, {
+    int? resolution,
+  }) async {
     if (latency > Duration.zero) {
       await Future<void>.delayed(latency);
     }
-    final size = ImageCodecRateStats.forRate(rate).meanBytes;
-    return Uint8List.fromList(
+    final side =
+        resolution ??
+        (rate == ImageCodecRatePoint.nativeFt2 ? 128 : kImageCodecSquareSize);
+    final size = rate == ImageCodecRatePoint.nativeFt2
+        ? const <int, int>{
+            128: 137,
+            192: 270,
+            256: 407,
+            320: 602,
+            384: 804,
+            448: 1122,
+            512: 1363,
+            576: 1783,
+          }[side]
+        : ImageCodecRateStats.forRate(rate).meanBytes;
+    if (size == null) throw ArgumentError.value(side, 'resolution');
+    final bytes = Uint8List.fromList(
       List<int>.generate(size, (i) => (i * 31 + rate.index) & 0xFF),
     );
+    if (rate == ImageCodecRatePoint.nativeFt2) {
+      ByteData.sublistView(bytes)
+        ..setUint32(0, side, Endian.big)
+        ..setUint32(4, side, Endian.big)
+        ..setUint32(8, size - 12, Endian.big);
+    }
+    return bytes;
   }
 }

@@ -43,12 +43,42 @@ class _FakeDecoder implements ReceivedImageDecoder {
   void cancelCodecJob() => cancelCalls++;
 }
 
+class _RecoveryDecoder extends _FakeDecoder
+    implements ReceivedImageRecoveryDecoder {
+  @override
+  final bool supportsBestEffortRecovery;
+  int recoveryCalls = 0;
+  _RecoveryDecoder({this.supportsBestEffortRecovery = true})
+    : super(ImageCodecAvailability.ready);
+
+  @override
+  Future<ImageCodecResult?> decodeRecoveredBitstream({
+    required Uint8List bitstream,
+    required AeicRatePoint ratePoint,
+    required int resolution,
+  }) async {
+    recoveryCalls++;
+    return ImageCodecResult(
+      ratePoint: ratePoint,
+      resolution: resolution,
+      durationMs: 1,
+      status: ImageCodecStatus.completed,
+      pngBytes: Uint8List.fromList(base64Decode(_png1x1)),
+      degraded: true,
+      warnings: const ['DEGRADED/model/stage0012.private'],
+      recoveryEvents: 1,
+    );
+  }
+}
+
 /// Builds a store holding one entry that is `reassembled + needsManualDecode`,
 /// i.e. the "bitstream complete, waiting for the user" placeholder state.
 Future<ReceivedImageStore> _awaitingStore({
   ReceivedImageDecoder? decoder,
   int bytes = 156,
   int packets = 2,
+  String state = 'reassembled',
+  int rate = 4,
 }) async {
   final blobs = InMemoryReceivedImageBlobStore();
   await blobs.writeBitstream('await1', Uint8List(bytes));
@@ -60,7 +90,9 @@ Future<ReceivedImageStore> _awaitingStore({
       'imgId': 7,
       'channelIndex': 0,
       'firstSeenMs': DateTime.now().millisecondsSinceEpoch,
-      'state': 'reassembled',
+      'state': state,
+      'rate': rate,
+      'resolution': rate == 0 ? 128 : 512,
       'receivedChunks': packets,
       'totalChunks': packets,
       'needsManualDecode': true,
@@ -96,6 +128,58 @@ Future<void> _pumpBubble(
 }
 
 void main() {
+  testWidgets(
+    'native recovery requires a deliberate confirmation and labels the picture',
+    (tester) async {
+      final decoder = _RecoveryDecoder();
+      final store = await _awaitingStore(
+        decoder: decoder,
+        state: 'failedCorrupt',
+        rate: 0,
+      );
+      await _pumpBubble(tester, store);
+      expect(decoder.recoveryCalls, 0);
+      await tester.tap(find.text('Recover image'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Try recovering this image? Some detail may be missing.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(decoder.recoveryCalls, 0);
+      await tester.tap(find.text('Recover image'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byWidgetPredicate((widget) => widget is FilledButton),
+      );
+      await tester.pumpAndSettle();
+      expect(decoder.recoveryCalls, 1);
+      expect(store.entryFor('await1')?.degraded, isTrue);
+      expect(
+        find.text('Recovered image. Some detail may be missing.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('stage0012'), findsNothing);
+      store.dispose();
+    },
+  );
+
+  testWidgets(
+    'recovery is hidden for a backend without native recovery capability',
+    (tester) async {
+      final decoder = _RecoveryDecoder(supportsBestEffortRecovery: false);
+      final store = await _awaitingStore(
+        decoder: decoder,
+        state: 'failedCorrupt',
+        rate: 0,
+      );
+      await _pumpBubble(tester, store);
+      expect(find.text('Recover image'), findsNothing);
+      expect(find.text('Try again'), findsOneWidget);
+      store.dispose();
+    },
+  );
   testWidgets('decoded incoming bubble carries the R6 badge and caption', (
     tester,
   ) async {

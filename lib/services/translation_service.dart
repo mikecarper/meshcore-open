@@ -44,7 +44,7 @@ class TranslationService extends ChangeNotifier {
     TranslationFileStore? fileStore,
   }) : _fileStore = fileStore ?? TranslationFileStore() {
     // Initialize langdetect once at service construction.
-    _langDetectInit = initLangDetect();
+    if (isSupported) _langDetectInit = initLangDetect();
   }
 
   bool _disposed = false;
@@ -62,6 +62,7 @@ class TranslationService extends ChangeNotifier {
   String? _downloadFileName;
 
   bool get isBusy => _isBusy;
+  bool get isSupported => !const bool.fromEnvironment('LEGACY_ARM32');
   bool get isDownloading => _isDownloading;
   String? get lastError => _lastError;
   int get downloadedBytes => _downloadedBytes;
@@ -110,7 +111,7 @@ class TranslationService extends ChangeNotifier {
     required bool isCli,
     required bool isOutgoing,
   }) {
-    if (!_settings.translationEnabled || isCli || isOutgoing) {
+    if (!isSupported || !_settings.translationEnabled || isCli || isOutgoing) {
       return false;
     }
     return _isPlainTextEligible(text);
@@ -120,7 +121,8 @@ class TranslationService extends ChangeNotifier {
     required String text,
     required String? targetLanguageCode,
   }) {
-    return _settings.composerTranslationEnabled &&
+    return isSupported &&
+        _settings.composerTranslationEnabled &&
         targetLanguageCode != null &&
         targetLanguageCode.isNotEmpty &&
         _isPlainTextEligible(text);
@@ -181,6 +183,10 @@ class TranslationService extends ChangeNotifier {
     String? fileName,
     String? id,
   }) async {
+    if (!isSupported)
+      throw UnsupportedError(
+        'Translation is unavailable in the Android 5.1 build.',
+      );
     final uri = Uri.tryParse(sourceUrl);
     if (uri == null || !uri.hasScheme) {
       throw ArgumentError('Invalid model URL.');
@@ -477,6 +483,7 @@ class TranslationService extends ChangeNotifier {
   }
 
   Future<String?> detectLanguage(String text) async {
+    if (!isSupported) return null;
     try {
       // Ensure the detector is initialized (constructor starts init).
       await (_langDetectInit ??= initLangDetect());
@@ -562,7 +569,10 @@ class TranslationService extends ChangeNotifier {
 
   bool get _hasUsableModel {
     final model = selectedModel;
-    return !kIsWeb && model != null && model.localPath.isNotEmpty;
+    return isSupported &&
+        !kIsWeb &&
+        model != null &&
+        model.localPath.isNotEmpty;
   }
 
   bool _isPlainTextEligible(String text) {

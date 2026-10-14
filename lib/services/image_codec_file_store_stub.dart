@@ -3,6 +3,13 @@ import 'dart:typed_data';
 import '../models/image_codec_support.dart';
 
 class ImageCodecFileStore {
+  Future<ImageCodecModelRecord> importNativeBundle({
+    required Stream<List<int>> chunks,
+    void Function(int completed, int total)? onProgress,
+  }) async => throw UnsupportedError('Native model import is not supported on web.');
+
+  Future<ImageCodecModelRecord> validateNativeBundle() async =>
+      throw UnsupportedError('Native model storage is not supported on web.');
   Future<String> modelDirectoryPath() async {
     throw UnsupportedError(
       'Local codec model storage is not supported on web.',

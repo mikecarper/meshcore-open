@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.util.Base64
 
 plugins {
     id("com.android.application")
@@ -8,6 +9,13 @@ plugins {
 }
 
 val keystoreProperties = Properties()
+val codecDartDefines = providers.gradleProperty("dart-defines").getOrElse("")
+    .split(",").mapNotNull { encoded ->
+        runCatching { String(Base64.getDecoder().decode(encoded), Charsets.UTF_8) }.getOrNull()
+    }
+val legacyArm32 = "LEGACY_ARM32=true" in codecDartDefines
+val aeicTrial = "AEIC_TRIAL=true" in codecDartDefines ||
+    providers.gradleProperty("meshcoreAeicTrial").map { it.equals("true", ignoreCase = true) }.getOrElse(false)
 val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
@@ -15,8 +23,12 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.meshcore.meshcore_open"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = maxOf(36, flutter.compileSdkVersion)
     ndkVersion = "29.0.14206865"
+    // Extract the PIE codec executable into Android's executable nativeLibraryDir.
+    packaging {
+        jniLibs.useLegacyPackaging = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -31,9 +43,10 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.meshcore.meshcore_open"
+        if (aeicTrial) applicationIdSuffix = ".aeictrial"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = if (legacyArm32) 21 else flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -43,21 +56,10 @@ android {
         //         arguments += listOf("-DANDROID_STL=c++_shared")
         //     }
         // }
-        // arm64-v8a only, deliberately.
-        //
-        //  * ONNX Runtime (flutter_onnxruntime, used by the AEIC-SE image codec)
-        //    ships a per-ABI .so. arm64-v8a alone costs ~18 MB of APK; a
-        //    universal APK carrying armeabi-v7a and x86_64 as well costs ~56 MB.
-        //  * llamadart only declares android-arm64 and android-x64 backends in
-        //    pubspec.yaml's `hooks.user_defines`, so an armeabi-v7a build already
-        //    has no translation backend at all.
-        //  * The image codec needs ~2.7 GiB peak resident, which no 32-bit
-        //    address space can provide regardless of ABI.
-        //
-        // Consequence: this APK will not install on 32-bit-only ARM devices or on
-        // x86_64 emulators. For emulator work, temporarily add "x86_64" here.
+        // API21 ARMv7 uses the established legacy dependency profile.
+        // The modern profile keeps its configured minimum SDK and ARM64 ABI.
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters += if (legacyArm32) listOf("armeabi-v7a") else listOf("arm64-v8a")
         }
     }
 

@@ -39,30 +39,41 @@ void showDismissibleSnackBar(
   final messenger = ScaffoldMessenger.maybeOf(context);
   if (messenger == null) return;
   messenger.showSnackBar(
-    SnackBar(
-      key: key,
-      content: GestureDetector(
+    _compatibleSnackBar({
+      #key: key,
+      #content: GestureDetector(
         onTap: () => messenger.hideCurrentSnackBar(),
         child: content,
       ),
-      backgroundColor: backgroundColor,
-      elevation: elevation,
-      margin: margin,
-      padding: padding,
-      width: width,
-      shape: shape,
-      hitTestBehavior: hitTestBehavior,
-      behavior: behavior,
-      action: action,
-      actionOverflowThreshold: actionOverflowThreshold,
-      showCloseIcon: showCloseIcon,
-      closeIconColor: closeIconColor,
-      duration: duration ?? const Duration(seconds: 4),
-      persist: persist,
-      animation: animation,
-      onVisible: onVisible,
-      dismissDirection: dismissDirection ?? DismissDirection.down,
-      clipBehavior: clipBehavior ?? Clip.hardEdge,
-    ),
+      #backgroundColor: backgroundColor,
+      #elevation: elevation,
+      #margin: margin,
+      #padding: padding,
+      #width: width,
+      #shape: shape,
+      #hitTestBehavior: hitTestBehavior,
+      #behavior: behavior,
+      #action: action,
+      #actionOverflowThreshold: actionOverflowThreshold,
+      #showCloseIcon: showCloseIcon,
+      #closeIconColor: closeIconColor,
+      #duration: duration ?? const Duration(seconds: 4),
+      #persist: persist,
+      #animation: animation,
+      #onVisible: onVisible,
+      #dismissDirection: dismissDirection ?? DismissDirection.down,
+      #clipBehavior: clipBehavior ?? Clip.hardEdge,
+    }),
   );
+}
+
+// Flutter 3.32 lacks `persist`; modern builds keep its native behavior.
+SnackBar _compatibleSnackBar(Map<Symbol, dynamic> arguments) {
+  try {
+    return Function.apply(SnackBar.new, const [], arguments) as SnackBar;
+  } on NoSuchMethodError {
+    final persistent = arguments.remove(#persist) == true;
+    if (persistent) arguments[#duration] = const Duration(days: 365);
+    return Function.apply(SnackBar.new, const [], arguments) as SnackBar;
+  }
 }

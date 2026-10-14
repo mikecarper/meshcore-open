@@ -94,3 +94,8 @@ keystore.properties
 
 # Claude Code local working dir (worktrees, jobs, settings)
 .claude/
+
+# Reproducible Android profiles and generated native builds.
+!build_profiles/legacy/pubspec.lock
+!build_profiles/modern/pubspec.lock
+.android-build/

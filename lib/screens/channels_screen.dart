@@ -24,6 +24,7 @@ import '../utils/route_transitions.dart';
 import '../widgets/list_filter_widget.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/mesh_ui.dart';
+import '../widgets/legacy_radio.dart' as legacy_radio;
 import '../widgets/qr_code_display.dart';
 import '../widgets/quick_switch_bar.dart';
 import '../widgets/sync_progress_overlay.dart';
@@ -1142,7 +1143,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
                   children: [
                     // Only show type selection if user has communities
                     if (_communities.isNotEmpty) ...[
-                      RadioGroup<bool>(
+                      legacy_radio.RadioGroup<bool>(
                         groupValue: isRegularHashtag,
                         onChanged: (v) => setSheetState(() {
                           if (v == null) return;
@@ -1156,7 +1157,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
                         }),
                         child: Column(
                           children: [
-                            RadioListTile<bool>(
+                            legacy_radio.RadioListTile<bool>(
                               value: true,
                               title: Text(
                                 sheetContext.l10n.community_regularHashtag,
@@ -1166,7 +1167,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
                               ),
                               dense: true,
                             ),
-                            RadioListTile<bool>(
+                            legacy_radio.RadioListTile<bool>(
                               value: false,
                               title: Text(
                                 sheetContext.l10n.community_communityHashtag,
@@ -1190,7 +1191,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
                           vertical: 8,
                         ),
                         child: DropdownButtonFormField<Community>(
-                          initialValue: selectedCommunity,
+                          value: selectedCommunity,
                           items: _communities
                               .map(
                                 (c) => DropdownMenuItem(
@@ -1657,7 +1658,7 @@ class _ChannelsScreenState extends State<ChannelsScreen>
                       Padding(
                         padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
                         child: DropdownButtonFormField<String>(
-                          initialValue: selectedCyr2LatProfileId,
+                          value: selectedCyr2LatProfileId,
                           decoration: InputDecoration(
                             labelText: sheetContext
                                 .l10n

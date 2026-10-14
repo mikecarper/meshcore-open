@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:provider/provider.dart';
 
 import '../connector/meshcore_connector.dart';
@@ -16,6 +17,7 @@ import '../services/translation_service.dart';
 import '../theme/mesh_theme.dart';
 import '../widgets/adaptive_app_bar_title.dart';
 import '../widgets/mesh_ui.dart';
+import '../widgets/legacy_radio.dart' as legacy_radio;
 import '../widgets/sync_progress_overlay.dart';
 import '../helpers/snack_bar_builder.dart';
 import 'map_cache_screen.dart';
@@ -684,6 +686,30 @@ class AppSettingsScreen extends StatelessWidget {
             style: textTheme.titleSmall,
           ),
           const SizedBox(height: 6),
+          Text(
+            context.l10n.imageMessages_nativeModelDescription,
+            style: textTheme.bodySmall,
+          ),
+          Wrap(
+            spacing: 8,
+            children: [
+              OutlinedButton.icon(
+                icon: const Icon(Icons.folder_open_outlined),
+                label: Text(context.l10n.imageMessages_importNativeModel),
+                onPressed: codec.isBusy || codec.isDownloading
+                    ? null
+                    : () => _importNativeModel(context, codec),
+              ),
+              TextButton(
+                onPressed: codec.isBusy || codec.isDownloading
+                    ? null
+                    : () => _validateNativeModel(context, codec),
+                child: Text(context.l10n.imageMessages_validateNativeModel),
+              ),
+            ],
+          ),
+          if (codec.isDownloading)
+            LinearProgressIndicator(value: codec.downloadProgress),
           if (reason != null)
             Container(
               padding: const EdgeInsets.all(12),
@@ -698,7 +724,15 @@ class AppSettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
-          for (final spec in imageCodecPresetModels)
+          if (const bool.fromEnvironment('LEGACY_ARM32'))
+            Text(
+              context.l10n.imageMessages_legacyModelUnavailable,
+              style: textTheme.bodySmall,
+            ),
+          for (final spec
+              in const bool.fromEnvironment('LEGACY_ARM32')
+                  ? <ImageCodecModelSpec>[]
+                  : imageCodecPresetModels)
             _buildImageCodecPreset(context, codec, spec),
           for (final model in codec.availableModels)
             ListTile(
@@ -707,6 +741,10 @@ class AppSettingsScreen extends StatelessWidget {
               leading: const Icon(Icons.check_circle_outline, size: 20),
               title: Text(model.name.isEmpty ? model.id : model.name),
               subtitle: Text(_formatModelBytes(model.fileSizeBytes)),
+              selected: model.id == codec.selectedModel?.id,
+              onTap: codec.isBusy || codec.isDownloading
+                  ? null
+                  : () => codec.setSelectedModelId(model.id),
               trailing: IconButton(
                 icon: const Icon(Icons.delete_outline, size: 20),
                 tooltip: context.l10n.imageMessages_removeModel,
@@ -725,6 +763,50 @@ class AppSettingsScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _importNativeModel(
+    BuildContext context,
+    ImageCodecService codec,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final file = await openFile(
+        acceptedTypeGroups: const [
+          XTypeGroup(label: 'AEIC phone model', extensions: ['tar']),
+        ],
+      );
+      if (file == null) return;
+      await codec.importNativeBundle(file.openRead());
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.imageMessages_modelReady)),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.imageMessages_nativeImportFailed)),
+      );
+    }
+  }
+
+  Future<void> _validateNativeModel(
+    BuildContext context,
+    ImageCodecService codec,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await codec.validateNativeBundle();
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.imageMessages_modelReady)),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.imageMessages_nativeImportFailed)),
+      );
+    }
   }
 
   Widget _buildImageCodecPreset(
@@ -866,7 +948,7 @@ class AppSettingsScreen extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          initialValue: selection,
+          value: selection,
           isExpanded: true,
           decoration: const InputDecoration(
             border: UnderlineInputBorder(),
@@ -1257,7 +1339,7 @@ class AppSettingsScreen extends StatelessWidget {
                 maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
               ),
               child: SingleChildScrollView(
-                child: RadioGroup<String>(
+                child: legacy_radio.RadioGroup<String>(
                   groupValue: selectedId,
                   onChanged: (value) {
                     if (value == null) return;
@@ -1274,7 +1356,7 @@ class AppSettingsScreen extends StatelessWidget {
                             final option = MapRasterSourceCatalog.fromPreset(
                               preset,
                             );
-                            return RadioListTile<String>(
+                            return legacy_radio.RadioListTile<String>(
                               value: preset.id,
                               title: Text(option.label),
                               subtitle: Text(option.description),
@@ -1318,7 +1400,7 @@ class AppSettingsScreen extends StatelessWidget {
           title: Text(context.l10n.appSettings_stadiaEndpoint),
           content: SizedBox(
             width: 360,
-            child: RadioGroup<String>(
+            child: legacy_radio.RadioGroup<String>(
               groupValue: selectedId,
               onChanged: (value) {
                 if (value == null) return;
@@ -1330,7 +1412,7 @@ class AppSettingsScreen extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   for (final option in MapRasterEndpointCatalog.presets)
-                    RadioListTile<String>(
+                    legacy_radio.RadioListTile<String>(
                       value: option.id,
                       title: Text(option.label),
                       subtitle: Text(option.description),
@@ -1423,6 +1505,13 @@ class AppSettingsScreen extends StatelessWidget {
     final translationEnabled = settings.translationEnabled;
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+
+    if (!translationService.isSupported) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(context.l10n.translation_legacyUnavailable),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1547,7 +1636,7 @@ class AppSettingsScreen extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: DropdownButtonFormField<String>(
-            initialValue: settings.translationSelectedModelId,
+            value: settings.translationSelectedModelId,
             isExpanded: true,
             decoration: InputDecoration(
               labelText: context.l10n.translation_downloadedModelLabel,
@@ -1570,7 +1659,7 @@ class AppSettingsScreen extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: DropdownButtonFormField<String>(
-            initialValue: null,
+            value: null,
             isExpanded: true,
             decoration: InputDecoration(
               labelText: context.l10n.translation_presetModelLabel,
@@ -1740,7 +1829,7 @@ class AppSettingsScreen extends StatelessWidget {
       children: [
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          initialValue: settingsService.settings.selectedCyr2latProfileId,
+          value: settingsService.settings.selectedCyr2latProfileId,
           decoration: InputDecoration(
             labelText: context.l10n.channels_cyr2latSettingsSubheading,
             border: const OutlineInputBorder(),
@@ -2682,7 +2771,7 @@ class _TranslationLanguageDialogContentState
             ),
             const SizedBox(height: 12),
             Flexible(
-              child: RadioGroup<String?>(
+              child: legacy_radio.RadioGroup<String?>(
                 groupValue: widget.currentLanguageCode,
                 onChanged: (value) {
                   widget.onLanguageSelected(value);
@@ -2690,12 +2779,12 @@ class _TranslationLanguageDialogContentState
                 child: ListView(
                   shrinkWrap: true,
                   children: [
-                    RadioListTile<String?>(
+                    legacy_radio.RadioListTile<String?>(
                       value: null,
                       title: Text(context.l10n.translation_useAppLanguage),
                     ),
                     for (final option in _filtered)
-                      RadioListTile<String?>(
+                      legacy_radio.RadioListTile<String?>(
                         value: option.code,
                         title: Text(option.label),
                         subtitle: Text(option.code.toUpperCase()),

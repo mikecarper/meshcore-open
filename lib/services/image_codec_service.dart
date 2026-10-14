@@ -72,15 +72,18 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   /// `MockClient` — without this the only way to exercise an 872 MB two-file
   /// resumable transfer would be to actually perform one.
   final http.Client Function() _newClient;
+  final Future<ImageCodecSession> Function(ImageCodecBundle) _sessionFactory;
 
   ImageCodecService(
     this._appSettingsService, {
     ImageCodecFileStore? fileStore,
     ImageCodecSettingsStore? settingsStore,
     http.Client Function()? clientFactory,
+    Future<ImageCodecSession> Function(ImageCodecBundle)? sessionFactory,
   }) : _fileStore = fileStore ?? ImageCodecFileStore(),
        _settingsStore = settingsStore ?? PrefsImageCodecSettingsStore(),
-       _newClient = clientFactory ?? http.Client.new;
+       _newClient = clientFactory ?? http.Client.new,
+       _sessionFactory = sessionFactory ?? ImageCodecSession.spawn;
 
   // ---- state (naming/order mirrors TranslationService:50-62) ----------------
   bool _disposed = false;
@@ -129,7 +132,37 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   ImageCodecPreferences get preferences => _settingsStore.preferences;
 
   /// Composer default rate point.
-  AeicRatePoint get defaultRatePoint => preferences.aeicRatePoint;
+  AeicRatePoint get defaultRatePoint => installedBundle?.isNativeFt2 == true
+      ? AeicRatePoint.ft2
+      : preferences.aeicRatePoint;
+
+  @override
+  ImageCodecRatePoint get sendRatePoint => installedBundle?.isNativeFt2 == true
+      ? ImageCodecRatePoint.nativeFt2
+      : ImageCodecRatePoint.standard;
+
+  @override
+  List<int> get supportedResolutions => installedBundle?.isNativeFt2 == true
+      ? kNativeFt2Resolutions
+      : const [kImageCodecSquareSize];
+
+  int get selectedResolution => installedBundle?.isNativeFt2 == true
+      ? preferences.nativeResolution
+      : kImageCodecSquareSize;
+  bool get supportsBestEffortRecovery => installedBundle?.isNativeFt2 == true;
+
+  Future<void> setNativeResolution(int value) async {
+    if (!kNativeFt2Resolutions.contains(value)) {
+      throw ArgumentError.value(value, 'resolution');
+    }
+    await _settingsStore.save(preferences.copyWith(nativeResolution: value));
+    _notify();
+  }
+
+  Future<void> setNativeBestEffort(bool value) async {
+    await _settingsStore.save(preferences.copyWith(nativeBestEffort: value));
+    _notify();
+  }
 
   // ---- availability --------------------------------------------------------
 
@@ -268,6 +301,9 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     if (model == null || model.localPath.isEmpty) {
       return false;
     }
+    if (model.bundleKind == ImageCodecBundleKind.nativeFt2Ncnn) {
+      return installedBundle?.supportsDecode != true;
+    }
     if (model.bundleVersion < kImageCodecBundleVersion) {
       return true;
     }
@@ -285,6 +321,16 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     final model = selectedModel;
     if (model == null || model.localPath.isEmpty) {
       return null;
+    }
+    if (model.bundleKind == ImageCodecBundleKind.nativeFt2Ncnn) {
+      if (model.id != kNativeFt2ModelId) return null;
+      return ImageCodecBundle(
+        decoderGraphPath: model.localPath,
+        ratePoint: AeicRatePoint.ft2,
+        nativeModelDirectory: _directoryOf(model.localPath),
+        nativeCodecIdentity: kNativeFt2ModelId,
+        nativeBestEffort: preferences.nativeBestEffort,
+      );
     }
     final spec = _specForId(model.id);
     final directory = _directoryOf(model.localPath);
@@ -360,9 +406,11 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     return null;
   }
 
-  /// Set once a session load has failed with [ImageCodecUnimplemented], i.e.
-  /// this build has no inference runtime. Sticky: retrying cannot help.
-  bool _backendMissing = false;
+  /// Missing runtime support belongs to its bundle. A legacy runtime failure
+  /// must not disable a subsequently selected native FT2 model.
+  ImageCodecBundle? _missingBackendBundle;
+  bool get _backendMissing =>
+      _missingBackendBundle != null && _missingBackendBundle == installedBundle;
 
   // ---- registry (mirror translation_service.dart:129-174) ------------------
   List<ImageCodecModelRecord> get availableModels =>
@@ -931,7 +979,10 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
       // store has been taught about bundles, so sweep the recorded siblings
       // here too. Without this, "Remove model" leaves 940 MB on the device.
       final directory = _directoryOf(model.localPath);
-      for (final name in model.assetFileNames) {
+      for (final name
+          in model.bundleKind == ImageCodecBundleKind.nativeFt2Ncnn
+              ? const <String>[]
+              : model.assetFileNames) {
         final path = '$directory/$name';
         if (path == model.localPath) continue;
         await _fileStore.deleteFile(path);
@@ -950,6 +1001,67 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     });
   }
 
+  /// [chunks] is XFile.openRead(), so importing does not duplicate the archive
+  /// or retain its shared weights in memory.
+  Future<void> importNativeBundle(Stream<List<int>> chunks) async {
+    await releaseModel();
+    await _runExclusive(() async {
+      _setBusy(true);
+      _isDownloading = true;
+      _lastError = null;
+      try {
+        final record = await _fileStore.importNativeBundle(
+          chunks: chunks,
+          onProgress: (completed, total) {
+            _downloadedBytes = completed;
+            _downloadTotalBytes = total;
+            _downloadFileName = 'AEIC FT2 phone model';
+            _notify();
+          },
+        );
+        await _saveNativeRecord(record);
+      } catch (error) {
+        _lastError = error.toString();
+        rethrow;
+      } finally {
+        _isDownloading = false;
+        _setBusy(false);
+        _notify();
+      }
+    });
+  }
+
+  /// Used after a verified per-file debug install into the app's private
+  /// model directory when the phone cannot hold a second archive copy.
+  Future<void> validateNativeBundle() async {
+    await releaseModel();
+    await _runExclusive(() async {
+      _setBusy(true);
+      try {
+        await _saveNativeRecord(await _fileStore.validateNativeBundle());
+      } finally {
+        _setBusy(false);
+        _notify();
+      }
+    });
+  }
+
+  Future<void> _saveNativeRecord(ImageCodecModelRecord record) async {
+    final records =
+        preferences.downloadedModels
+            .where((model) => model.id != kNativeFt2ModelId)
+            .toList()
+          ..add(record);
+    await _settingsStore.save(
+      preferences.copyWith(
+        downloadedModels: records,
+        selectedModelId: record.id,
+        nativeResolution: 128,
+      ),
+    );
+    _failedBundle = null;
+  }
+
   // ---- codec API -----------------------------------------------------------
 
   /// [ImageSendCodec] entry point used by `ImageSendPreviewSheet`.
@@ -961,8 +1073,9 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   @override
   Future<Uint8List> encode(
     Uint8List imageBytes,
-    ImageCodecRatePoint rate,
-  ) async {
+    ImageCodecRatePoint rate, {
+    int? resolution,
+  }) async {
     if (!kImageCodecBitstreamPathAvailable) {
       // Fail here rather than after a 512x512 raster and a session load, and
       // fail with the specific exception so the sheet can say why.
@@ -973,9 +1086,18 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
       // installed files cannot. Do not collapse the two.
       throw const ImageCodecBundleIncomplete();
     }
+    final size = resolution ?? selectedResolution;
+    if (!supportedResolutions.contains(size)) {
+      throw ArgumentError.value(size, 'resolution');
+    }
     final result = await encodeImage(
-      rgbBytes: await _toSquareRgb(imageBytes),
+      rgbBytes: await _toSquareRgb(
+        imageBytes,
+        resolution: size,
+        centerCrop: installedBundle?.isNativeFt2 == true,
+      ),
       ratePoint: aeicRatePointForUi(rate),
+      resolution: size,
     );
     final bitstream = result?.bitstream;
     if (bitstream == null) {
@@ -986,22 +1108,31 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
 
   /// Encodes an already-decoded RGB image.
   ///
-  /// [rgbBytes] must be exactly `512 * 512 * 3` packed 8-bit RGB. Anything else
-  /// is rejected: the decoder's SD-Turbo UNet needs a 64x64 latent, so 512 is a
-  /// hard floor, not a default.
+  /// [rgbBytes] contains `resolution * resolution * 3` packed 8-bit RGB.
+  /// Native FT2 accepts the eight sizes 128..576; legacy ONNX accepts 512.
   Future<ImageCodecResult?> encodeImage({
     required Uint8List rgbBytes,
     required AeicRatePoint ratePoint,
+    int? resolution,
   }) async {
     if (!canEncode) return null;
-    const expected =
-        kImageCodecSquareSize * kImageCodecSquareSize * _bytesPerPixel;
+    final size = resolution ?? selectedResolution;
+    if (!supportedResolutions.contains(size)) {
+      throw ArgumentError.value(size, 'resolution');
+    }
+    if (installedBundle?.ratePoint != ratePoint) {
+      throw ArgumentError.value(
+        ratePoint,
+        'ratePoint',
+        'Does not match the selected model',
+      );
+    }
+    final expected = size * size * _bytesPerPixel;
     if (rgbBytes.length != expected) {
       throw ArgumentError.value(
         rgbBytes.length,
         'rgbBytes',
-        'expected $expected bytes of ${kImageCodecSquareSize}x'
-            '$kImageCodecSquareSize RGB',
+        'expected $expected bytes of ${size}x$size RGB',
       );
     }
     return _runCodecJob(
@@ -1010,13 +1141,13 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
       action: (session) => session.encode(
         rgbBytes,
         ratePoint,
-        kImageCodecSquareSize,
+        size,
         onProgress: _reportCodecProgress,
       ),
       wrap: (bytes, elapsed) => ImageCodecResult(
         bitstream: bytes,
         ratePoint: ratePoint,
-        resolution: kImageCodecSquareSize,
+        resolution: size,
         durationMs: elapsed,
         status: ImageCodecStatus.completed,
       ),
@@ -1029,12 +1160,18 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   Future<ImageCodecResult?> encodeImageFile({
     required String path,
     AeicRatePoint? ratePoint,
+    int? resolution,
   }) async {
     if (!canEncode) return null;
     final bytes = await _fileStore.readFileBytes(path);
     return encodeImage(
-      rgbBytes: await _toSquareRgb(bytes),
+      rgbBytes: await _toSquareRgb(
+        bytes,
+        resolution: resolution ?? selectedResolution,
+        centerCrop: installedBundle?.isNativeFt2 == true,
+      ),
       ratePoint: ratePoint ?? defaultRatePoint,
+      resolution: resolution,
     );
   }
 
@@ -1046,7 +1183,20 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     required Uint8List bitstream,
     required AeicRatePoint ratePoint,
     required int resolution,
+    bool? bestEffort,
   }) async {
+    var bundle = installedBundle;
+    if (bundle?.isNativeFt2 == true && bestEffort != null) {
+      final native = bundle!;
+      bundle = ImageCodecBundle(
+        decoderGraphPath: native.decoderGraphPath,
+        ratePoint: native.ratePoint,
+        nativeModelDirectory: native.nativeModelDirectory,
+        nativeCodecIdentity: native.nativeCodecIdentity,
+        nativeBestEffort: bestEffort,
+        nativeThreads: native.nativeThreads,
+      );
+    }
     if (!kImageCodecBitstreamPathAvailable) {
       // A received image cannot be silently dropped: the receive path has to be
       // able to tell the user why nothing rendered.
@@ -1060,7 +1210,35 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     }
     if (!canDecode) return null;
     if (bitstream.isEmpty) return null;
-    if (resolution != kImageCodecSquareSize) {
+    if (installedBundle?.isNativeFt2 == true) {
+      final header = NativeImageBitstreamHeader.tryParse(bitstream);
+      int? nativeSize = header?.resolution;
+      if (nativeSize == null &&
+          bundle?.nativeBestEffort == true &&
+          bitstream.length > 12 &&
+          bitstream.length <= 2369) {
+        final fields = ByteData.sublistView(bitstream, 0, 12);
+        final height = fields.getUint32(0, Endian.big);
+        final width = fields.getUint32(4, Endian.big);
+        final declaredBytes = fields.getUint32(8, Endian.big);
+        if (height == width &&
+            kNativeFt2Resolutions.contains(height) &&
+            declaredBytes > 0 &&
+            declaredBytes <= 2357) {
+          nativeSize = height;
+        }
+      }
+      if (nativeSize == null) {
+        throw const FormatException('Invalid native FT2 image header.');
+      }
+      if (resolution != 0 && resolution != nativeSize) {
+        throw const FormatException(
+          'Image metadata and native header dimensions disagree.',
+        );
+      }
+      resolution = nativeSize;
+    }
+    if (!supportedResolutions.contains(resolution)) {
       _lastError = 'Unsupported image resolution: $resolution.';
       _notify();
       return ImageCodecResult(
@@ -1091,6 +1269,7 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     final result = await _runCodecJob(
       stage: 'Decoding…',
       ratePoint: ratePoint,
+      bundleOverride: bundle,
       action: (session) => session.decode(
         bitstream,
         ratePoint,
@@ -1107,6 +1286,9 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
         resolution: resolution,
         durationMs: elapsed,
         status: ImageCodecStatus.completed,
+        degraded: _session?.lastDegraded ?? false,
+        warnings: _session?.lastWarnings ?? const [],
+        recoveryEvents: _session?.lastRecoveryEvents ?? 0,
       ),
     );
     final rgb = result?.rgbBytes;
@@ -1121,6 +1303,9 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
       resolution: result.resolution,
       durationMs: result.durationMs,
       status: result.status,
+      degraded: result.degraded,
+      warnings: result.warnings,
+      recoveryEvents: result.recoveryEvents,
     );
   }
 
@@ -1240,8 +1425,9 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
     required AeicRatePoint ratePoint,
     required Future<Uint8List> Function(ImageCodecSession session) action,
     required ImageCodecResult Function(Uint8List bytes, int elapsedMs) wrap,
+    ImageCodecBundle? bundleOverride,
   }) async {
-    final bundle = installedBundle;
+    final bundle = bundleOverride ?? installedBundle;
     if (bundle == null) return null;
     final started = DateTime.now();
     try {
@@ -1280,27 +1466,30 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
   /// It runs on the root isolate, which is acceptable: it is a single 512x512
   /// raster, three orders of magnitude cheaper than the 1385 GFLOP inference
   /// that follows in the worker.
-  Future<Uint8List> _toSquareRgb(Uint8List imageBytes) async {
+  Future<Uint8List> _toSquareRgb(
+    Uint8List imageBytes, {
+    int resolution = kImageCodecSquareSize,
+    bool centerCrop = false,
+  }) async {
     final codec = await ui.instantiateImageCodec(imageBytes);
     final frame = await codec.getNextFrame();
     final source = frame.image;
     ui.Image? scaled;
     try {
-      // The WHOLE frame, stretched to the square — not a centre crop.
-      // Aspect ratio is deliberately not preserved: the codec's graph is
-      // statically 512x512, so something has to give, and losing 25% of a 4:3
-      // photo (44% of 16:9, or the subject's head in a portrait) is worse than
-      // distorting it. Nothing outside the frame is discarded this way.
-      // NOTE: the aspect ratio is NOT transmitted, so the receiver cannot undo
-      // the stretch — see the note in image_chunk_transport.dart on the
-      // metadata byte.
-      final src = ui.Rect.fromLTWH(
-        0,
-        0,
-        source.width.toDouble(),
-        source.height.toDouble(),
-      );
-      final dstSize = kImageCodecSquareSize.toDouble();
+      // Native FT2 uses a centered square crop. The legacy model retains its
+      // existing whole-frame stretch to 512.
+      final width = source.width.toDouble();
+      final height = source.height.toDouble();
+      final side = width < height ? width : height;
+      final src = centerCrop
+          ? ui.Rect.fromLTWH(
+              (width - side) / 2,
+              (height - side) / 2,
+              side,
+              side,
+            )
+          : ui.Rect.fromLTWH(0, 0, width, height);
+      final dstSize = resolution.toDouble();
       final recorder = ui.PictureRecorder();
       ui.Canvas(recorder).drawImageRect(
         source,
@@ -1310,10 +1499,7 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
       );
       final picture = recorder.endRecording();
       try {
-        scaled = await picture.toImage(
-          kImageCodecSquareSize,
-          kImageCodecSquareSize,
-        );
+        scaled = await picture.toImage(resolution, resolution);
       } finally {
         picture.dispose();
       }
@@ -1362,15 +1548,15 @@ class ImageCodecService extends ChangeNotifier implements ImageSendCodec {
       await previous.dispose();
     }
     try {
-      final session = await ImageCodecSession.spawn(bundle);
+      final session = await _sessionFactory(bundle);
       _session = session;
       _loadedBundle = bundle;
       _failedBundle = null;
       return session;
     } on ImageCodecUnimplemented catch (error) {
-      // No inference runtime in this build; retrying can never help, so poison
-      // the whole feature rather than just this path.
-      _backendMissing = true;
+      // Remember unavailable runtime support for this bundle while allowing
+      // a different model/backend to load.
+      _missingBackendBundle = bundle;
       _failedBundle = bundle;
       _lastError = error.toString();
       appLogger.warn('Image codec unavailable: $error', tag: 'ImageCodec');

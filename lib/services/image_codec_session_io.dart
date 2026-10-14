@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import '../models/image_codec_support.dart';
 import '../widgets/image_send_codec_binding.dart' show kImageCodecSquareSize;
 import 'image_codec_backend.dart';
+import 'native_process_image_codec_backend.dart';
 import 'entropy_tables.dart';
 
 /// Owns a long-lived [Isolate] and the native codec session inside it.
@@ -74,6 +75,10 @@ class ImageCodecSession {
 
   /// Whether the bundle handed to [spawn] carried a CDF table file.
   final bool hasTables;
+  final bool _nativeProcess;
+  bool lastDegraded = false;
+  List<String> lastWarnings = const [];
+  int lastRecoveryEvents = 0;
 
   final Map<int, _PendingJob> _pending = {};
   final Map<int, Completer<void>> _pendingReleases = {};
@@ -89,10 +94,12 @@ class ImageCodecSession {
     required this.supportsBitstreamCodec,
     required this.hasEntropyGraph,
     required this.hasTables,
+    required bool nativeProcess,
   }) : _isolate = isolate,
        _toWorker = toWorker,
        _fromWorker = fromWorker,
-       _errors = errors;
+       _errors = errors,
+       _nativeProcess = nativeProcess;
 
   /// Spawns the worker and blocks until the backend has *validated* [bundle].
   ///
@@ -184,6 +191,7 @@ class ImageCodecSession {
       supportsBitstreamCodec: reply['bitstream'] == true,
       hasEntropyGraph: reply['entropy'] == true,
       hasTables: reply['tables'] == true,
+      nativeProcess: bundle.isNativeFt2,
     );
   }
 
@@ -309,6 +317,12 @@ class ImageCodecSession {
           job?.onProgress?.call(value.toDouble().clamp(0.0, 1.0));
         }
       case 'result':
+        lastDegraded = message['degraded'] == true;
+        final warnings = message['warnings'];
+        lastWarnings = warnings is List
+            ? warnings.whereType<String>().toList(growable: false)
+            : const [];
+        lastRecoveryEvents = message['recoveryEvents'] as int? ?? 0;
         if (id is int) _pending.remove(id);
         final bytes = message['bytes'];
         if (bytes is Uint8List) {
@@ -363,14 +377,18 @@ class ImageCodecSession {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
-    _toWorker.send(const <String, Object?>{'type': 'shutdown'});
-    // Give the worker one event-loop turn to release the native session
-    // cleanly, then take the memory back regardless.
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-    _isolate.kill(priority: Isolate.immediate);
-    _failAll(StateError('Image codec session disposed.'));
-    _fromWorker.close();
-    _errors.close();
+    try {
+      // A subprocess survives Dart isolate death. Stop it through the root
+      // messenger before killing the worker, including memory-pressure exits.
+      if (_nativeProcess) await NativeProcessImageCodecBackend.cancelAll();
+      _toWorker.send(const <String, Object?>{'type': 'shutdown'});
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    } finally {
+      _isolate.kill(priority: Isolate.immediate);
+      _failAll(StateError('Image codec session disposed.'));
+      _fromWorker.close();
+      _errors.close();
+    }
   }
 }
 
@@ -406,6 +424,12 @@ List<Object?> _bootPayload(
   bundle.ratePoint.wireValue, // 4
   rootToken, // 5
   bundle.entropyDecodeGraphPath, // 6
+  if (bundle.nativeModelDirectory != null) ...[
+    bundle.nativeModelDirectory, // 7
+    bundle.nativeCodecIdentity, // 8
+    bundle.nativeBestEffort, // 9
+    bundle.nativeThreads, // 10
+  ],
 ];
 
 /// Rebuilds the bundle from [_bootPayload]. Tolerates a short list so a
@@ -418,6 +442,10 @@ ImageCodecBundle _bundleFromBootPayload(List<Object?> boot) => ImageCodecBundle(
   tablesPath: boot[3] as String?,
   ratePoint: parseAeicRatePoint(boot[4] as int? ?? -1),
   entropyDecodeGraphPath: boot.length > 6 ? boot[6] as String? : null,
+  nativeModelDirectory: boot.length > 7 ? boot[7] as String? : null,
+  nativeCodecIdentity: boot.length > 8 ? boot[8] as String? : null,
+  nativeBestEffort: boot.length > 9 ? boot[9] as bool? ?? false : false,
+  nativeThreads: boot.length > 10 ? boot[10] as int? ?? 2 : 2,
 );
 
 /// Test seams for the boot payload. Not for production use — see
@@ -463,7 +491,17 @@ Future<void> _codecWorkerMain(List<Object?> boot) async {
   // before createImageCodecBackend(), which constructs the plugin wrapper.
   BackgroundIsolateBinaryMessenger.ensureInitialized(rootToken);
 
-  final backend = createImageCodecBackend();
+  if (bundle.nativeModelDirectory != null && !bundle.isNativeFt2) {
+    reply.send(<String, Object?>{
+      'type': 'fatal',
+      'error': 'The native image model identity is invalid.',
+    });
+    return;
+  }
+
+  final backend = bundle.isNativeFt2
+      ? NativeProcessImageCodecBackend()
+      : createImageCodecBackend();
   if (backend == null) {
     reply.send(<String, Object?>{
       'type': 'fatal',
@@ -505,8 +543,8 @@ Future<void> _codecWorkerMain(List<Object?> boot) async {
     // pre-bundle install reports bitstream:true, tables:false — a state the
     // service must surface as "re-download", not as "your build cannot".
     'bitstream': backend.supportsBitstreamCodec,
-    'entropy': bundle.entropyGraphPath != null,
-    'tables': bundle.tablesPath != null,
+    'entropy': bundle.isNativeFt2 || bundle.entropyGraphPath != null,
+    'tables': bundle.isNativeFt2 || bundle.tablesPath != null,
   });
 
   commands.listen((message) {
@@ -591,6 +629,12 @@ Future<void> _codecWorkerMain(List<Object?> boot) async {
               'type': 'result',
               'id': id,
               'bytes': result,
+              if (backend is ImageCodecDiagnostics) ...{
+                'degraded': (backend as ImageCodecDiagnostics).lastDegraded,
+                'warnings': (backend as ImageCodecDiagnostics).lastWarnings,
+                'recoveryEvents':
+                    (backend as ImageCodecDiagnostics).lastRecoveryEvents,
+              },
             });
           } catch (error, stackTrace) {
             reply.send(<String, Object?>{

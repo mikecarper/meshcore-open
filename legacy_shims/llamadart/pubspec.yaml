@@ -1,0 +1,5 @@
+name: llamadart
+version: 0.8.20
+description: Compile-time stub for the Android 5.1.1 field build.
+environment:
+  sdk: '>=3.8.0 <4.0.0'

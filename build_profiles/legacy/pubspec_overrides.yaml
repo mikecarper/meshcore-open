@@ -1,0 +1,8 @@
+# Copied to the isolated build root by tools/build_android.py.
+dependency_overrides:
+  llamadart:
+    path: legacy_shims/llamadart
+  cryptography_flutter:
+    path: legacy_shims/cryptography_flutter
+  flutter_onnxruntime:
+    path: legacy_shims/flutter_onnxruntime

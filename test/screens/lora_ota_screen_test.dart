@@ -72,7 +72,7 @@ void main() {
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     final startButton = find.ancestor(
       of: start,
-      matching: find.byType(FilledButton),
+      matching: find.byWidgetPredicate((widget) => widget is FilledButton),
     );
     final startCallback = tester.widget<FilledButton>(startButton).onPressed;
     expect(startCallback, isNotNull);
@@ -127,7 +127,7 @@ void main() {
     await tester.scrollUntilVisible(stop, 300, scrollable: pageScroll);
     final stopButton = find.ancestor(
       of: stop,
-      matching: find.byType(OutlinedButton),
+      matching: find.byWidgetPredicate((widget) => widget is OutlinedButton),
     );
     final stopCallback = tester.widget<OutlinedButton>(stopButton).onPressed;
     expect(stopCallback, isNotNull);
@@ -208,7 +208,12 @@ void main() {
       await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
       tester
           .widget<FilledButton>(
-            find.ancestor(of: start, matching: find.byType(FilledButton)),
+            find.ancestor(
+              of: start,
+              matching: find.byWidgetPredicate(
+                (widget) => widget is FilledButton,
+              ),
+            ),
           )
           .onPressed!();
       await tester.pumpAndSettle();
@@ -288,7 +293,12 @@ void main() {
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     tester
         .widget<FilledButton>(
-          find.ancestor(of: start, matching: find.byType(FilledButton)),
+          find.ancestor(
+            of: start,
+            matching: find.byWidgetPredicate(
+              (widget) => widget is FilledButton,
+            ),
+          ),
         )
         .onPressed!();
     for (var tick = 0; tick < 40; tick++) {
@@ -387,7 +397,12 @@ void main() {
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     tester
         .widget<FilledButton>(
-          find.ancestor(of: start, matching: find.byType(FilledButton)),
+          find.ancestor(
+            of: start,
+            matching: find.byWidgetPredicate(
+              (widget) => widget is FilledButton,
+            ),
+          ),
         )
         .onPressed!();
     for (var tick = 0; tick < 40; tick++) {
@@ -484,7 +499,12 @@ void main() {
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     tester
         .widget<FilledButton>(
-          find.ancestor(of: start, matching: find.byType(FilledButton)),
+          find.ancestor(
+            of: start,
+            matching: find.byWidgetPredicate(
+              (widget) => widget is FilledButton,
+            ),
+          ),
         )
         .onPressed!();
     for (var tick = 0; tick < 40; tick++) {
@@ -591,7 +611,7 @@ void main() {
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     final startButton = find.ancestor(
       of: start,
-      matching: find.byType(FilledButton),
+      matching: find.byWidgetPredicate((widget) => widget is FilledButton),
     );
     final startCallback = tester.widget<FilledButton>(startButton).onPressed;
     expect(startCallback, isNotNull);
@@ -623,7 +643,7 @@ void main() {
     await tester.scrollUntilVisible(stop, 300, scrollable: pageScroll);
     final stopButton = find.ancestor(
       of: stop,
-      matching: find.byType(OutlinedButton),
+      matching: find.byWidgetPredicate((widget) => widget is OutlinedButton),
     );
     final stopCallback = tester.widget<OutlinedButton>(stopButton).onPressed;
     expect(stopCallback, isNotNull);
@@ -693,7 +713,7 @@ void main() {
     await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
     final startButton = find.ancestor(
       of: start,
-      matching: find.byType(FilledButton),
+      matching: find.byWidgetPredicate((widget) => widget is FilledButton),
     );
     tester.widget<FilledButton>(startButton).onPressed!();
     for (var tick = 0; tick < 40; tick++) {

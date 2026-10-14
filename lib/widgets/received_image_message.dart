@@ -35,6 +35,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/received_image_store.dart';
+import '../models/image_codec_support.dart' show AeicRatePoint;
 import 'image_send_codec_binding.dart' show ImageCodecAvailability;
 
 /// User-visible strings for the NON-decoded states.
@@ -56,6 +57,7 @@ class ReceivedImageStrings {
   /// The affordance on the awaiting-action placeholder.
   final String tapToProcess;
   final String decoding;
+  final String nativeDecoding;
   final String Function(int received, int total) incomplete;
   final String corrupt;
   final String decoderMissing;
@@ -63,6 +65,10 @@ class ReceivedImageStrings {
   final String retry;
   final String decodeAgain;
   final String openSettings;
+  final String recover;
+  final String recoveryExplanation;
+  final String recovered;
+  final String cancel;
 
   const ReceivedImageStrings({
     required this.incoming,
@@ -74,6 +80,8 @@ class ReceivedImageStrings {
     this.awaiting = _defaultAwaiting,
     this.tapToProcess = 'Tap to process',
     required this.decoding,
+    this.nativeDecoding =
+        'Reconstructing image… This may take several minutes.',
     required this.incomplete,
     required this.corrupt,
     required this.decoderMissing,
@@ -81,6 +89,11 @@ class ReceivedImageStrings {
     required this.retry,
     required this.decodeAgain,
     required this.openSettings,
+    this.recover = 'Recover image',
+    this.recoveryExplanation =
+        'Try recovering this image? Some detail may be missing.',
+    this.recovered = 'Recovered image. Some detail may be missing.',
+    this.cancel = 'Cancel',
   });
 
   // TODO(l10n): replace with context.l10n.receivedImage_* once app_en.arb has
@@ -287,7 +300,13 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
       case ReceivedImageState.decoding:
         return _box(
           context,
-          _progressBody(context, progress: null, label: _s.decoding),
+          _progressBody(
+            context,
+            progress: null,
+            label: entry.rate == AeicRatePoint.ft2
+                ? _s.nativeDecoding
+                : _s.decoding,
+          ),
         );
 
       case ReceivedImageState.failedIncomplete:
@@ -314,6 +333,9 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
                     _s.retry,
                     () => store.requestDecode(entry.streamId),
                   )
+                : null,
+            secondaryAction: _canRecover(store, entry)
+                ? _ActionSpec(_s.recover, () => _recover(store, entry))
                 : null,
           ),
         );
@@ -346,6 +368,40 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
   /// reach a working codec.
   ImageCodecAvailability _availability(ReceivedImageStore store) =>
       store.decoder?.availability ?? ImageCodecAvailability.unavailable;
+
+  bool _canRecover(ReceivedImageStore store, ReceivedImageEntry entry) {
+    final decoder = store.decoder;
+    return entry.canRetryDecode &&
+        entry.rate == AeicRatePoint.ft2 &&
+        decoder is ReceivedImageRecoveryDecoder &&
+        (decoder as ReceivedImageRecoveryDecoder).supportsBestEffortRecovery &&
+        _availability(store) == ImageCodecAvailability.ready;
+  }
+
+  Future<void> _recover(
+    ReceivedImageStore store,
+    ReceivedImageEntry entry,
+  ) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(_s.recover),
+        content: Text(_s.recoveryExplanation),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(_s.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(_s.recover),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true && mounted)
+      store.requestDecode(entry.streamId, bestEffort: true);
+  }
 
   /// The one tap handler for the awaiting-action card.
   ///
@@ -410,6 +466,7 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
     required String label,
     bool isError = false,
     _ActionSpec? action,
+    _ActionSpec? secondaryAction,
   }) {
     final color = isError
         ? Theme.of(context).colorScheme.error
@@ -430,6 +487,19 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             child: Text(action.label, style: const TextStyle(fontSize: 12)),
+          ),
+        if (secondaryAction != null)
+          TextButton(
+            onPressed: secondaryAction.onPressed,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 28),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(
+              secondaryAction.label,
+              style: const TextStyle(fontSize: 12),
+            ),
           ),
       ],
     );
@@ -480,10 +550,8 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
             borderRadius: BorderRadius.circular(8),
             child: SizedBox(
               width: size,
-              // The codec always produces a 512x512 square because the sender
-              // stretched the whole frame into it. entry.displayAspectRatio is
-              // the shape it started as, so undo the stretch here rather than
-              // showing a widened photo. Null means square or unknown.
+              // Native images use a center square; legacy images retain their
+              // source aspect metadata to restore their display proportions.
               height: entry.displayAspectRatio == null
                   ? size
                   : size / entry.displayAspectRatio!,
@@ -511,6 +579,8 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
               width: size,
               child: _SyntheticCaption(bytes: entry.bitstreamByteCount),
             ),
+          if (entry.degraded)
+            SizedBox(width: size, child: _label(context, _s.recovered)),
         ],
       ),
     );
@@ -527,6 +597,7 @@ class _ReceivedImageMessageState extends State<ReceivedImageMessage> {
           png: png,
           synthesized: entry.synthesized,
           bytes: entry.bitstreamByteCount,
+          recovered: entry.degraded ? _s.recovered : null,
         ),
       ),
     );
@@ -609,11 +680,13 @@ class _ReceivedImageViewer extends StatelessWidget {
   /// Bitstream size, so the full-screen caption quotes the same real number as
   /// the one in the transcript.
   final int bytes;
+  final String? recovered;
 
   const _ReceivedImageViewer({
     required this.png,
     required this.synthesized,
     required this.bytes,
+    this.recovered,
   });
 
   @override
@@ -646,6 +719,14 @@ class _ReceivedImageViewer extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: _SyntheticCaption(bytes: bytes, onDark: true),
+              ),
+            if (recovered != null)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  recovered!,
+                  style: const TextStyle(color: Colors.white70),
+                ),
               ),
           ],
         ),

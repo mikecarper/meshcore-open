@@ -129,7 +129,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(TcpScreen), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Bluetooth'));
+    await tester.tap(
+      find.ancestor(
+        of: find.text('Bluetooth'),
+        matching: find.byWidgetPredicate((widget) => widget is OutlinedButton),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.byType(TcpScreen), findsNothing);
