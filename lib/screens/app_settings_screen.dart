@@ -642,7 +642,7 @@ class AppSettingsScreen extends StatelessWidget {
             ),
             secondary: const Icon(Icons.auto_awesome_outlined, size: 20),
             title: Text(context.l10n.imageMessages_autoProcessTitle),
-            subtitle: Text(context.l10n.imageMessages_autoProcessSubtitle),
+            subtitle: Text(context.l10n.imageMessages_autoReconstructSubtitle),
             value: settingsService.settings.imageProcessAutomatically,
             onChanged: (value) =>
                 settingsService.setImageProcessAutomatically(value),

@@ -4703,6 +4703,10 @@ class AppLocalizationsUk extends AppLocalizations {
   String get imageMessages_autoProcessTitle => 'Автоматично оброблювати obraзи';
 
   @override
+  String get imageMessages_autoReconstructSubtitle =>
+      'Automatically reconstruct received images. This can take several minutes on older phones; leave off to reconstruct with a tap.';
+
+  @override
   String get imageMessages_autoProcessSubtitle =>
       'Кожна картинка повинні бути відтворена на мій момент прибуття. Використовує приблизно 2 ГБ пам\'яті на кожен раз; відключіть від відтворення за допомогою кlikу.';
 

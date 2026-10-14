@@ -4715,6 +4715,10 @@ class AppLocalizationsPl extends AppLocalizations {
       'Obrazki są przetwarzane automatycznie.';
 
   @override
+  String get imageMessages_autoReconstructSubtitle =>
+      'Automatically reconstruct received images. This can take several minutes on older phones; leave off to reconstruct with a tap.';
+
+  @override
   String get imageMessages_autoProcessSubtitle =>
       'Odbuduj każde zdjęcie, jak tylko przyjdzie. Zużywa około 2 GB pamięci za każdą drugą sekundę; wyłącz odbudowywanie jednym dotknięciem.';
 

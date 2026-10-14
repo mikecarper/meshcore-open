@@ -4688,6 +4688,10 @@ class AppLocalizationsBg extends AppLocalizations {
       'Автоматически обрабатвате изображения';
 
   @override
+  String get imageMessages_autoReconstructSubtitle =>
+      'Automatically reconstruct received images. This can take several minutes on older phones; leave off to reconstruct with a tap.';
+
+  @override
   String get imageMessages_autoProcessSubtitle =>
       'Катализиране на всята изображение сразу по пришествие. Използване на около 2 ГБ на втора пъти; откажете от реконструкцията чаке при натискане.';
 

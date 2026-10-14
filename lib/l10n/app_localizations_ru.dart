@@ -4704,6 +4704,10 @@ class AppLocalizationsRu extends AppLocalizations {
       'Автоматически обрабатывать изображения';
 
   @override
+  String get imageMessages_autoReconstructSubtitle =>
+      'Automatically reconstruct received images. This can take several minutes on older phones; leave off to reconstruct with a tap.';
+
+  @override
   String get imageMessages_autoProcessSubtitle =>
       'Примерно каждое изображение реконструируйте сразу после его поступления. Для этого на каждый раз используется около 2 ГБ памяти; отключите реконструкцию касанием.';
 

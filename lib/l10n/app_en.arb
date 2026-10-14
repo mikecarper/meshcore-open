@@ -2593,6 +2593,7 @@
   "imageMessages_modelNotPublished": "Not published yet — this build cannot download it.",
   "imageMessages_downloadFailed": "The image model could not be downloaded.",
   "imageMessages_autoProcessTitle": "Process images automatically",
+  "imageMessages_autoReconstructSubtitle": "Automatically reconstruct received images. This can take several minutes on older phones; leave off to reconstruct with a tap.",
   "imageMessages_autoProcessSubtitle": "Reconstruct every image as soon as it arrives. Uses about 2 GB of memory for a second each time; leave off to reconstruct with a tap instead.",
   "translation_enableTitle": "Enable translation",
   "translation_enableSubtitle": "Translate incoming messages and allow pre-send translation.",

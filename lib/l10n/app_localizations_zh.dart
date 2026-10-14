@@ -4342,6 +4342,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get imageMessages_autoProcessTitle => '自动处理图像';
 
   @override
+  String get imageMessages_autoReconstructSubtitle =>
+      'Automatically reconstruct received images. This can take several minutes on older phones; leave off to reconstruct with a tap.';
+
+  @override
   String get imageMessages_autoProcessSubtitle =>
       '每次图像到达后立即重建，每次需要约2GB的内存；若想关闭重建功能，可通过点击取消开启。';
 
