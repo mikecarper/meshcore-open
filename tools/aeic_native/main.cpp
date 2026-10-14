@@ -9,6 +9,8 @@
 #include "pause_counter.h"
 #include "process_supervisor.h"
 #include "net.h"
+#include "cpu.h"
+#include "winograd_budget.h"
 #include <algorithm>
 #include <chrono>
 #include <cfenv>
@@ -19,6 +21,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <limits>
 #include <set>
 #include <sstream>
@@ -58,6 +61,15 @@ struct Args {
     bool supervise = false;
     std::vector<std::string> tensors;
     int threads = 2;
+    bool cache_row_net = false;
+    bool profile_stages = false;
+    bool renderer_sgemm = false;
+    bool renderer_packing = false;
+    bool renderer_winograd23 = false;
+    std::string decoder_mode = "fast";
+    int renderer_resolution = 0;
+    int bench_spatial = 0;
+    int row_rows = 64;
     int model_size = 0;
     float tolerance = 1e-3f;
     bool strict = false;
@@ -359,17 +371,10 @@ void validate_matrix_shapes(const std::string& path) {
         }
     }
 }
-std::vector<ncnn::Mat> extract_stage(const Args& args, const Stage& stage, Slots& slots,
-                                    const std::set<std::string>& consumed = {}) {
-    auto started = Clock::now();
-    for (auto& input : stage.inputs) {
-        if (input.channels)
-            chw(slot(slots, input.slot), input.channels, input.height, input.width,
-                stage.name + " input " + input.slot);
-    }
-    std::vector<ncnn::Mat> outputs(stage.outputs.size());
-    {
-        ncnn::Net net;
+struct StageNetwork {
+    ncnn::Net net;
+    StageNetwork(const Args& args, const Stage& stage, bool renderer, bool bounded_convolution = false) {
+        auto started = Clock::now();
         if (aeic::register_tiled_attention(net)) throw std::runtime_error("cannot register tiled attention " + stage.name);
         net.opt.num_threads = args.threads;
         net.opt.lightmode = true;
@@ -377,26 +382,59 @@ std::vector<ncnn::Mat> extract_stage(const Args& args, const Stage& stage, Slots
         net.opt.blob_allocator = aeic::direct_allocator();
         net.opt.workspace_allocator = aeic::direct_allocator();
         net.opt.use_vulkan_compute = false;
-        net.opt.use_packing_layout = false;
+        const bool validated_resolution = !args.stage_only.empty() || (args.renderer_resolution >= 128 && args.renderer_resolution <= 256);
+        const bool renderer_phase = renderer && validated_resolution && !stage.name.empty() && stage.name[0] >= '0' && stage.name[0] <= '9';
+        net.opt.use_packing_layout = args.renderer_packing && renderer_phase;
         net.opt.use_fp16_packed = false;
         net.opt.use_fp16_storage = false;
         net.opt.use_fp16_arithmetic = false;
         net.opt.use_bf16_storage = false;
-        net.opt.use_winograd_convolution = false;
-        net.opt.use_sgemm_convolution = false;
+        aeic::Win23Budget budget;
+        if (bounded_convolution && stage.inputs.size() == 1 && stage.outputs.size() == 1)
+            budget = aeic::win23_budget(stage.inputs[0].channels,stage.outputs[0].channels,
+                stage.outputs[0].height,stage.outputs[0].width,args.threads,
+                ncnn::get_cpu_level2_cache_size(),ncnn::get_physical_cpu_count());
+        uint64_t winograd_workspace = budget.inference;
+        net.opt.use_winograd_convolution = args.renderer_winograd23 && renderer_phase && budget.allowed;
+        net.opt.use_winograd23_convolution = net.opt.use_winograd_convolution;
+        net.opt.use_winograd43_convolution = false;
+        net.opt.use_winograd63_convolution = false;
+        // SGEMM is diagnostic-only here; never enable it for a full image.
+        net.opt.use_sgemm_convolution = args.renderer_sgemm && renderer_phase && args.bench_spatial > 0;
         validate_matrix_shapes(join(args.directory, stage.param));
         if (net.load_param(join(args.directory, stage.param).c_str())) throw std::runtime_error("load_param failed " + stage.name);
+        double parameters = elapsed(started);
+        auto weights_started = Clock::now();
         if (net.load_model(join(args.directory, stage.weights).c_str())) throw std::runtime_error("load_model failed " + stage.name);
-        std::printf("STAGE_LOADED %s seconds=%.3f rss_kb=%ld peak_kb=%ld\n", stage.name.c_str(), elapsed(started), rss_kb(), peak_kb()); std::fflush(stdout);
-        auto extractor = net.create_extractor();
+        double weights = elapsed(weights_started);
+        std::printf("STAGE_LOADED %s seconds=%.3f rss_kb=%ld peak_kb=%ld\n", stage.name.c_str(), elapsed(started), rss_kb(), peak_kb());
+        if (args.profile_stages) std::printf("PROFILE_LOAD %s params_seconds=%.6f weights_pipeline_seconds=%.6f renderer_sgemm=%s renderer_packing=%s winograd23=%s winograd_inference_bound_bytes=%llu\n",
+            stage.name.c_str(), parameters, weights, net.opt.use_sgemm_convolution ? "true" : "false",
+            net.opt.use_packing_layout ? "true" : "false", net.opt.use_winograd_convolution ? "true" : "false", static_cast<unsigned long long>(winograd_workspace));
+        if (args.profile_stages) std::printf("PROFILE_WIN23 %s transformed_weights_bytes=%llu workspace_bytes=%llu border_bytes=%llu pipeline_bound_bytes=%llu policy_allowed=%s\n",stage.name.c_str(),
+            (unsigned long long)budget.transformed_weights,(unsigned long long)budget.workspace,
+            (unsigned long long)budget.border,(unsigned long long)budget.pipeline,budget.allowed ? "true" : "false");
+        std::fflush(stdout);
+    }
+};
+std::vector<ncnn::Mat> extract_stage(const Args& args, const Stage& stage, Slots& slots,
+                                    const std::set<std::string>& consumed = {},
+                                    StageNetwork* prepared = nullptr, bool renderer = false, bool bounded_convolution = false) {
+    for (auto& input : stage.inputs) {
+        if (input.channels)
+            chw(slot(slots, input.slot), input.channels, input.height, input.width,
+                stage.name + " input " + input.slot);
+    }
+    std::vector<ncnn::Mat> outputs(stage.outputs.size());
+    std::unique_ptr<StageNetwork> owned;
+    if (!prepared) { owned.reset(new StageNetwork(args, stage, renderer, bounded_convolution)); prepared = owned.get(); }
+    {
+        auto started = Clock::now();
+        auto extractor = prepared->net.create_extractor();
         extractor.set_light_mode(true);
         for (auto& input : stage.inputs)
             if (extractor.input(input.blob.c_str(), slot(slots, input.slot))) throw std::runtime_error("input failed " + stage.name + ":" + input.blob);
-        // The extractor now owns every input. Releasing a consumed slot lets
-        // ncnn reuse unique storage for supported in-place unary operations.
-        // Any retained alias keeps its refcount elevated, so ncnn clones it.
         for (const auto& name : consumed) slots.at(name).release();
-        // Extract all outputs before replacing a slot used by this stage's input.
         for (size_t i = 0; i < stage.outputs.size(); ++i) {
             if (extractor.extract(stage.outputs[i].blob.c_str(), outputs[i])) throw std::runtime_error("extract failed " + stage.name + ":" + stage.outputs[i].blob);
             if (outputs[i].empty()) throw std::runtime_error("empty output " + stage.name);
@@ -405,8 +443,8 @@ std::vector<ncnn::Mat> extract_stage(const Args& args, const Stage& stage, Slots
                 chw(outputs[i], stage.outputs[i].channels, stage.outputs[i].height, stage.outputs[i].width,
                     stage.name + " output " + stage.outputs[i].slot);
         }
+        if (args.profile_stages) { std::printf("PROFILE_INFER %s seconds=%.6f\n", stage.name.c_str(), elapsed(started)); std::fflush(stdout); }
     }
-    // Extracted Mats own their storage after the graph and its allocators die.
     return outputs;
 }
 struct SimpleGraph {
@@ -461,9 +499,13 @@ std::vector<ncnn::Mat> extract_row_tiled(const Args& args, const Stage& stage, S
         throw std::runtime_error("tiled convolution output dimensions disagree " + stage.name);
     ncnn::Mat result(output.width, output.height, output.channels);
     if (result.empty()) throw std::runtime_error("cannot allocate tiled convolution output");
-    auto tiles = aeic::convolution_row_tiles(source.h, scale);
-    std::printf("ROW_TILED %s tiles=%zu rows=64 scale=%d\n", stage.name.c_str(), tiles.size(), scale);
+    auto tiles = aeic::convolution_row_tiles(source.h, scale, args.row_rows);
+    std::printf("ROW_TILED %s tiles=%zu rows=%d scale=%d cached_net=%s\n", stage.name.c_str(), tiles.size(), args.row_rows, scale, args.cache_row_net ? "true" : "false");
+    std::unique_ptr<StageNetwork> prepared;
+    if (args.cache_row_net) prepared.reset(new StageNetwork(args, stage, true, true));
+    double copy_seconds = 0;
     for (const auto& tile : tiles) {
+        auto copying_started = Clock::now();
         Stage local = stage;
         local.inputs[0].height = tile.input_end - tile.input_first;
         local.outputs[0].height = local.inputs[0].height * scale;
@@ -475,7 +517,9 @@ std::vector<ncnn::Mat> extract_row_tiled(const Args& args, const Stage& stage, S
                 size_t(local.inputs[0].height) * source.w * sizeof(float));
         }
         Slots tile_slots; tile_slots[local.inputs[0].slot] = input; input.release();
-        auto extracted = extract_stage(args, local, tile_slots, {local.inputs[0].slot});
+        copy_seconds += elapsed(copying_started);
+        auto extracted = extract_stage(args, local, tile_slots, {local.inputs[0].slot}, prepared.get(), true, true);
+        copying_started = Clock::now();
         const auto& produced = extracted.at(0);
         for (int c = 0; c < output.channels; ++c) {
             const float* values = produced.channel(c); float* destination = result.channel(c);
@@ -483,7 +527,9 @@ std::vector<ncnn::Mat> extract_row_tiled(const Args& args, const Stage& stage, S
                 values + size_t(tile.crop_first) * output.width,
                 size_t(tile.output_end - tile.output_first) * output.width * sizeof(float));
         }
+        copy_seconds += elapsed(copying_started);
     }
+    if (args.profile_stages) { std::printf("PROFILE_TILE_COPY %s seconds=%.6f\n", stage.name.c_str(), copy_seconds); std::fflush(stdout); }
     return {result};
 }
 ncnn::Mat owned_tensor(aeic_recovery::Shape shape, const float* values, size_t elements) {
@@ -538,9 +584,23 @@ void execute(const Args& args, const Stage& stage, Slots& slots,
         stage.outputs[0].channels && stage.inputs[0].channels &&
         (uint64_t(stage.outputs[0].channels) * stage.outputs[0].height * stage.outputs[0].width * 4 >= (32u << 20) ||
          uint64_t(stage.inputs[0].channels) * stage.inputs[0].height * stage.inputs[0].width * 4 >= (32u << 20));
+    Args extraction_args = args;
+    if (args.renderer_winograd23 && (!args.stage_only.empty() || (args.renderer_resolution >= 128 && args.renderer_resolution <= 256)) && renderer_memory && graph.convolution_scale && stage.inputs.size() == 1 && stage.outputs.size() == 1) {
+        auto bound = [&](int height) { return aeic::win23_budget(stage.inputs[0].channels,stage.outputs[0].channels,
+            height,stage.outputs[0].width,args.threads,ncnn::get_cpu_level2_cache_size(),ncnn::get_physical_cpu_count()); };
+        if (!bound(stage.outputs[0].height).allowed && stage.inputs[0].channels <= 256 && stage.outputs[0].channels <= 256) {
+            int rows = std::min(args.row_rows,16), max_height = 0;
+            for (const auto& tile : aeic::convolution_row_tiles(stage.inputs[0].height,graph.convolution_scale,rows))
+                max_height = std::max(max_height,(tile.input_end - tile.input_first) * graph.convolution_scale);
+            if (bound(max_height).allowed) {
+                tiled = true; extraction_args.row_rows = rows;
+                if (args.profile_stages) std::printf("FAST_ROW_BUDGET %s rows=%d max_tile_output_height=%d\n",stage.name.c_str(),rows,max_height);
+            }
+        }
+    }
     auto extract = [&]() {
-        if (tiled) return extract_row_tiled(args, stage, slots, graph.convolution_scale);
-        return extract_stage(args, stage, slots, consumed);
+        if (tiled) return extract_row_tiled(extraction_args, stage, slots, graph.convolution_scale);
+        return extract_stage(args, stage, slots, consumed, nullptr, renderer_memory, graph.convolution_scale != 0);
     };
     if (!args.best_effort) {
         bool reused = graph.add && stage.inputs.size() == 2 && stage.outputs.size() == 1 &&
@@ -1039,10 +1099,17 @@ Args arguments(int argc, char** argv) {
         if (key == "--best-effort") { result.best_effort = true; continue; }
         if (key == "--hash-decimal") { result.hash_decimal = true; continue; }
         if (key == "--supervise") { result.supervise = true; continue; }
+        if (key == "--cache-row-net") { result.cache_row_net = true; continue; }
+        if (key == "--profile-stages") { result.profile_stages = true; continue; }
+        if (key == "--renderer-sgemm") { result.renderer_sgemm = true; continue; }
+        if (key == "--renderer-packing") { result.renderer_packing = true; continue; }
+        if (key == "--renderer-winograd23") { result.renderer_winograd23 = true; continue; }
         if (key == "--help") {
             std::printf("aeic_decode --model-dir DIR --bitstream FILE --output FILE.png|FILE.ppm\n"
                 "aeic_decode --encode --model-dir DIR --input FILE.ppm --bitstream-output FILE.aeic\n"
                 "  [--threads 1..4] [--verify-dir DIR] [--dump-dir DIR]\n"
+                "  [--decoder-mode accurate|fast] (CPU default fast; entropy remains conservative)\n"
+                "  Fast currently accelerates sizes128..256; larger images keep conservative kernels.\n"
                 "  [--strict-verify] [--verify-tolerance FLOAT] [--stop-after STAGE]\n"
                 "  [--verify-integers-only] (skip optional float references)\n"
                 "  [--model-size N] (128..576, divisible by 64; override codec metadata)\n"
@@ -1067,6 +1134,9 @@ Args arguments(int argc, char** argv) {
         else if (key == "--verify-dir") result.verify = value;
         else if (key == "--dump-dir") result.dump = value;
         else if (key == "--threads") result.threads = std::stoi(value);
+        else if (key == "--row-rows") result.row_rows = std::stoi(value);
+        else if (key == "--bench-spatial") result.bench_spatial = std::stoi(value);
+        else if (key == "--decoder-mode") result.decoder_mode = value;
         else if (key == "--model-size") result.model_size = std::stoi(value);
         else if (key == "--stage-timeout-ms") result.stage_timeout_ms = std::stoull(value);
         else if (key == "--verify-tolerance") result.tolerance = std::stof(value);
@@ -1075,8 +1145,14 @@ Args arguments(int argc, char** argv) {
         else if (key == "--tensor") result.tensors.push_back(value);
         else throw std::runtime_error("unknown argument " + key);
     }
+    if (result.decoder_mode != "accurate" && result.decoder_mode != "fast") throw std::runtime_error("--decoder-mode must be accurate or fast");
+    if (result.decoder_mode == "fast") { result.renderer_packing = true; result.renderer_winograd23 = true; }
     if (!result.hash_file.empty()) return result;
     if (result.directory.empty()) throw std::runtime_error("--model-dir is required");
+    if (result.bench_spatial && (result.stage_only.empty() || result.bench_spatial < 8 || result.bench_spatial > 32))
+        throw std::runtime_error("--bench-spatial is partial --stage-only diagnostic only,8..32");
+    if (result.renderer_sgemm && !result.bench_spatial) throw std::runtime_error("SGEMM diagnostic requires small --bench-spatial input");
+    if (result.row_rows < 8 || result.row_rows > 64 || result.row_rows % 2) throw std::runtime_error("--row-rows must be even,8..64");
     if (result.threads < 1 || result.threads > 4 || !std::isfinite(result.tolerance) || result.tolerance < 0)
         throw std::runtime_error("invalid thread count or verification tolerance");
     if (result.model_size && (result.model_size < 128 || result.model_size > 576 || result.model_size % 64))
@@ -1095,7 +1171,7 @@ Args arguments(int argc, char** argv) {
 }
 }
 
-int codec_main(const Args& args, bool supervised_worker) {
+int codec_main(Args args, bool supervised_worker) {
     try {
 #if defined(__linux__)
         // A job owns its process group, including recovery children, so the app
@@ -1137,14 +1213,28 @@ int codec_main(const Args& args, bool supervised_worker) {
             if (exists(join(args.directory, "renderer.tsv"))) renderer = manifest(join(args.directory, "renderer.tsv"));
             for (auto& spec : args.tensors) inject(spec, slots);
             const Stage* stage = nullptr;
+            bool renderer_phase = false;
             for (auto& candidate : codec.stages) if (candidate.name == args.stage_only) stage = &candidate;
-            for (auto& candidate : renderer.stages) if (candidate.name == args.stage_only) stage = &candidate;
+            for (auto& candidate : renderer.stages) if (candidate.name == args.stage_only) { stage = &candidate; renderer_phase = true; }
             Manifest encoder_plan;
             if (exists(join(args.directory, "encoder.tsv"))) encoder_plan = manifest(join(args.directory, "encoder.tsv"));
             codec_shapes(encoder_plan, setting_int(codec.settings, "input_height", 256), setting_int(codec.settings, "input_width", 256));
-            for (auto& candidate : encoder_plan.stages) if (candidate.name == args.stage_only) stage = &candidate;
+            for (auto& candidate : encoder_plan.stages) if (candidate.name == args.stage_only) { stage = &candidate; renderer_phase = false; }
             if (!stage) throw std::runtime_error("unknown diagnostic stage " + args.stage_only);
-            execute(args, *stage, slots);
+            Stage selected = *stage;
+            if (args.bench_spatial) {
+                auto graph = simple_graph(join(args.directory, selected.param));
+                if (!renderer_phase || !graph.convolution_scale || selected.inputs.size() != 1 || selected.outputs.size() != 1 ||
+                    !selected.inputs[0].channels || !selected.outputs[0].channels)
+                    throw std::runtime_error("spatial microbenchmark requires one trained renderer convolution graph");
+                selected.inputs[0].height = selected.inputs[0].width = args.bench_spatial;
+                selected.outputs[0].height = selected.outputs[0].width = args.bench_spatial * graph.convolution_scale;
+                std::printf("MICROBENCHMARK partial=true full_decode=false trained_channels=true spatial=%d output_spatial=%d\n",
+                    args.bench_spatial, selected.outputs[0].height);
+            }
+            std::set<std::string> consumed;
+            if (renderer_phase) for (const auto& input : selected.inputs) consumed.insert(input.slot);
+            execute(args, selected, slots, consumed, renderer_phase);
             std::printf("STAGE_TEST_COMPLETE full_decode=false seconds=%.3f peak_kb=%ld\n", elapsed(started), peak_kb());
             std::printf("RESULT_STATUS degraded=%s recovery_events=%zu child_peak_kb=%ld\n",
                 recovery_events ? "true" : "false", recovery_events, isolated_peak_kb);
@@ -1159,6 +1249,10 @@ int codec_main(const Args& args, bool supervised_worker) {
             for (const auto& warning : warnings) degraded("bitstream", warning);
         }
         std::printf("DECODE_BEGIN height=%u width=%u threads=%d rss_kb=%ld\n", stream.height, stream.width, args.threads, rss_kb()); std::fflush(stdout);
+        args.renderer_resolution = stream.height;
+        std::printf("DECODER_MODE requested=%s effective=%s reason=%s entropy=conservative_fp32\n",args.decoder_mode.c_str(),
+            args.decoder_mode == "fast" && stream.height <= 256 ? "fast" : "accurate",
+            args.decoder_mode == "fast" && stream.height > 256 ? "larger_size_memory_safe_fallback" : "requested_mode");
         if (!decode_codec(args, codec, stream, slots)) return 0;
         Manifest renderer = manifest(join(args.directory, "renderer.tsv"));
         if (renderer.stages.empty()) throw std::runtime_error("renderer has no stages");
@@ -1167,7 +1261,7 @@ int codec_main(const Args& args, bool supervised_worker) {
         std::unique_ptr<aeic::TensorSpillStore> spill;
         if (!args.spill_dir.empty()) {
             spill.reset(new aeic::TensorSpillStore(args.spill_dir));
-            std::printf("RENDERER_MEMORY exact_fp32=true spill=true row_tiles=64 consumed_input_reuse=true\n");
+            std::printf("RENDERER_MEMORY exact_fp32=true spill=true default_row_tile_rows=64 consumed_input_reuse=true\n");
         }
         for (size_t i = 0; i < renderer.stages.size(); ++i) {
             const auto& stage = renderer.stages[i];

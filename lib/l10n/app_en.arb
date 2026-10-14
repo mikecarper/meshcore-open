@@ -2990,5 +2990,10 @@
         "type": "int"
       }
     }
-  }
+  },
+  "imageCodec_decoderMode": "Image reconstruction",
+  "imageCodec_decoderFast": "Fast",
+  "imageCodec_decoderAccurate": "Accurate",
+  "imageCodec_decoderFastHelp": "Uses CPU optimizations where memory allows. Larger images currently use the memory-safe fallback.",
+  "imageCodec_decoderAccurateHelp": "Uses conservative decoding."
 }

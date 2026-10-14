@@ -168,6 +168,19 @@ class ImageCodecService extends ChangeNotifier
     _notify();
   }
 
+  bool get hasUsableGpuAcceleration =>
+      _session?.hasUsableGpuAcceleration ?? false;
+  AeicDecoderMode get nativeDecoderMode => resolveAeicDecoderMode(
+    preferences.nativeDecoderMode,
+    usableGpuAcceleration: hasUsableGpuAcceleration,
+  );
+
+  Future<void> setNativeDecoderMode(AeicDecoderMode value) async {
+    if (isBusy) throw StateError('Image processing is already running.');
+    await _settingsStore.save(preferences.copyWith(nativeDecoderMode: value));
+    _notify();
+  }
+
   Future<void> setNativeBestEffort(bool value) async {
     await _settingsStore.save(preferences.copyWith(nativeBestEffort: value));
     _notify();
@@ -339,6 +352,7 @@ class ImageCodecService extends ChangeNotifier
         nativeModelDirectory: _directoryOf(model.localPath),
         nativeCodecIdentity: kNativeFt2ModelId,
         nativeBestEffort: preferences.nativeBestEffort,
+        nativeDecoderMode: preferences.nativeDecoderMode,
       );
     }
     final spec = _specForId(model.id);
@@ -1216,6 +1230,7 @@ class ImageCodecService extends ChangeNotifier
         nativeCodecIdentity: native.nativeCodecIdentity,
         nativeBestEffort: bestEffort,
         nativeThreads: native.nativeThreads,
+        nativeDecoderMode: native.nativeDecoderMode,
       );
     }
     if (!kImageCodecBitstreamPathAvailable) {

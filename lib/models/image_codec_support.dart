@@ -91,6 +91,27 @@ const List<int> kNativeFt2Resolutions = [
   576,
 ];
 
+/// Decoder kernels only; encoding and entropy retain their FP32 behavior.
+enum AeicDecoderMode { fast, accurate }
+
+AeicDecoderMode? parseAeicDecoderMode(Object? value) => switch (value) {
+  'fast' => AeicDecoderMode.fast,
+  'accurate' => AeicDecoderMode.accurate,
+  _ => null,
+};
+
+/// Unset preferences follow usable acceleration reported by the loaded backend.
+AeicDecoderMode resolveAeicDecoderMode(
+  AeicDecoderMode? selected, {
+  required bool usableGpuAcceleration,
+}) =>
+    selected ??
+    (usableGpuAcceleration ? AeicDecoderMode.accurate : AeicDecoderMode.fast);
+
+abstract interface class ImageCodecComputeCapabilities {
+  bool get hasUsableGpuAcceleration;
+}
+
 enum ImageCodecBundleKind { legacyOnnxFt32, nativeFt2Ncnn }
 
 abstract interface class ImageCodecDiagnostics {
@@ -519,6 +540,7 @@ class ImageCodecBundle {
   final String? nativeCodecIdentity;
   final bool nativeBestEffort;
   final int nativeThreads;
+  final AeicDecoderMode? nativeDecoderMode;
 
   bool get isNativeFt2 =>
       nativeModelDirectory != null &&
@@ -558,6 +580,7 @@ class ImageCodecBundle {
     this.nativeCodecIdentity,
     this.nativeBestEffort = false,
     this.nativeThreads = 2,
+    this.nativeDecoderMode,
   });
 
   /// True when this install can run the **send** half of the entropy path.
@@ -583,7 +606,8 @@ class ImageCodecBundle {
       other.nativeModelDirectory == nativeModelDirectory &&
       other.nativeCodecIdentity == nativeCodecIdentity &&
       other.nativeBestEffort == nativeBestEffort &&
-      other.nativeThreads == nativeThreads;
+      other.nativeThreads == nativeThreads &&
+      other.nativeDecoderMode == nativeDecoderMode;
 
   @override
   int get hashCode => Object.hash(
@@ -596,6 +620,7 @@ class ImageCodecBundle {
     nativeCodecIdentity,
     nativeBestEffort,
     nativeThreads,
+    nativeDecoderMode,
   );
 
   @override
@@ -817,6 +842,7 @@ class ImageCodecIntegrityFailure implements Exception {
 /// the `image_codec_*` names the AppSettings migration will use, so moving them
 /// is a copy, not a rewrite.
 class ImageCodecPreferences {
+  final AeicDecoderMode? nativeDecoderMode;
   final int nativeResolution;
   final bool nativeBestEffort;
   final bool enabled;
@@ -835,6 +861,7 @@ class ImageCodecPreferences {
     this.ratePoint = 4, // AeicRatePoint.ft32
     this.downloadedModels = const [],
     this.nativeResolution = 128,
+    this.nativeDecoderMode,
     this.nativeBestEffort = false,
   });
 
@@ -847,6 +874,7 @@ class ImageCodecPreferences {
       'image_codec_model_source_url': modelSourceUrl,
       'image_codec_rate_point': ratePoint,
       'image_codec_native_resolution': nativeResolution,
+      'image_codec_native_decoder_mode': nativeDecoderMode?.name,
       'image_codec_native_best_effort': nativeBestEffort,
       'image_codec_downloaded_models': [
         for (final model in downloadedModels) model.toJson(),
@@ -857,6 +885,9 @@ class ImageCodecPreferences {
   factory ImageCodecPreferences.fromJson(Map<String, dynamic> json) {
     final rawModels = json['image_codec_downloaded_models'];
     return ImageCodecPreferences(
+      nativeDecoderMode: parseAeicDecoderMode(
+        json['image_codec_native_decoder_mode'],
+      ),
       enabled: json['image_codec_enabled'] as bool? ?? false,
       selectedModelId: json['image_codec_selected_model_id'] as String?,
       modelSourceUrl: json['image_codec_model_source_url'] as String?,
@@ -886,6 +917,7 @@ class ImageCodecPreferences {
     int? ratePoint,
     List<ImageCodecModelRecord>? downloadedModels,
     int? nativeResolution,
+    Object? nativeDecoderMode = _unset,
     bool? nativeBestEffort,
   }) {
     return ImageCodecPreferences(
@@ -899,6 +931,9 @@ class ImageCodecPreferences {
       ratePoint: ratePoint ?? this.ratePoint,
       downloadedModels: downloadedModels ?? this.downloadedModels,
       nativeResolution: nativeResolution ?? this.nativeResolution,
+      nativeDecoderMode: identical(nativeDecoderMode, _unset)
+          ? this.nativeDecoderMode
+          : nativeDecoderMode as AeicDecoderMode?,
       nativeBestEffort: nativeBestEffort ?? this.nativeBestEffort,
     );
   }

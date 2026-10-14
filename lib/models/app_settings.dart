@@ -123,9 +123,9 @@ class AppSettings {
 
   /// Whether a received image is decoded as soon as it is reassembled.
   ///
-  /// Off by default and deliberately so: a decode peaks around 2.16 GiB
-  /// resident and takes about a second, so an unattended chat must not be able
-  /// to trigger one per arriving image. When false, `ReceivedImageStore` parks
+  /// Off by default: reconstruction can take several minutes on older phones,
+  /// and memory use depends on the selected runtime and image size.
+  /// When false, `ReceivedImageStore` parks
   /// the arrival as a "Tap to process" placeholder instead of queueing it.
   final bool imageProcessAutomatically;
 
@@ -141,6 +141,7 @@ class AppSettings {
   final int imageCodecRatePoint;
   final int imageCodecNativeResolution;
   final bool imageCodecNativeBestEffort;
+  final AeicDecoderMode? imageCodecNativeDecoderMode;
 
   final List<ImageCodecModelRecord> imageCodecDownloadedModels;
 
@@ -163,6 +164,7 @@ class AppSettings {
     ratePoint: imageCodecRatePoint,
     nativeResolution: imageCodecNativeResolution,
     nativeBestEffort: imageCodecNativeBestEffort,
+    nativeDecoderMode: imageCodecNativeDecoderMode,
     downloadedModels: imageCodecDownloadedModels,
   );
 
@@ -233,6 +235,7 @@ class AppSettings {
     this.imageCodecRatePoint = 4,
     this.imageCodecNativeResolution = 128,
     this.imageCodecNativeBestEffort = false,
+    this.imageCodecNativeDecoderMode,
     List<ImageCodecModelRecord>? imageCodecDownloadedModels,
     this.translationEnabled = false,
     this.autoTranslateIncomingMessages = true,
@@ -310,6 +313,7 @@ class AppSettings {
       'image_codec_rate_point': imageCodecRatePoint,
       'image_codec_native_resolution': imageCodecNativeResolution,
       'image_codec_native_best_effort': imageCodecNativeBestEffort,
+      'image_codec_native_decoder_mode': imageCodecNativeDecoderMode?.name,
       'image_codec_downloaded_models': imageCodecDownloadedModels
           .map((model) => model.toJson())
           .toList(),
@@ -405,14 +409,20 @@ class AppSettings {
       imageMessagesEnabled: json['image_messages_enabled'] as bool? ?? false,
       imageProcessAutomatically:
           json['image_process_automatically'] as bool? ?? false,
+      imageCodecNativeDecoderMode: parseAeicDecoderMode(
+        json['image_codec_native_decoder_mode'],
+      ),
       imageCodecEnabled: json['image_codec_enabled'] as bool? ?? false,
       imageCodecSelectedModelId:
           json['image_codec_selected_model_id'] as String?,
       imageCodecModelSourceUrl: json['image_codec_model_source_url'] as String?,
       imageCodecRatePoint: json['image_codec_rate_point'] as int? ?? 4,
-      imageCodecNativeResolution: kNativeFt2Resolutions.contains(json['image_codec_native_resolution'])
-          ? json['image_codec_native_resolution'] as int : 128,
-      imageCodecNativeBestEffort: json['image_codec_native_best_effort'] as bool? ?? false,
+      imageCodecNativeResolution:
+          kNativeFt2Resolutions.contains(json['image_codec_native_resolution'])
+          ? json['image_codec_native_resolution'] as int
+          : 128,
+      imageCodecNativeBestEffort:
+          json['image_codec_native_best_effort'] as bool? ?? false,
       imageCodecDownloadedModels:
           (json['image_codec_downloaded_models'] as List<dynamic>?)
               ?.map(
@@ -526,6 +536,7 @@ class AppSettings {
     int? imageCodecRatePoint,
     int? imageCodecNativeResolution,
     bool? imageCodecNativeBestEffort,
+    Object? imageCodecNativeDecoderMode = _unset,
     List<ImageCodecModelRecord>? imageCodecDownloadedModels,
     bool? translationEnabled,
     bool? autoTranslateIncomingMessages,
@@ -605,8 +616,14 @@ class AppSettings {
           ? this.imageCodecModelSourceUrl
           : imageCodecModelSourceUrl as String?,
       imageCodecRatePoint: imageCodecRatePoint ?? this.imageCodecRatePoint,
-      imageCodecNativeResolution: imageCodecNativeResolution ?? this.imageCodecNativeResolution,
-      imageCodecNativeBestEffort: imageCodecNativeBestEffort ?? this.imageCodecNativeBestEffort,
+      imageCodecNativeResolution:
+          imageCodecNativeResolution ?? this.imageCodecNativeResolution,
+      imageCodecNativeBestEffort:
+          imageCodecNativeBestEffort ?? this.imageCodecNativeBestEffort,
+      imageCodecNativeDecoderMode:
+          identical(imageCodecNativeDecoderMode, _unset)
+          ? this.imageCodecNativeDecoderMode
+          : imageCodecNativeDecoderMode as AeicDecoderMode?,
       imageCodecDownloadedModels:
           imageCodecDownloadedModels ?? this.imageCodecDownloadedModels,
       translationEnabled: translationEnabled ?? this.translationEnabled,

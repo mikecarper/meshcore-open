@@ -5242,4 +5242,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String chat_longMessageRetryNote(int count) {
     return 'Over 158 bytes: sent at most $count times';
   }
+
+  @override
+  String get imageCodec_decoderMode => 'Image reconstruction';
+
+  @override
+  String get imageCodec_decoderFast => 'Fast';
+
+  @override
+  String get imageCodec_decoderAccurate => 'Accurate';
+
+  @override
+  String get imageCodec_decoderFastHelp =>
+      'Uses CPU optimizations where memory allows. Larger images currently use the memory-safe fallback.';
+
+  @override
+  String get imageCodec_decoderAccurateHelp => 'Uses conservative decoding.';
 }

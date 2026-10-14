@@ -75,6 +75,7 @@ class ImageCodecSession {
 
   /// Whether the bundle handed to [spawn] carried a CDF table file.
   final bool hasTables;
+  final bool hasUsableGpuAcceleration;
   final bool _nativeProcess;
   bool _paused = false;
   bool get canPause => _nativeProcess && !_disposed && _pending.isNotEmpty;
@@ -98,6 +99,7 @@ class ImageCodecSession {
     required this.supportsBitstreamCodec,
     required this.hasEntropyGraph,
     required this.hasTables,
+    required this.hasUsableGpuAcceleration,
     required bool nativeProcess,
   }) : _isolate = isolate,
        _toWorker = toWorker,
@@ -195,6 +197,7 @@ class ImageCodecSession {
       supportsBitstreamCodec: reply['bitstream'] == true,
       hasEntropyGraph: reply['entropy'] == true,
       hasTables: reply['tables'] == true,
+      hasUsableGpuAcceleration: reply['usableGpuAcceleration'] == true,
       nativeProcess: bundle.isNativeFt2,
     );
   }
@@ -498,6 +501,7 @@ List<Object?> _bootPayload(
     bundle.nativeCodecIdentity, // 8
     bundle.nativeBestEffort, // 9
     bundle.nativeThreads, // 10
+    bundle.nativeDecoderMode?.name, // 11 (append-only; old workers omit it)
   ],
 ];
 
@@ -515,6 +519,7 @@ ImageCodecBundle _bundleFromBootPayload(List<Object?> boot) => ImageCodecBundle(
   nativeCodecIdentity: boot.length > 8 ? boot[8] as String? : null,
   nativeBestEffort: boot.length > 9 ? boot[9] as bool? ?? false : false,
   nativeThreads: boot.length > 10 ? boot[10] as int? ?? 2 : 2,
+  nativeDecoderMode: parseAeicDecoderMode(boot.length > 11 ? boot[11] : null),
 );
 
 /// Test seams for the boot payload. Not for production use — see
@@ -609,6 +614,9 @@ Future<void> _codecWorkerMain(List<Object?> boot) async {
     'type': 'ready',
     'port': commands.sendPort,
     'backend': backend.name,
+    'usableGpuAcceleration':
+        backend is ImageCodecComputeCapabilities &&
+        (backend as ImageCodecComputeCapabilities).hasUsableGpuAcceleration,
     // `bitstream` is the backend's own answer (does this build have the entropy
     // path at all?); `entropy`/`tables` describe what THIS INSTALL supplied. A
     // pre-bundle install reports bitstream:true, tables:false — a state the

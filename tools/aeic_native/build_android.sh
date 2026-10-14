@@ -16,7 +16,21 @@ if ! test -d "$ncnn_src/.git"; then
     git -C "$ncnn_src" checkout --detach "$ncnn_commit"
 fi
 test "$(git -C "$ncnn_src" rev-parse HEAD)" = "$ncnn_commit"
-git -C "$ncnn_src" diff --exit-code --quiet
+git -C "$ncnn_src" diff --cached --exit-code --quiet
+ncnn_patch="$native_src/patches/ncnn-fp16-buffer.patch"
+printf '%s  %s\n' a5917f6be1996caf7756b548459f8db6f4d8d980d9a00e2e225c1dbea5d0effa "$ncnn_patch" | sha256sum --check --status
+# Accept only the pinned allocation correction, including on repeat builds.
+if git -C "$ncnn_src" apply --reverse --check "$ncnn_patch" >/dev/null 2>&1; then
+    :
+elif git -C "$ncnn_src" diff --exit-code --quiet && git -C "$ncnn_src" apply --check "$ncnn_patch"; then
+    git -C "$ncnn_src" apply "$ncnn_patch"
+else
+    printf '%s\n' 'ncnn source must be pristine or contain only the pinned FP16 allocation patch.' >&2
+    exit 1
+fi
+git -C "$ncnn_src" diff --exit-code --quiet -- . ':!src/modelbin.cpp'
+git -C "$ncnn_src" diff --no-ext-diff --no-color --src-prefix=a/ --dst-prefix=b/ --unified=3 -- src/modelbin.cpp | sed '1,2d; s/^\(@@.*@@\).*$/\1/' | cmp --silent - "$ncnn_patch"
+git -C "$ncnn_src" apply --reverse --check "$ncnn_patch"
 toolchain="$ndk_dir/build/cmake/android.toolchain.cmake"
 strip_bin="$ndk_dir/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
 

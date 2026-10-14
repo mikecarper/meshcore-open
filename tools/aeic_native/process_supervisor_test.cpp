@@ -109,7 +109,11 @@ int main() {
         ready = receive_message(descriptors[0]);
         require(kill(supervisor, SIGKILL) == 0, "cannot terminate startup supervisor");
         require(reap(supervisor, true) == 128 + SIGKILL, "abrupt supervisor status changed");
-        require(reap(ready.pid) == 128 + SIGKILL, "gated worker must die with supervisor");
+        // Startup EOF can fail closed before the pending parent-death signal.
+        // Both outcomes terminate the gated worker before inference begins.
+        const int gated_status = reap(ready.pid);
+        require(gated_status == 127 || gated_status == 128 + SIGKILL,
+                "gated worker must die with supervisor");
         absent(ready.pid);
 
         pid_t app = fork(); require(app >= 0, "cannot fork app fixture");
