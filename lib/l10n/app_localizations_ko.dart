@@ -4463,6 +4463,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get imageMessages_autoProcessTitle => '자동으로 프로세스 이미지를 처리합니다.';
 
   @override
+  String get imageMessages_autoReconstructSubtitle =>
+      'Automatically reconstruct received images. This can take several minutes on older phones; leave off to reconstruct with a tap.';
+
+  @override
   String get imageMessages_autoProcessSubtitle =>
       '이미지가 도착하는 즉시 재구성하세요. 매번 2GB의 메모리를 사용하며, 탭으로 재구성을 원할 경우 해제하세요.';
 

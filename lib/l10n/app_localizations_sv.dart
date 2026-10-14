@@ -4646,6 +4646,10 @@ class AppLocalizationsSv extends AppLocalizations {
   String get imageMessages_autoProcessTitle => 'Bearbeta bilder automatiskt';
 
   @override
+  String get imageMessages_autoReconstructSubtitle =>
+      'Automatically reconstruct received images. This can take several minutes on older phones; leave off to reconstruct with a tap.';
+
+  @override
   String get imageMessages_autoProcessSubtitle =>
       'Rekonstruera varje bild så snart den kommer. Använder cirka 2 GB minne i ungefär en sekund varje gång; låt detta vara avstängt om du hellre vill rekonstruera med ett tryck.';
 

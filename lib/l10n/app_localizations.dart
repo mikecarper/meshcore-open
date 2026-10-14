@@ -8056,6 +8056,12 @@ abstract class AppLocalizations {
   /// **'Process images automatically'**
   String get imageMessages_autoProcessTitle;
 
+  /// No description provided for @imageMessages_autoReconstructSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatically reconstruct received images. This can take several minutes on older phones; leave off to reconstruct with a tap.'**
+  String get imageMessages_autoReconstructSubtitle;
+
   /// No description provided for @imageMessages_autoProcessSubtitle.
   ///
   /// In en, this message translates to:
