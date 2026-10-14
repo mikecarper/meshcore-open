@@ -38,6 +38,8 @@ void main() {
   var cancelPolls = 0;
   var delayCancel = false;
   String? workspace;
+  Map<String, dynamic>? lastStart;
+  var usableGpu = false;
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('native-codec-contract-');
@@ -60,6 +62,8 @@ void main() {
     cancelPolls = 0;
     delayCancel = false;
     workspace = null;
+    lastStart = null;
+    usableGpu = false;
     bundle = ImageCodecBundle(
       decoderGraphPath: '',
       ratePoint: AeicRatePoint.ft2,
@@ -71,6 +75,7 @@ void main() {
         case 'info':
           return {
             'available': true,
+            'usableGpuAcceleration': usableGpu,
             'codecIdentity': NativeProcessImageCodecBackend.codecIdentity,
           };
         case 'createWorkspace':
@@ -79,6 +84,7 @@ void main() {
         case 'start':
           starts++;
           final args = Map<String, dynamic>.from(call.arguments as Map);
+          lastStart = args;
           expect(
             args['codecIdentity'],
             NativeProcessImageCodecBackend.codecIdentity,
@@ -151,6 +157,53 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
     await root.delete(recursive: true);
   });
+
+  test(
+    'auto mode uses actual usable backend capability, not device hardware',
+    () async {
+      await backend.decode(
+        bitstream: framed(128),
+        ratePoint: AeicRatePoint.ft2,
+        resolution: 128,
+      );
+      expect(lastStart!['decoderMode'], 'fast');
+      usableGpu = true;
+      await backend.load(bundle);
+      await backend.decode(
+        bitstream: framed(128),
+        ratePoint: AeicRatePoint.ft2,
+        resolution: 128,
+      );
+      expect(lastStart!['decoderMode'], 'accurate');
+    },
+  );
+
+  test(
+    'explicit Accurate survives backend load and never changes encoding',
+    () async {
+      await backend.load(
+        ImageCodecBundle(
+          decoderGraphPath: '',
+          ratePoint: AeicRatePoint.ft2,
+          nativeModelDirectory: root.path,
+          nativeCodecIdentity: NativeProcessImageCodecBackend.codecIdentity,
+          nativeDecoderMode: AeicDecoderMode.accurate,
+        ),
+      );
+      await backend.decode(
+        bitstream: framed(128),
+        ratePoint: AeicRatePoint.ft2,
+        resolution: 128,
+      );
+      expect(lastStart!['decoderMode'], 'accurate');
+      await backend.encode(
+        rgbBytes: Uint8List(128 * 128 * 3),
+        ratePoint: AeicRatePoint.ft2,
+        resolution: 128,
+      );
+      expect(lastStart!.containsKey('decoderMode'), isFalse);
+    },
+  );
 
   test('pause and resume preserve an active job before its result', () async {
     hold = true;

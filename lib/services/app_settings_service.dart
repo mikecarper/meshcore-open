@@ -423,6 +423,7 @@ class AppSettingsService extends ChangeNotifier {
         imageCodecRatePoint: value.ratePoint,
         imageCodecNativeResolution: value.nativeResolution,
         imageCodecNativeBestEffort: value.nativeBestEffort,
+        imageCodecNativeDecoderMode: value.nativeDecoderMode,
         imageCodecDownloadedModels: value.downloadedModels,
       ),
     );

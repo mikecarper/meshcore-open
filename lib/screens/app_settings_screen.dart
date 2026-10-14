@@ -17,6 +17,7 @@ import '../services/translation_service.dart';
 import '../theme/mesh_theme.dart';
 import '../widgets/adaptive_app_bar_title.dart';
 import '../widgets/mesh_ui.dart';
+import '../widgets/native_decoder_mode_setting.dart';
 import '../widgets/legacy_radio.dart' as legacy_radio;
 import '../widgets/sync_progress_overlay.dart';
 import '../helpers/snack_bar_builder.dart';
@@ -702,6 +703,16 @@ class AppSettingsScreen extends StatelessWidget {
             context.l10n.imageMessages_nativeModelDescription,
             style: textTheme.bodySmall,
           ),
+          if (codec.installedBundle?.isNativeFt2 == true) ...[
+            const SizedBox(height: 12),
+            NativeDecoderModeSetting(
+              mode: codec.nativeDecoderMode,
+              onChanged: codec.isBusy || codec.isDownloading
+                  ? null
+                  : codec.setNativeDecoderMode,
+            ),
+            const SizedBox(height: 8),
+          ],
           Wrap(
             spacing: 8,
             children: [

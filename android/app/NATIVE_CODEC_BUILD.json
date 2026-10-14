@@ -1,0 +1,55 @@
+{
+  "format": "aeic-native-build-provenance-v1",
+  "ndk": "29.0.14206865",
+  "ncnn_commit": "b0f97f43f266617ff5e5096d440dbe3f9a4c35b8",
+  "ncnn_patch_sha256": "a5917f6be1996caf7756b548459f8db6f4d8d980d9a00e2e225c1dbea5d0effa",
+  "default_decoder_mode": "fast",
+  "fast_renderer_max_full_size": 256,
+  "larger_size_behavior": "conservative renderer kernels; explicit parallel attention",
+  "entropy_precision": "unchanged conservative FP32",
+  "binaries": [
+    {
+      "abi": "armeabi-v7a",
+      "bytes": 3360416,
+      "sha256": "7a1e593042f2352a825ad68d37f78f338fc82352866becf8acbb6ac22ededd8b",
+      "min_sdk": 21,
+      "runtime": "static OpenMP and libc++",
+      "phone_execution": "Actual final ARMv7 256-pixel CLI and 128-pixel app cycle plus pause/resume/cancel verified",
+      "relative_binary": "android/app/src/main/jniLibs/armeabi-v7a/libaeic_codec_exec.so"
+    },
+    {
+      "abi": "arm64-v8a",
+      "bytes": 4663200,
+      "sha256": "75785ce96bf7586cb8e8a380f8c62239cda859be80bdcbdb4fbe359c7293274a",
+      "min_sdk": 21,
+      "runtime": "static OpenMP and libc++",
+      "phone_execution": "Cross-compiled only; no ARM64 device test",
+      "relative_binary": "android/app/src/main/jniLibs/arm64-v8a/libaeic_codec_exec.so"
+    }
+  ],
+  "sources_sha256": {
+    "main.cpp": "806e4eacd50f2601836118dd51794d384f4633c7fff9546f7ae83dfd85286b82",
+    "CMakeLists.txt": "77d989e4a6bb65ba7c9ef272606d224e9e707e59f663121b0256f3fc3e8f6ad9",
+    "winograd_budget.h": "9517be2bba3f135efd153fbbf5c527c61635e38832bafc803d2e29f2a28f91ef",
+    "winograd_budget_test.cpp": "51828f136ddd065e9326b67d3a47fe9e60c593dc62adb28dadb42e8bdde8a1c7",
+    "process_supervisor_test.cpp": "e8df870ccb463c64ad7b633cb54102920bc860a7db0efb404a1d5ece2a93cd3b",
+    "fp16_model_buffer_test.cpp": "78f0e513dfee64ecabf7b05ebddc7ce49575b09982791d086f6521fbdc6ddcb7",
+    "build_android.sh": "ef5dc8d0e415949e1771bbb74538abba7662e577d43a05e7d409942c7a395bbb",
+    "patches/ncnn-fp16-buffer.patch": "a5917f6be1996caf7756b548459f8db6f4d8d980d9a00e2e225c1dbea5d0effa",
+    ".gitattributes": "d24ec28c97a0bfe085ad18783e2febd05c654157869d40131b62c66e288602ba",
+    "test_fp16_model_buffer.sh": "f6cd596410129f3c32e8e78b7cbe3ff6d5dd1612402ab1afcdf9f893deb8a655",
+    "build_cpu_avx2.sh": "3b19267d0442a6f5f13e24ff346b2cbea160c28e43347949575537c28b7d2165",
+    "README.md": "1504fad3302647a2ef3da1bd8e3ea7bfa08488d451cec2b6c014f0d1f9a67539"
+  },
+  "validation": {
+    "native_ctests": 12,
+    "loader_host_stdio": "63,492 finite FP16 bit comparisons; odd counts 1 and 3; three truncated inputs; values own storage after FILE close; ASan and UBSan passed.",
+    "loader_host_whole_image": "At 128 and 256 pixels, each decoder mode preserved all 511 FP32 tensor hashes when only the allocation correction changed.",
+    "phone_kernel_policy": "Full Fast and Accurate phone cycles at 128 and 256 pixels passed with the preceding v2 build.",
+    "final_armv7_device_cycle": "Final 256-pixel CLI: 258.846 seconds,244016KiB peak,19 integer checks,407 bytes exact,PNG byte-identical to v2. Final 128-pixel app: native88.928 seconds,service89.325 seconds including pause,238280KiB peak,137 bytes exact; Accurate pause/cancel reaped without PNG or jobs; Fast pause/resume completed.",
+    "arm64_device_cycle": "Not tested on ARM64 hardware.",
+    "build_patch_gate": "Pristine apply, already-patched repeat, and unrelated tracked-edit rejection passed.",
+    "loader_reproduction": "test_fp16_model_buffer.sh passed in release and ASan/UBSan builds."
+  },
+  "aeic_source_commit": "4780c8c2ad9e898a204871269640e3b039a72ab1"
+}

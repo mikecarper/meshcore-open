@@ -81,6 +81,7 @@ class AndroidNativeCodec(context: Context) {
                     result.success(mapOf("available" to (executable.isFile && executable.canExecute()),
                         "apiLevel" to Build.VERSION.SDK_INT, "abi" to Build.SUPPORTED_ABIS.firstOrNull(),
                         "codecIdentity" to IDENTITY, "workspaceRoot" to workRoot.path,
+                        "usableGpuAcceleration" to false, // This ncnn build has Vulkan disabled.
                         "supportedResolutions" to (128..576 step 64).toList()))
                 }
                 "createWorkspace" -> {
@@ -161,6 +162,8 @@ class AndroidNativeCodec(context: Context) {
         val threads = call.argument<Int>("threads") ?: 2
         require(threads in 1..4) { "threads must be 1..4" }
         val bestEffort = call.argument<Boolean>("bestEffort") ?: false
+        val decoderMode = call.argument<String>("decoderMode") ?: "fast"
+        require(decoderMode == "fast" || decoderMode == "accurate") { "Unknown decoder mode" }
         val model = File(call.argument<String>("modelDirectory") ?: error("modelDirectory is required")).canonicalFile
         require(model.isDirectory && appOwned(model)) { "Model directory must be installed in app storage" }
         val workspace = File(call.argument<String>("workspace") ?: error("workspace is required")).canonicalFile
@@ -190,7 +193,8 @@ class AndroidNativeCodec(context: Context) {
             "--threads", threads.toString(), "--spill-dir", spill.path, "--pause-time-file", pauseTime.path)
         if (operation == "encode") command.addAll(listOf("--encode", "--input", input.path,
             "--bitstream-output", output.path))
-        else command.addAll(listOf("--bitstream", input.path, "--output", output.path))
+        else command.addAll(listOf("--bitstream", input.path, "--output", output.path,
+            "--decoder-mode", decoderMode))
         if (bestEffort) command.add("--best-effort")
         executor.execute { run(job, command) }
         return id

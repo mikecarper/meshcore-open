@@ -1,0 +1,11 @@
+--- a/src/modelbin.cpp
++++ b/src/modelbin.cpp
+@@ -129,7 +129,7 @@
+ #endif
+             {
+                 std::vector<unsigned short> float16_weights;
+-                float16_weights.resize(align_data_size);
++                float16_weights.resize(align_data_size / sizeof(unsigned short));
+                 nread = d->dr.read(&float16_weights[0], align_data_size);
+                 if (nread != align_data_size)
+                 {

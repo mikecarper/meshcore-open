@@ -9039,6 +9039,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{size}\nPrepared: {prepare} · Send estimate: {send}'**
   String imageSend_measuredChoice(String size, String prepare, String send);
+
+  /// No description provided for @imageCodec_decoderMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Image reconstruction'**
+  String get imageCodec_decoderMode;
+
+  /// No description provided for @imageCodec_decoderFast.
+  ///
+  /// In en, this message translates to:
+  /// **'Fast'**
+  String get imageCodec_decoderFast;
+
+  /// No description provided for @imageCodec_decoderAccurate.
+  ///
+  /// In en, this message translates to:
+  /// **'Accurate'**
+  String get imageCodec_decoderAccurate;
+
+  /// No description provided for @imageCodec_decoderFastHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Uses CPU optimizations where memory allows. Larger images currently use the memory-safe fallback.'**
+  String get imageCodec_decoderFastHelp;
+
+  /// No description provided for @imageCodec_decoderAccurateHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Uses conservative decoding.'**
+  String get imageCodec_decoderAccurateHelp;
 }
 
 class _AppLocalizationsDelegate

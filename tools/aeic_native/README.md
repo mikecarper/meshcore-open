@@ -24,11 +24,39 @@ be claimed until `DECODE_COMPLETE` appears and the output is inspected.
 
 ## Build
 
-Configure ncnn for the same Android ABI, API, and static C++ runtime. A typical
-runner build after installing ncnn is:
+The CPU decoder defaults to `--decoder-mode fast`. Use `--decoder-mode accurate`
+to retain conservative FP32 renderer kernels. Fast keeps encoder and entropy
+arithmetic unchanged and uses FP32 packing plus memory-bounded F(2,3) Winograd
+only in renderer graphs. Complete phone trials cover 128 and 256 pixels;
+192 pixels uses the same bounded policy. Larger images automatically retain
+conservative renderer kernels. The native backend currently has no usable GPU
+decoder, so its CPU default is Fast.
+
+Fast may use 16-row convolution sections when that keeps transformed weights,
+padding, and temporary buffers within the checked budget. Accurate keeps the
+existing 64-row memory profile. Neither mode changes transmitted file sizes.
+See [the measured phone comparison](https://github.com/mikecarper/AEIC/blob/main/mobile/examples/pixnio/cpu-decoder-results.json).
+
+`build_android.sh` pins ncnn and applies
+`patches/ncnn-fp16-buffer.patch`, which corrects a byte count used to size a
+float16 input buffer. Weights remain FP32 at runtime. The patch reduces loading
+work without changing any weight or intermediate tensor value; the builder
+rejects other tracked ncnn changes. Android links OpenMP statically, including
+the custom attention head loop.
+
+Configure ncnn for the same Android ABI, API, and static C++ runtime.
+
+For the measured Linux x86-64 desktop profile, use
+`build_cpu_avx2.sh NCNN_SOURCE mobile/native OUTPUT_DIR`. It checks AVX2,
+FMA and F16C support, pins the same ncnn allocation patch, enables OpenMP,
+and excludes unsupported AVX-512/AVX-NE-CONVERT kernels. The full decoder
+and native tests are built together. This is a separate CPU build from the
+Android ABI binaries.
+
+A typical Android runner build after installing ncnn is:
 
 ```sh
-cmake -S tools/aeic_native -B build-android \
+cmake -S mobile/native -B build-android \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=armeabi-v7a -DANDROID_PLATFORM=android-21 \
   -DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release \
@@ -39,20 +67,10 @@ cmake --build build-android -j4
 For host entropy checks without ncnn:
 
 ```sh
-cmake -S tools/aeic_native -B build-entropy -DAEIC_ENTROPY_TEST_ONLY=ON
+cmake -S mobile/native -B build-entropy -DAEIC_ENTROPY_TEST_ONLY=ON
 cmake --build build-entropy
 ctest --test-dir build-entropy --output-on-failure
 ```
-
-All ten native host CTests pass, including process supervision and
-paused-time recovery deadlines. The current ARMv7 supervisor build completed
-the real Android 5.1 app-service 576-pixel encode/decode cycle: 1,783 compressed
-bytes, a 755,951-byte PNG, 2,465.188 seconds native decode wall time, and
-287.2 MiB native peak RSS. The wall time includes a deliberate 1.249-second
-pause. Phone pause/resume and cancellation checks also passed with workers
-reaped and zero active jobs. These app measurements are separate from earlier
-CLI runs. The 576-pixel best-effort memory requirement remains unverified.
-See [app packaging and validation](../../android/app/NATIVE_CODEC.md).
 
 ## Model interface
 
@@ -135,13 +153,12 @@ nearest-neighbor upsampling graphs, run in 64-row sections with valid halos.
 Consumed inputs may reuse uniquely owned storage. Shared aliases are preserved.
 Encoder and entropy arithmetic are unchanged by this option.
 
-Direct CLI jobs create their own signal group and emit
-`PROCESS_INFO pid=N group=N` before model work. Parent-death guards prevent
-app or supervisor death from leaving a stopped worker behind. A paused group
-must be resumed before termination.
-App launches must add `--supervise`: Android 5's
-[Java process reaper](https://android.googlesource.com/platform/libcore/+/5d930ca/luni/src/main/java/java/lang/ProcessManager.java)
-uses `waitpid(0)`, so its direct launcher must remain in the app's inherited group.
+Linux and Android jobs create their own process group and emit
+`PROCESS_INFO pid=N group=N` before model work. The app can pause/resume that
+group and must resume it before termination. A parent-death guard prevents
+an app death from leaving a stopped native process behind.
+App launches must add `--supervise`: Android 5's Java process reaper uses
+`waitpid(0)`, so its direct launcher must remain in the app's inherited group.
 The launcher forks a guarded worker, creates only that worker's signal group,
 and emits the handshake before opening its inference startup gate. It waits
 for the worker, terminates any remaining group members while the leader PID

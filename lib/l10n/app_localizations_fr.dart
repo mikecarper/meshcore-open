@@ -5335,4 +5335,20 @@ class AppLocalizationsFr extends AppLocalizations {
   String imageSend_measuredChoice(String size, String prepare, String send) {
     return '$size\nPrepared: $prepare · Send estimate: $send';
   }
+
+  @override
+  String get imageCodec_decoderMode => 'Image reconstruction';
+
+  @override
+  String get imageCodec_decoderFast => 'Fast';
+
+  @override
+  String get imageCodec_decoderAccurate => 'Accurate';
+
+  @override
+  String get imageCodec_decoderFastHelp =>
+      'Uses CPU optimizations where memory allows. Larger images currently use the memory-safe fallback.';
+
+  @override
+  String get imageCodec_decoderAccurateHelp => 'Uses conservative decoding.';
 }

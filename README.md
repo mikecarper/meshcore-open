@@ -46,6 +46,35 @@ of storage**. Decoding is lossy and can take many minutes on older phones.
 Strict decoding is the default; an explicit recovery retry labels the picture
 "Recovered image. Some detail may be missing."
 
+Image reconstruction offers **Fast** and **Accurate** in image settings.
+An unset preference defaults to Fast when the loaded backend has no usable GPU
+acceleration; the current native backend runs on the CPU. Accurate keeps the
+conservative decoder kernels. Fast uses bounded CPU optimizations up to 256 pixels
+(validated at 128 and 256); larger sizes currently use the same memory-safe kernels as Accurate.
+Encoding, entropy decoding, and the compressed file format are unchanged.
+
+The final shipped ARMv7 binary passed an actual 128-pixel app-service Fast
+cycle: 137 compressed bytes, 2.024 seconds service encoding, and 89.325 seconds
+service reconstruction, including the deliberate test pause. The native
+decoder took 88.928 seconds and peaked at 232.7 MiB. Accurate pause/cancel
+returned no image and reaped its worker; Fast pause/resume completed with no
+active jobs left. The normal full app was installed and checked for the Fast
+default and a saved Accurate selection. These timings used four test threads;
+the normal app keeps its two-thread default. The final 256-pixel Fast CLI run
+took 258.846 seconds, peaked at 238.3 MiB, and passed all 19 integer checks with
+the exact 407-byte stream. Its PNG matched the preceding Fast trial byte for byte.
+
+In the paired trial **before the subsequent weight-buffer allocation fix**,
+the Android 5.1 ARMv7 benchmark phone decoded the same 128-pixel photo in
+93.465 seconds with Fast versus 123.298 seconds with Accurate (24% less time).
+At 256 pixels, it took 261.850 versus 410.207 seconds (36% less time), with
+similar peak memory and exact entropy results. Fast changed 16 of the decoded RGB
+components by at most one 8-bit level at 128 pixels, and 42 components at 256
+pixels. These are paired pre-fix measurements of this photo, not timings for
+the final shipped binary or guarantees for every image or phone.
+The earlier 576-pixel app measurement below used conservative
+kernels; no accelerated 576-pixel run is claimed.
+
 All eight benchmark phone encodings match the original CPU codec byte for byte.
 Earlier native CLI reconstruction passed at 128, 256, and 512 pixels. App-service
 cycles have passed at 128 and 576 pixels. The supervised 576-pixel app run

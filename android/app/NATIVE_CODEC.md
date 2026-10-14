@@ -24,10 +24,22 @@ ncnn local-pool output clone. Tiled attention considers all keys. Large skip
 tensors can spill to bounded scratch files, and eligible adds reuse owned
 tensor storage. The updated 576-pixel host decode used 312.7 MiB peak RSS
 (previously 561.4 MiB), took 133.567 seconds, and preserved all 511 FP32
-tensor hashes and final PNG bytes. All ten native CTests pass, including
-paused-time deadline accounting and app-process supervision. The current
-ARMv7 build completed the supervised 576-pixel app cycle. The historical CLI
-and 128-pixel app measurements below used earlier builds.
+tensor hashes and final PNG bytes. All twelve native CTests pass, including FP16 weight-reader patterns and
+truncation, paused-time deadline accounting, and app-process supervision.
+The earlier ARMv7 supervisor build completed the 576-pixel app cycle.
+The final ARMv7 decoder-mode binary passed the phone CLI and app-service
+checks recorded below. Historical measurements retain their build distinction.
+
+The decoder accepts `--decoder-mode fast|accurate`. The CPU-only native
+backend defaults to Fast; the app resolves an unset preference from usable
+backend GPU capability and persists an explicit selection. Fast enables
+renderer-only FP32 packing and bounded Winograd F(2,3) up to 256 pixels,
+with full phone validation at 128 and 256. Larger sizes fall back to conservative renderer kernels. Accurate keeps
+the conservative kernels; entropy and encoding remain unchanged in either
+mode. OpenMP attention is explicitly compiled. The pinned ncnn patch fixes a
+weight-reader buffer whose byte count had been treated as a float count;
+host checks preserve the FP32 tensors for each decoder mode. The paired phone
+speed measurements in the root README predate that buffer fix.
 
 The app launches with `--supervise`. The direct Java child stays in the
 app's process group, while a supervised worker has its own group for
@@ -44,8 +56,33 @@ Current prebuilts:
 
 | ABI | SHA256 | Validation |
 |---|---|---|
-| armeabi-v7a | `4b6cd2babc3b1b5385cd996812976665210da640808e330b02ad2ab9094f2d1f` | Android 5.1 supervised 576-pixel app cycle and controls verified |
-| arm64-v8a | `160e8ed01abcdf13dd74f8ea75b8fc3b2c1946982b6b122c159cff57372326e4` | Cross-compiled; hardware interoperability still needs a device |
+| armeabi-v7a | `7a1e593042f2352a825ad68d37f78f338fc82352866becf8acbb6ac22ededd8b` | Final 128-pixel Fast app-service/controls, 256-pixel Fast CLI, and normal UI verified |
+| arm64-v8a | `75785ce96bf7586cb8e8a380f8c62239cda859be80bdcbdb4fbe359c7293274a` | Cross-compiled; hardware interoperability still needs a device |
+
+## Final decoder-mode phone verification
+
+The final ARMv7 ELF above passed full 256-pixel Fast CLI encoding and decoding:
+407 bytes matched the original CPU stream, all 19 integer checks passed, native
+decoding took 258.846 seconds with 244,016 KiB (238.3 MiB) peak RSS, and its PNG
+was byte-identical to the preceding v2 Fast output.
+
+A real production-service 128-pixel cycle in a release-AOT test entry point
+encoded 137 bytes with SHA256
+`49dc462cb8fddccb3e775f288a75756eb408375eb1432521f9531a51aecde1c7` and reconstructed
+49,152 RGB bytes into a 41,372-byte PNG, with `degraded=false`. Service encoding
+took 2,024 ms and decoding took 89,325 ms; native decoding took 88.928 seconds
+and peaked at 238,280 KiB (232.7 MiB). The decode includes a deliberate test pause.
+The temporary fixture used four threads and restored preferences; the normal
+app retains its two-thread default. Accurate pause/cancel observed a stopped
+worker, returned no PNG, and reaped it. Fast pause/resume observed stopped and
+running kernel states, completed, and left no active jobs.
+
+The non-debuggable normal `lib/main.dart` APK was then installed. Its image
+settings showed Fast by default, accepted and saved Accurate, and were restored
+to Fast. Both APKs used the same final native ELF and signer; the temporary
+fixture did not replace the production entry point in Git. The historical
+576-pixel app cycle below used the earlier supervisor build; final accelerated
+576-pixel execution and 576-pixel best-effort memory remain unverified.
 
 Host CTest covers entropy, damaged streams, isolated process recovery,
 output ownership, streaming statistics, native attention equivalence, and

@@ -24,23 +24,31 @@ void main() {
   );
 
   group('codec worker boot payload', () {
-    test('native FT2 identity, cancellation ownership and settings survive boot', () {
-      const sent = ImageCodecBundle(
-        decoderGraphPath: '/private/ft2/manifest.json',
-        ratePoint: AeicRatePoint.ft2,
-        nativeModelDirectory: '/private/ft2',
-        nativeCodecIdentity: kNativeFt2ModelId,
-        nativeBestEffort: true, nativeThreads: 4,
-      );
-      final rebuilt = debugBundleFromBootPayload(debugBootPayloadFor(sent));
-      expect(rebuilt, sent);
-      expect(rebuilt.isNativeFt2, isTrue);
-      expect(rebuilt.supportsDecode, isTrue);
-      expect(rebuilt.nativeBestEffort, isTrue);
-      expect(rebuilt.nativeThreads, 4);
-      expect(rebuilt.entropyGraphPath, isNull);
-      expect(rebuilt.tablesPath, isNull);
-    });
+    test(
+      'native FT2 identity, cancellation ownership and settings survive boot',
+      () {
+        const sent = ImageCodecBundle(
+          decoderGraphPath: '/private/ft2/manifest.json',
+          ratePoint: AeicRatePoint.ft2,
+          nativeModelDirectory: '/private/ft2',
+          nativeCodecIdentity: kNativeFt2ModelId,
+          nativeBestEffort: true,
+          nativeThreads: 4,
+          nativeDecoderMode: AeicDecoderMode.accurate,
+        );
+        final rebuilt = debugBundleFromBootPayload(debugBootPayloadFor(sent));
+        expect(rebuilt, sent);
+        expect(rebuilt.isNativeFt2, isTrue);
+        expect(rebuilt.supportsDecode, isTrue);
+        expect(rebuilt.nativeBestEffort, isTrue);
+        expect(rebuilt.nativeThreads, 4);
+        expect(rebuilt.nativeDecoderMode, AeicDecoderMode.accurate);
+        final old = debugBootPayloadFor(sent).sublist(0, 11);
+        expect(debugBundleFromBootPayload(old).nativeDecoderMode, isNull);
+        expect(rebuilt.entropyGraphPath, isNull);
+        expect(rebuilt.tablesPath, isNull);
+      },
+    );
     test('a five-asset bundle survives the round trip and can still decode', () {
       final sent = fiveAssetBundle();
       expect(sent.supportsDecode, isTrue, reason: 'precondition');

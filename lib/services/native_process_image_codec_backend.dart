@@ -12,7 +12,10 @@ import 'image_codec_backend.dart';
 /// Runs a packaged native executable in an Android-owned, cancellable process.
 /// The learned FT2 models are installed separately from the executable.
 class NativeProcessImageCodecBackend
-    implements ImageCodecBackend, ImageCodecDiagnostics {
+    implements
+        ImageCodecBackend,
+        ImageCodecDiagnostics,
+        ImageCodecComputeCapabilities {
   static const codecIdentity = 'AEIC_SE_FT2_NCNN';
   static const channelName = 'com.meshcore.meshcore_open/native_image_codec';
   static const resolutions = <int>[128, 192, 256, 320, 384, 448, 512, 576];
@@ -22,6 +25,8 @@ class NativeProcessImageCodecBackend
   bool _busy = false;
   bool _disposed = false;
   bool _pauseRequested = false;
+  @override
+  bool hasUsableGpuAcceleration = false;
 
   NativeProcessImageCodecBackend({MethodChannel? channel})
     : _channel = channel ?? const MethodChannel(channelName);
@@ -146,6 +151,8 @@ class NativeProcessImageCodecBackend
         'Native image conversion is unavailable in this Android build.',
       );
     }
+    // This is backend capability, never a guess from physical GPU hardware.
+    hasUsableGpuAcceleration = info?['usableGpuAcceleration'] == true;
     _disposed = false;
     _bundle = bundle;
   }
@@ -290,6 +297,11 @@ class NativeProcessImageCodecBackend
         'resolution': resolution,
         'threads': bundle.nativeThreads,
         'bestEffort': bundle.nativeBestEffort,
+        if (operation == 'decode')
+          'decoderMode': resolveAeicDecoderMode(
+            bundle.nativeDecoderMode,
+            usableGpuAcceleration: hasUsableGpuAcceleration,
+          ).name,
       });
       jobId = start?['jobId'] as String?;
       if (jobId == null || jobId.isEmpty) {

@@ -13,6 +13,7 @@ class ImageCodecSession {
   }
 
   String get backendName => 'unsupported';
+  bool get hasUsableGpuAcceleration => false;
   bool get lastDegraded => false;
   List<String> get lastWarnings => const [];
   int get lastRecoveryEvents => 0;
