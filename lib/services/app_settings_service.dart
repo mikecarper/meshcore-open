@@ -421,6 +421,8 @@ class AppSettingsService extends ChangeNotifier {
         imageCodecSelectedModelId: value.selectedModelId,
         imageCodecModelSourceUrl: value.modelSourceUrl,
         imageCodecRatePoint: value.ratePoint,
+        imageCodecNativeResolution: value.nativeResolution,
+        imageCodecNativeBestEffort: value.nativeBestEffort,
         imageCodecDownloadedModels: value.downloadedModels,
       ),
     );

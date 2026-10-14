@@ -20,6 +20,9 @@ class ImageSendPreviewResult {
   /// this build; carried through because the transport writes it on the wire.
   final ImageCodecRatePoint rate;
 
+  /// Actual encoded square size. Legacy callers retain their 512-pixel default.
+  final int resolution;
+
   /// Whether an XOR parity packet should be appended.
   final bool includeParity;
 
@@ -37,6 +40,7 @@ class ImageSendPreviewResult {
   const ImageSendPreviewResult({
     required this.payload,
     required this.rate,
+    this.resolution = kImageCodecSquareSize,
     required this.includeParity,
     required this.packetCount,
     required this.airtime,
@@ -143,9 +147,16 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
   Uint8List? _encoded;
 
   late bool _parity;
+  late final ImageCodecRatePoint _rate;
+  late final List<int> _resolutions;
+  late int _resolution;
+  int? _encodedResolution;
   bool _encoding = false;
   bool _sending = false;
   bool _failed = false;
+  bool _tooLarge = false;
+
+  bool get _isNative => _rate == ImageCodecRatePoint.nativeFt2;
 
   /// Latest radio params seen in build; used by [_onSend] so the confirm path
   /// does not have to touch an InheritedWidget after an await.
@@ -155,6 +166,12 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
   void initState() {
     super.initState();
     _parity = widget.initialParity;
+    _rate = widget.codec.sendRatePoint;
+    _resolutions = List<int>.of(widget.codec.supportedResolutions);
+    _resolution = _isNative ? 128 : kImageCodecSquareSize;
+    if (_resolutions.isNotEmpty && !_resolutions.contains(_resolution)) {
+      _resolution = _resolutions.first;
+    }
     if (widget.codec.availability == ImageCodecAvailability.ready) {
       _encode();
     }
@@ -166,12 +183,27 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     setState(() {
       _encoding = true;
       _failed = false;
+      _tooLarge = false;
     });
     try {
       final bytes = await widget.codec.encode(
         widget.imageBytes,
-        kImageSendRatePoint,
+        _rate,
+        resolution: _resolution,
       );
+      if (_isNative) {
+        if (bytes.length > 2369) {
+          _tooLarge = true;
+          throw const FormatException('Image exceeds the mesh payload capacity.');
+        }
+        final header = NativeImageBitstreamHeader.tryParse(bytes);
+        if (header == null || header.resolution != _resolution) {
+          throw const FormatException('Native image header does not match the selected size.');
+        }
+        _encodedResolution = header.resolution;
+      } else {
+        _encodedResolution = kImageCodecSquareSize;
+      }
       if (!mounted) return bytes;
       setState(() {
         _encoded = bytes;
@@ -186,6 +218,18 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
       });
       return null;
     }
+  }
+
+  void _selectResolution(int? value) {
+    if (value == null || value == _resolution || _encoding || _sending) return;
+    setState(() {
+      _resolution = value;
+      _encoded = null;
+      _encodedResolution = null;
+      _failed = false;
+      _tooLarge = false;
+    });
+    _encode();
   }
 
   ImageSendRadio _radioParams(BuildContext context) {
@@ -211,7 +255,12 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     }
     // Nothing encoded yet: show the measured ft32 range so the user sees a
     // figure immediately rather than a spinner.
-    final stats = ImageCodecRateStats.forRate(kImageSendRatePoint);
+    if (_isNative) {
+      // Native file sizes are content-dependent. No corpus estimate is shown.
+      return _RateEstimate(payloadBytes: null,
+          best: _estimate(0, radio), worst: _estimate(0, radio));
+    }
+    final stats = ImageCodecRateStats.forRate(_rate);
     return _RateEstimate(
       payloadBytes: null,
       best: _estimate(stats.minBytes, radio),
@@ -242,7 +291,8 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
     Navigator.of(context).pop(
       ImageSendPreviewResult(
         payload: payload,
-        rate: kImageSendRatePoint,
+        rate: _rate,
+        resolution: _encodedResolution ?? _resolution,
         includeParity: estimate.includesParity,
         packetCount: estimate.chunkCount,
         airtime: estimate.totalAirtime,
@@ -301,14 +351,31 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
                   const SizedBox(height: 16),
                   if (!ready) _unavailableBanner(theme, colors),
                   if (ready) ...[
+                    if (_isNative) ...[
+                      DropdownButtonFormField<int>(
+                        key: const ValueKey('native-image-resolution'),
+                        value: _resolution,
+                        decoration: InputDecoration(labelText: l10n.imageSend_resolutionLabel),
+                        items: [for (final size in _resolutions)
+                          DropdownMenuItem(value: size, child: Text('$size × $size'))],
+                        onChanged: _encoding || _sending ? null : _selectResolution,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(l10n.imageSend_nativeSizeHint,
+                          style: theme.textTheme.bodySmall),
+                      const SizedBox(height: 16),
+                    ],
                     // Packet count and time on air lead: with the quality
                     // selector gone they are the only decision the user makes.
-                    _headlineStats(theme, colors, selected),
-                    const SizedBox(height: 16),
-                    _sizeRow(theme, colors, selected),
-                    const SizedBox(height: 12),
-                    // Warnings sit directly under the figures they qualify.
-                    ..._warnings(theme, colors, radio, selected),
+                    if (_isNative && _encoded == null) ...[
+                      if (_encoding) Text(l10n.imageSend_measuringSize),
+                    ] else ...[
+                      _headlineStats(theme, colors, selected),
+                      const SizedBox(height: 16),
+                      _sizeRow(theme, colors, selected),
+                      const SizedBox(height: 12),
+                      ..._warnings(theme, colors, radio, selected),
+                    ],
                     const SizedBox(height: 4),
                     _parityTile(theme, colors),
                     if (_failed) ...[
@@ -319,7 +386,7 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
                         icon: Icons.error_outline,
                         background: colors.errorContainer,
                         foreground: colors.onErrorContainer,
-                        title: l10n.imageSend_encodeFailed,
+                        title: _tooLarge ? l10n.imageSend_tooLarge : l10n.imageSend_encodeFailed,
                         body: null,
                       ),
                     ],
@@ -364,7 +431,7 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
                 color: colors.surfaceContainerHighest,
                 child: Image.memory(
                   widget.imageBytes,
-                  fit: BoxFit.fill,
+                  fit: _isNative ? BoxFit.cover : BoxFit.fill,
                   alignment: Alignment.center,
                   gaplessPlayback: true,
                   errorBuilder: (context, error, stack) => Center(
@@ -381,7 +448,9 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
         ),
         const SizedBox(height: 8),
         Text(
-          context.l10n.imageSend_cropNote,
+          _isNative
+              ? context.l10n.imageSend_centerCropSize(_resolution)
+              : context.l10n.imageSend_cropNote,
           textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall?.copyWith(
             color: colors.onSurfaceVariant,
@@ -705,7 +774,7 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
           const SizedBox(width: 12),
           Expanded(
             child: FilledButton.icon(
-              onPressed: (!ready || busy) ? null : _onSend,
+              onPressed: (!ready || busy || _tooLarge) ? null : _onSend,
               icon: busy
                   ? const SizedBox(
                       width: 16,

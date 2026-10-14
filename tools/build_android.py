@@ -31,7 +31,14 @@ def source_files(root):
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         root, capture=True,
     ).split("\0")
-    return sorted({name for name in names if name and (root / name).is_file()})
+    safe = {name for name in names if name and (root / name).is_file()
+            and (root / name).resolve().is_relative_to(root.resolve())
+            and not set(Path(name).parts).intersection({'.build', '.android-build', '.git', '.dart_tool', '.gradle', 'build', '__pycache__'})}
+    for abi in ('armeabi-v7a', 'arm64-v8a'):
+        name = f'android/app/src/main/jniLibs/{abi}/libaeic_codec_exec.so'
+        if (root / name).is_file() and (root / name).resolve().is_relative_to(root.resolve()):
+            safe.add(name)
+    return sorted(safe)
 
 
 def prepare(root, destination, profile):
@@ -73,6 +80,8 @@ def verify_apk(apk, profile):
         raise RuntimeError("APK includes an unused runtime requiring a newer Android API")
     if profile == "legacy" and (onnx or llama):
         raise RuntimeError("Legacy APK unexpectedly includes native AI")
+    if not any(name.endswith('/libaeic_codec_exec.so') for name in libraries):
+        raise RuntimeError('APK is missing the native FT2 codec executable')
     for asset in ("esp32_partition_catalog.json", "github_legacy_roots.pem"):
         if not any(name.endswith("/" + asset) for name in names):
             raise RuntimeError(f"APK is missing required asset: {asset}")
@@ -89,6 +98,8 @@ def main():
                         help="Private key.properties with an absolute storeFile path")
     parser.add_argument("--test", action="store_true", help="Run the full Flutter test suite")
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--trial", action="store_true",
+                        help="Use a separate .aeictrial application ID to preserve an existing install")
     args = parser.parse_args()
     flutter = args.flutter.expanduser().resolve()
     profile = PROFILES[args.profile]
@@ -113,6 +124,7 @@ def main():
         "git_commit": run(["git", "rev-parse", "HEAD"], ROOT, capture=True).strip(),
         "dirty": bool(run(["git", "status", "--porcelain"], ROOT, capture=True).strip()),
         "native_ai": args.profile == "modern",
+        "native_ft2": True, "trial_application_id": args.trial,
         "signing": ("local-debug-sideload" if args.sideload else
                     "private-key" if args.signing_properties else "not-configured"),
     }
@@ -126,10 +138,11 @@ def main():
     env = os.environ.copy()
     env["MESHCORE_ALLOW_TEST_SIGNING"] = "1" if args.sideload else "0"
     define = f"--dart-define=LEGACY_ARM32={'true' if args.profile == 'legacy' else 'false'}"
+    trial = f"--dart-define=AEIC_TRIAL={'true' if args.trial else 'false'}"
     run([flutter, "pub", "get", "--enforce-lockfile"], workspace, env)
     if args.test:
         run([flutter, "test", "--no-pub", define, "--reporter", "expanded"], workspace, env)
-    run([flutter, "build", "apk", "--release", "--no-pub", define,
+    run([flutter, "build", "apk", "--release", "--no-pub", define, trial,
          "--target-platform", profile["target"]], workspace, env)
     output = workspace / "artifacts"
     output.mkdir()

@@ -38,6 +38,7 @@ Future<ImageSendPreviewResult?> _openSheet(
   WidgetTester tester, {
   required ImageSendRadio radio,
   ImageSendCodec codec = const FakeImageSendCodec(latency: Duration.zero),
+  void Function(ImageSendPreviewResult?)? onResult,
 }) async {
   ImageSendPreviewResult? result;
   var closed = false;
@@ -59,6 +60,7 @@ Future<ImageSendPreviewResult?> _openSheet(
                   radio: radio,
                 );
                 closed = true;
+                onResult?.call(result);
               },
               child: const Text('open'),
             ),
@@ -82,7 +84,103 @@ List<String> _texts(WidgetTester tester) => tester
     .whereType<String>()
     .toList();
 
+class _RecordingNativeCodec extends FakeImageSendCodec {
+  final List<int?> requestedSizes = [];
+
+  _RecordingNativeCodec()
+    : super(
+        sendRatePoint: ImageCodecRatePoint.nativeFt2,
+        latency: Duration.zero,
+      );
+
+  @override
+  Future<Uint8List> encode(
+    Uint8List bytes,
+    ImageCodecRatePoint rate, {
+    int? resolution,
+  }) {
+    requestedSizes.add(resolution);
+    return super.encode(bytes, rate, resolution: resolution);
+  }
+}
+
 void main() {
+  testWidgets(
+    'native preview defaults to 128 and sends its actual header size',
+    (tester) async {
+      final codec = _RecordingNativeCodec();
+      ImageSendPreviewResult? sent;
+      await _openSheet(
+        tester,
+        radio: _knownRadio,
+        codec: codec,
+        onResult: (result) => sent = result,
+      );
+      expect(codec.requestedSizes, [128]);
+      final selector = tester.widget<DropdownButtonFormField<int>>(
+        find.byKey(const ValueKey('native-image-resolution')),
+      );
+      expect(selector.initialValue, 128);
+      final dropdown = tester.widget<DropdownButton<int>>(
+        find.descendant(
+          of: find.byKey(const ValueKey('native-image-resolution')),
+          matching: find.byType(DropdownButton<int>),
+        ),
+      );
+      expect(
+        dropdown.items?.map((item) => item.value).toList(),
+        kNativeImageCodecResolutions,
+      );
+      expect(tester.widget<Image>(find.byType(Image)).fit, BoxFit.cover);
+      await tester.tap(
+        find.byWidgetPredicate((widget) => widget is FilledButton),
+      );
+      await tester.pumpAndSettle();
+      expect(sent?.rate, ImageCodecRatePoint.nativeFt2);
+      expect(sent?.resolution, 128);
+      expect(
+        NativeImageBitstreamHeader.tryParse(sent!.payload)?.resolution,
+        128,
+      );
+    },
+  );
+
+  testWidgets('changing native size re-encodes before sending', (tester) async {
+    final codec = _RecordingNativeCodec();
+    ImageSendPreviewResult? sent;
+    await _openSheet(
+      tester,
+      radio: _knownRadio,
+      codec: codec,
+      onResult: (result) => sent = result,
+    );
+    await tester.tap(find.byKey(const ValueKey('native-image-resolution')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('576 × 576').last);
+    await tester.tap(find.text('576 × 576').last);
+    await tester.pumpAndSettle();
+    expect(codec.requestedSizes, [128, 576]);
+    await tester.tap(
+      find.byWidgetPredicate((widget) => widget is FilledButton),
+    );
+    await tester.pumpAndSettle();
+    expect(sent?.resolution, 576);
+    expect(sent?.payload.length, 1783);
+    expect(NativeImageBitstreamHeader.tryParse(sent!.payload)?.resolution, 576);
+  });
+
+  testWidgets(
+    'legacy preview retains the 512 stretch without a size selector',
+    (tester) async {
+      await _openSheet(tester, radio: _knownRadio);
+      expect(
+        find.byKey(const ValueKey('native-image-resolution')),
+        findsNothing,
+      );
+      expect(tester.widget<Image>(find.byType(Image)).fit, BoxFit.fill);
+    },
+  );
+
   testWidgets('renders with a fake codec and shows the image preview', (
     tester,
   ) async {

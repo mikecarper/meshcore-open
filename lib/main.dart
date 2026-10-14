@@ -189,7 +189,8 @@ void main() async {
 /// Pure delegation. It exists so `received_image_store.dart` never imports
 /// `image_codec_service.dart` (and so the store stays testable without an
 /// 872 MB ONNX graph).
-class ImageCodecServiceDecoder implements ReceivedImageDecoder {
+class ImageCodecServiceDecoder
+    implements ReceivedImageDecoder, ReceivedImageRecoveryDecoder {
   final ImageCodecService service;
 
   const ImageCodecServiceDecoder(this.service);
@@ -199,6 +200,21 @@ class ImageCodecServiceDecoder implements ReceivedImageDecoder {
 
   @override
   bool get isBusy => service.isBusy;
+
+  @override
+  bool get supportsBestEffortRecovery => service.supportsBestEffortRecovery;
+
+  @override
+  Future<ImageCodecResult?> decodeRecoveredBitstream({
+    required Uint8List bitstream,
+    required AeicRatePoint ratePoint,
+    required int resolution,
+  }) => service.decodeBitstream(
+    bitstream: bitstream,
+    ratePoint: ratePoint,
+    resolution: resolution,
+    bestEffort: true,
+  );
 
   @override
   Future<ImageCodecResult?> decodeBitstream({

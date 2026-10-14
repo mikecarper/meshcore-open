@@ -72,7 +72,11 @@ library;
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import '../widgets/image_send_codec_binding.dart' show ImageCodecRatePoint;
+import '../widgets/image_send_codec_binding.dart'
+    show
+        ImageCodecRatePoint,
+        kNativeImageCodecResolutions,
+        NativeImageBitstreamHeader;
 
 // ---------------------------------------------------------------------------
 // Protocol constants (firmware-derived; see the transport investigation)
@@ -157,7 +161,8 @@ const int kImageRateWireStandard = 0;
 const int kImageRateWireHigh = 1;
 
 /// Number of rate codes this build knows how to name.
-const int kImageRateWireCodeCount = 2;
+const int kImageRateWireNativeFt2 = 2;
+const int kImageRateWireCodeCount = 3;
 
 /// Maps a UI rate point to the wire code written into the metadata byte.
 ///
@@ -181,6 +186,8 @@ int imageRateWireCode(ImageCodecRatePoint rate) {
       return kImageRateWireStandard;
     case ImageCodecRatePoint.high:
       return kImageRateWireHigh;
+    case ImageCodecRatePoint.nativeFt2:
+      return kImageRateWireNativeFt2;
   }
 }
 
@@ -191,6 +198,8 @@ ImageCodecRatePoint? imageRatePointFromWireCode(int code) {
       return ImageCodecRatePoint.standard;
     case kImageRateWireHigh:
       return ImageCodecRatePoint.high;
+    case kImageRateWireNativeFt2:
+      return ImageCodecRatePoint.nativeFt2;
     default:
       return null;
   }
@@ -305,6 +314,18 @@ class ImageStreamMetadata {
   /// Throws [ArgumentError] if [squareSize] is not one of
   /// [kImageResolutionCodes].
   int encode() {
+    if (rate == ImageCodecRatePoint.nativeFt2) {
+      if (!kNativeImageCodecResolutions.contains(squareSize)) {
+        throw ArgumentError.value(
+          squareSize,
+          'squareSize',
+          'unsupported native image resolution',
+        );
+      }
+      // Native rate 2 reserves resolution bits 00. Its full-size field is
+      // already present in the twelve-byte file header.
+      return ((aspectCode & 0x0F) << 4) | kImageRateWireNativeFt2;
+    }
     final code = kImageResolutionCodes.indexOf(squareSize);
     if (code < 0) {
       throw ArgumentError.value(
@@ -333,11 +354,38 @@ class ImageStreamMetadata {
     final code = (byte >> 2) & 0x03;
     final aspect = (byte >> 4) & 0x0F;
     if (rate == null) return null;
+    if (rate == ImageCodecRatePoint.nativeFt2) {
+      if (code != 0) return null;
+      return ImageStreamMetadata(rate: rate, squareSize: 0, aspectCode: aspect);
+    }
     if (code >= kImageResolutionCodes.length) return null;
     return ImageStreamMetadata(
       rate: rate,
       squareSize: kImageResolutionCodes[code],
       aspectCode: aspect,
+    );
+  }
+
+  /// Resolve the native dimensions only after the complete file has arrived.
+  /// Legacy rates keep their metadata and their payload untouched.
+  ImageStreamMetadata? resolvePayload(
+    Uint8List payload, {
+    bool allowPayloadLengthMismatch = false,
+  }) {
+    if (rate != ImageCodecRatePoint.nativeFt2) return this;
+    final header = NativeImageBitstreamHeader.tryParse(
+      payload,
+      maxFileBytes: kImageMaxPayloadBytes,
+      allowPayloadLengthMismatch: allowPayloadLengthMismatch,
+    );
+    if (header == null ||
+        (squareSize != 0 && squareSize != header.resolution)) {
+      return null;
+    }
+    return ImageStreamMetadata(
+      rate: rate,
+      squareSize: header.resolution,
+      aspectCode: aspectCode,
     );
   }
 
@@ -492,6 +540,9 @@ ImageChunkSet buildImageChunks({
       'payload',
       'exceeds kImageMaxPayloadBytes ($kImageMaxPayloadBytes)',
     );
+  }
+  if (metadata.resolvePayload(payload) == null) {
+    throw ArgumentError('Native image header does not match its metadata.');
   }
   final total = imageDataChunkCount(payload.length);
 
@@ -1122,7 +1173,7 @@ class ImageReassembler {
     if (first == null || first.length < kImageChunkZeroMetadataBytes) {
       return null;
     }
-    final metadata = ImageStreamMetadata.decode(first[0]);
+    final encodedMetadata = ImageStreamMetadata.decode(first[0]);
     final out = BytesBuilder();
     out.add(Uint8List.sublistView(first, kImageChunkZeroMetadataBytes));
     for (var i = 1; i < entry.total; i++) {
@@ -1131,6 +1182,12 @@ class ImageReassembler {
       out.add(body);
     }
     final data = out.toBytes();
+    // Keep bounded damaged native files for strict decode followed by an
+    // explicit recovery retry. Sending remains strict about the file length.
+    final metadata = encodedMetadata?.resolvePayload(
+      data,
+      allowPayloadLengthMismatch: true,
+    );
     if (metadata == null) {
       return const _FinishOutcome.failed(
         ImageChunkStatus.unsupportedFormat,

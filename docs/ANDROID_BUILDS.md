@@ -7,17 +7,19 @@ target firmware still determine which update transports are available.
 
 | Profile | Flutter | Android | CPU | Native AI |
 | --- | --- | --- | --- | --- |
-| legacy | 3.32.8 | API 21+, tested on Android 5.1.1/API 22 | ARMv7 | Not available |
+| legacy | 3.32.8 | API 21+, tested on Android 5.1.1/API 22 | ARMv7 | Native FT2 image messages; translation/ONNX disabled |
 | modern | 3.47.5 | API 28+ (Android 9+) | ARM64 | Translation and ONNX image codec included |
 
 The modern minimum follows the packaged llama.cpp binaries (API 28), not just
 Flutter's lower API 24 minimum. Only the GGUF translation runtime used by this
 app is bundled; the unrelated API 31 LiteRT-LM runtime is excluded.
 
-The legacy phone cannot run the translation native backend or fit the neural
-image decoder in its 32-bit address space. These operations stay unavailable in
-that profile, rather than appearing to work. This does not disable OTA crypto,
-on-phone patch generation, normal attachments, or normal messaging.
+The legacy phone cannot run the translation native backend or fit the legacy
+ONNX image decoder in its 32-bit address space. These optional runtimes remain
+disabled. Native FT2 image messages use an API21-compatible subprocess and
+staged ncnn models instead, with model import, picker/send preview, and receive
+recovery integrated into the full app. OTA crypto, on-phone patch generation,
+normal attachments, and normal messaging retain their existing behavior.
 
 The root pubspec and lockfile describe the modern build. The legacy dependency
 overrides and lockfile live in `build_profiles/legacy/`. Do not replace the root
@@ -46,8 +48,9 @@ certificate. This is suitable for these private test installs, not a public
 production signing identity. Keep the same private keystore securely backed up
 outside Git: changing it prevents an in-place update of installed APKs. CI uses
 its own ephemeral debug key, so a CI APK will not upgrade a locally signed APK.
-The APKs share an application ID and version; do not try to install the modern
-APK on the API 22 phone. Never uninstall the app just to bypass a key mismatch.
+By default the APKs share an application ID and version. `--trial` selects the
+separate `.aeictrial` ID for a test install. Do not install the modern APK on
+the API 22 phone. Never uninstall the app just to bypass a key mismatch.
 
 For a dedicated distribution identity, supply `--signing-properties` pointing
 to private Android signing properties with an absolute `storeFile` path. The

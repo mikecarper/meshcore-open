@@ -13,6 +13,9 @@ class ImageCodecSession {
   }
 
   String get backendName => 'unsupported';
+  bool get lastDegraded => false;
+  List<String> get lastWarnings => const [];
+  int get lastRecoveryEvents => 0;
 
   bool get supportsBitstreamCodec => false;
 

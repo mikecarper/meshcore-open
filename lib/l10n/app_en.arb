@@ -2941,5 +2941,26 @@
   "settings_phoneGpsUnavailable": "Enable location services and allow location access to use phone GPS.",
   "dialog_disconnectedTitle": "Disconnected",
   "dialog_disconnectedMessage": "You have been disconnected from your companion.",
-  "dialog_connectCompanion": "Connect to a companion to access repeater and room server features."
+  "dialog_connectCompanion": "Connect to a companion to access repeater and room server features.",
+  "imageSend_resolutionLabel": "Image size",
+  "imageSend_nativeSizeHint": "Smaller images need fewer packets. Compressed size depends on the photo.",
+  "imageSend_measuringSize": "Calculating compressed size…",
+  "imageSend_centerCropSize": "Center square · {size} × {size}",
+  "@imageSend_centerCropSize": {
+    "placeholders": {
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "imageMessages_nativeModelDescription": "The phone image model uses about 2 GB of storage and supports image sizes from 128 to 576 pixels.",
+  "imageMessages_importNativeModel": "Import phone model",
+  "imageMessages_validateNativeModel": "Check installed phone model",
+  "imageMessages_nativeImportFailed": "The phone model could not be verified. Check that the complete model package is available.",
+  "imageMessages_legacyModelUnavailable": "Older image models are unavailable in this Android 5.1 build. Import the phone model to use image messages.",
+  "receivedImage_nativeDecoding": "Reconstructing image… This may take several minutes.",
+  "receivedImage_recover": "Recover image",
+  "receivedImage_recoveryExplanation": "Try recovering this image? Some detail may be missing.",
+  "receivedImage_recovered": "Recovered image. Some detail may be missing.",
+  "translation_legacyUnavailable": "Translation is unavailable in this Android 5.1 build."
 }

@@ -175,6 +175,8 @@ class AppSettings {
   /// [AeicRatePoint.wireValue] of the composer's default rate point.
   /// 4 == ft32, the only rate point this build ships.
   final int imageCodecRatePoint;
+  final int imageCodecNativeResolution;
+  final bool imageCodecNativeBestEffort;
 
   final List<ImageCodecModelRecord> imageCodecDownloadedModels;
 
@@ -195,6 +197,8 @@ class AppSettings {
     selectedModelId: imageCodecSelectedModelId,
     modelSourceUrl: imageCodecModelSourceUrl,
     ratePoint: imageCodecRatePoint,
+    nativeResolution: imageCodecNativeResolution,
+    nativeBestEffort: imageCodecNativeBestEffort,
     downloadedModels: imageCodecDownloadedModels,
   );
 
@@ -266,6 +270,8 @@ class AppSettings {
     this.imageCodecSelectedModelId,
     this.imageCodecModelSourceUrl,
     this.imageCodecRatePoint = 4,
+    this.imageCodecNativeResolution = 128,
+    this.imageCodecNativeBestEffort = false,
     List<ImageCodecModelRecord>? imageCodecDownloadedModels,
     this.translationEnabled = false,
     this.autoTranslateIncomingMessages = true,
@@ -344,6 +350,8 @@ class AppSettings {
       'image_codec_selected_model_id': imageCodecSelectedModelId,
       'image_codec_model_source_url': imageCodecModelSourceUrl,
       'image_codec_rate_point': imageCodecRatePoint,
+      'image_codec_native_resolution': imageCodecNativeResolution,
+      'image_codec_native_best_effort': imageCodecNativeBestEffort,
       'image_codec_downloaded_models': imageCodecDownloadedModels
           .map((model) => model.toJson())
           .toList(),
@@ -452,6 +460,9 @@ class AppSettings {
           json['image_codec_selected_model_id'] as String?,
       imageCodecModelSourceUrl: json['image_codec_model_source_url'] as String?,
       imageCodecRatePoint: json['image_codec_rate_point'] as int? ?? 4,
+      imageCodecNativeResolution: kNativeFt2Resolutions.contains(json['image_codec_native_resolution'])
+          ? json['image_codec_native_resolution'] as int : 128,
+      imageCodecNativeBestEffort: json['image_codec_native_best_effort'] as bool? ?? false,
       imageCodecDownloadedModels:
           (json['image_codec_downloaded_models'] as List<dynamic>?)
               ?.map(
@@ -566,6 +577,8 @@ class AppSettings {
     Object? imageCodecSelectedModelId = _unset,
     Object? imageCodecModelSourceUrl = _unset,
     int? imageCodecRatePoint,
+    int? imageCodecNativeResolution,
+    bool? imageCodecNativeBestEffort,
     List<ImageCodecModelRecord>? imageCodecDownloadedModels,
     bool? translationEnabled,
     bool? autoTranslateIncomingMessages,
@@ -651,6 +664,8 @@ class AppSettings {
           ? this.imageCodecModelSourceUrl
           : imageCodecModelSourceUrl as String?,
       imageCodecRatePoint: imageCodecRatePoint ?? this.imageCodecRatePoint,
+      imageCodecNativeResolution: imageCodecNativeResolution ?? this.imageCodecNativeResolution,
+      imageCodecNativeBestEffort: imageCodecNativeBestEffort ?? this.imageCodecNativeBestEffort,
       imageCodecDownloadedModels:
           imageCodecDownloadedModels ?? this.imageCodecDownloadedModels,
       translationEnabled: translationEnabled ?? this.translationEnabled,

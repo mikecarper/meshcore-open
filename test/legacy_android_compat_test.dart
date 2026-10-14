@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meshcore_open/models/app_settings.dart';
+import 'package:meshcore_open/models/image_codec_support.dart';
+import 'package:meshcore_open/services/native_process_image_codec_backend.dart';
 import 'package:meshcore_open/services/app_settings_service.dart';
 import 'package:meshcore_open/services/image_codec_backend.dart';
 import 'package:meshcore_open/services/image_codec_session_io.dart';
@@ -10,10 +12,30 @@ import 'package:meshcore_open/widgets/legacy_radio.dart' as legacy_radio;
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const legacy = bool.fromEnvironment('LEGACY_ARM32');
-  test('native image codec follows the selected build profile', () {
-    expect(kImageCodecBitstreamPathAvailable, !legacy);
-    final backend = createImageCodecBackend();
-    expect(backend, legacy ? isNull : isA<OnnxImageCodecBackend>());
+  test(
+    'native FT2 is available while legacy ONNX follows the build profile',
+    () {
+      expect(kImageCodecBitstreamPathAvailable, isTrue);
+      final backend = createImageCodecBackend();
+      expect(backend, legacy ? isNull : isA<OnnxImageCodecBackend>());
+    },
+  );
+
+  test('worker selects native FT2 even in the ARM32 profile', () {
+    final backend = createWorkerImageCodecBackend(
+      const ImageCodecBundle(
+        decoderGraphPath: '/fixture/native',
+        ratePoint: AeicRatePoint.ft2,
+        nativeModelDirectory: '/fixture/native',
+        nativeCodecIdentity: kNativeFt2ModelId,
+      ),
+    );
+    expect(backend, isA<NativeProcessImageCodecBackend>());
+    expect(
+      backend!.supportsBitstreamCodec,
+      isFalse,
+      reason: 'native model support requires a validated loaded bundle',
+    );
   });
 
   test('worker factory connects the real entropy coder', () async {

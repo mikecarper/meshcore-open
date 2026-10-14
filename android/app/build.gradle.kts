@@ -22,12 +22,19 @@ val dartDefines = (project.findProperty("dart-defines") as String?)
     ?.map { String(Base64.getDecoder().decode(it), Charsets.UTF_8) }
     ?: emptyList()
 val legacyArm32 = dartDefines.contains("LEGACY_ARM32=true")
+val aeicTrial = dartDefines.contains("AEIC_TRIAL=true") ||
+    providers.gradleProperty("meshcoreAeicTrial")
+        .map { it.equals("true", ignoreCase = true) }.getOrElse(false)
 val allowTestSigning = System.getenv("MESHCORE_ALLOW_TEST_SIGNING") == "1"
 
 android {
     namespace = "com.meshcore.meshcore_open"
     compileSdk = 36
     ndkVersion = "29.0.14206865"
+    // Extract the API21-compatible PIE codec into executable nativeLibraryDir.
+    packaging {
+        jniLibs.useLegacyPackaging = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -42,6 +49,7 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.meshcore.meshcore_open"
+        if (aeicTrial) applicationIdSuffix = ".aeictrial"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // The packaged llama.cpp translation libraries are built for API 28.

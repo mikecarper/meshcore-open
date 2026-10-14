@@ -1,0 +1,15 @@
+Native AEIC codec executable
+
+ncnn: Tencent, BSD3-Clause. Exact source revision:
+b0f97f43f266617ff5e5096d440dbe3f9a4c35b8.
+See ncnn.txt for the complete license and included third-party notices.
+
+rANS encoder/decoder: Copyright 2020 InterDigital Communications, Inc.
+Licensed under Apache License 2.0. See rans-apache-2.0.txt.
+rANS extensions retain the upstream Fabian Giesen public-domain header.
+
+Android NDK 29.0.14206865 static C++ and OpenMP runtime notices:
+see ndk-toolchain.txt.
+
+System Android libraries are linked dynamically. Learned model weights are
+installed separately and are not embedded in this executable or APK.

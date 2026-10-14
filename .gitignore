@@ -99,3 +99,6 @@ keystore.properties
 
 # Claude Code local working dir (worktrees, jobs, settings)
 .claude/
+
+# Generated native codec build outputs.
+.android-build/

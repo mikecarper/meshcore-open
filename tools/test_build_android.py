@@ -15,7 +15,7 @@ class AndroidProfileTests(unittest.TestCase):
             apk = Path(temporary) / "test.apk"
             def package(abi, *libraries):
                 with zipfile.ZipFile(apk, "w") as archive:
-                    for library in ("libflutter.so", *libraries):
+                    for library in ("libflutter.so", "libaeic_codec_exec.so", *libraries):
                         archive.writestr(f"lib/{abi}/{library}", b"fixture")
                     for asset in ("esp32_partition_catalog.json", "github_legacy_roots.pem"):
                         archive.writestr(f"assets/flutter_assets/{asset}", b"fixture")

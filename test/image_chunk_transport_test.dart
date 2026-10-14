@@ -76,7 +76,10 @@ void main() {
 
   group('metadata byte', () {
     test('round-trips both rate points', () {
-      for (final rate in ImageCodecRatePoint.values) {
+      for (final rate in [
+        ImageCodecRatePoint.standard,
+        ImageCodecRatePoint.high,
+      ]) {
         final meta = ImageStreamMetadata(rate: rate);
         expect(ImageStreamMetadata.decode(meta.encode()), meta);
       }
@@ -98,7 +101,10 @@ void main() {
       // is no longer expressible. Rate keeps two spare codes (2 and 3), and
       // that is the channel a future incompatible format must use so older
       // receivers reject it instead of guessing.
-      expect(ImageStreamMetadata.decode(0x02), isNull); // rate code 2
+      expect(
+        ImageStreamMetadata.decode(0x02)?.rate,
+        ImageCodecRatePoint.nativeFt2,
+      ); // dimensions are in the file header
       expect(ImageStreamMetadata.decode(0x03), isNull); // rate code 3
       // 0xF0 is aspect 15 (unknown shape), resolution 0, rate 0 — all legal.
       final legal = ImageStreamMetadata.decode(0xF0);
@@ -1107,7 +1113,15 @@ void main() {
       );
       // ...and an AeicRatePoint ordinal on the wire is refused outright.
       expect(imageRatePointFromWireCode(AeicRatePoint.ft32.wireValue), isNull);
-      expect(imageRatePointFromWireCode(AeicRatePoint.ft8.wireValue), isNull);
+      expect(
+        imageRatePointFromWireCode(AeicRatePoint.ft8.wireValue),
+        ImageCodecRatePoint.nativeFt2,
+      );
+      expect(imageRateWireCode(ImageCodecRatePoint.nativeFt2), 2);
+      expect(
+        AeicRatePoint.ft2.wireValue,
+        0,
+      ); // model ordinal is a different domain
     });
 
     test('every wire code round-trips and unknown codes are null', () {
@@ -1204,7 +1218,10 @@ void main() {
 
     test('the whole byte still fits in 8 bits for every legal combination', () {
       for (final size in kImageResolutionCodes) {
-        for (final rate in ImageCodecRatePoint.values) {
+        for (final rate in [
+          ImageCodecRatePoint.standard,
+          ImageCodecRatePoint.high,
+        ]) {
           for (var code = 0; code < kImageAspectCodes.length; code++) {
             final byte = ImageStreamMetadata(
               rate: rate,

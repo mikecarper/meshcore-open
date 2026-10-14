@@ -92,6 +92,33 @@ class _FakeDecoder implements ReceivedImageDecoder {
 }
 
 const int kSender = 0x1a2b;
+
+class _RecoveryDecoder extends _FakeDecoder
+    implements ReceivedImageRecoveryDecoder {
+  @override
+  bool get supportsBestEffortRecovery => true;
+  int recoveryCalls = 0;
+  _RecoveryDecoder() : super(mode: 'fail');
+  @override
+  Future<ImageCodecResult?> decodeRecoveredBitstream({
+    required Uint8List bitstream,
+    required AeicRatePoint ratePoint,
+    required int resolution,
+  }) async {
+    recoveryCalls++;
+    return ImageCodecResult(
+      ratePoint: ratePoint,
+      resolution: resolution,
+      durationMs: 12,
+      status: ImageCodecStatus.completed,
+      pngBytes: png,
+      degraded: true,
+      warnings: const ['DEGRADED fixture'],
+      recoveryEvents: 2,
+    );
+  }
+}
+
 const int kSelf = 0xbeef;
 
 Uint8List _payload(int length, [int seed = 0]) {
@@ -145,6 +172,90 @@ _Rig _build({
 }
 
 void main() {
+  test(
+    'a fully reassembled truncated native file is retained for explicit recovery',
+    () async {
+      final decoder = _RecoveryDecoder();
+      final h = _build(decoder: decoder);
+      final payload = Uint8List(37);
+      final header = ByteData.sublistView(payload);
+      header.setUint32(0, 128, Endian.big);
+      header.setUint32(4, 128, Endian.big);
+      header.setUint32(8, 25, Endian.big);
+      final chunks = buildImageChunks(
+        payload: payload,
+        metadata: const ImageStreamMetadata(
+          rate: ImageCodecRatePoint.nativeFt2,
+          squareSize: 128,
+        ),
+        senderPrefix: kSender,
+        imgId: 202,
+      );
+      final shortened = chunks.blobs[0].sublist(0, chunks.blobs[0].length - 4);
+      final entry = await h.store.handleOutcome(
+        h.reassembler.addChunk(shortened, channelIndex: 3),
+        channelIndex: 3,
+      );
+      expect(entry, isNotNull);
+      expect(entry!.rate, AeicRatePoint.ft2);
+      expect(entry.resolution, 128);
+      await h.store.settle();
+      final retained = await h.blobs.readBitstream(entry.streamId);
+      expect(retained!.length, 33);
+      expect(NativeImageBitstreamHeader.tryParse(retained), isNull);
+      expect(
+        h.store.entryFor(entry.streamId)!.state,
+        ReceivedImageState.failedCorrupt,
+      );
+      expect(h.store.entryFor(entry.streamId)!.bitstreamStored, isTrue);
+      expect(decoder.recoveryCalls, 0);
+      await h.store.requestDecode(entry.streamId, bestEffort: true);
+      expect(decoder.recoveryCalls, 1);
+      expect(h.store.entryFor(entry.streamId)!.degraded, isTrue);
+      expect(h.store.entryFor(entry.streamId)!.resolution, 128);
+    },
+  );
+  test(
+    'explicit native recovery is separate from strict decoding and persists its badge',
+    () async {
+      final decoder = _RecoveryDecoder();
+      final h = _build(decoder: decoder);
+      final payload = Uint8List(37);
+      final header = ByteData.sublistView(payload);
+      header.setUint32(0, 128, Endian.big);
+      header.setUint32(4, 128, Endian.big);
+      header.setUint32(8, 25, Endian.big);
+      final set = buildImageChunks(
+        payload: payload,
+        metadata: const ImageStreamMetadata(
+          rate: ImageCodecRatePoint.nativeFt2,
+          squareSize: 128,
+        ),
+        senderPrefix: kSender,
+        imgId: 201,
+      );
+      final entry = await h.store.handleOutcome(
+        h.reassembler.addChunk(set.blobs[0], channelIndex: 3),
+        channelIndex: 3,
+      );
+      await h.store.settle();
+      expect(
+        h.store.entryFor(entry!.streamId)!.state,
+        ReceivedImageState.failedCorrupt,
+      );
+      expect(decoder.recoveryCalls, 0);
+      await h.store.requestDecode(entry.streamId, bestEffort: true);
+      final recovered = h.store.entryFor(entry.streamId)!;
+      expect(recovered.state, ReceivedImageState.decoded);
+      expect(recovered.resolution, 128);
+      expect(recovered.degraded, isTrue);
+      expect(recovered.recoveryEvents, 2);
+      final persisted = ReceivedImageEntry.fromJson(recovered.toJson());
+      expect(persisted.degraded, isTrue);
+      expect(persisted.warnings, ['DEGRADED fixture']);
+      expect(decoder.recoveryCalls, 1);
+    },
+  );
   group('ReceivedImageRef', () {
     test('round-trips a stream id', () {
       final id = ReceivedImageRef.streamIdFor(
@@ -759,6 +870,38 @@ void main() {
   });
 
   group('outgoing', () {
+    for (final size in [128, 576]) {
+      test(
+        'native outgoing entry persists its $size square metadata',
+        () async {
+          final h = _build();
+          final entry = await h.store.registerOutgoing(
+            channelIndex: 1,
+            senderPrefix: kSelf,
+            imgId: 4,
+            previewPng: Uint8List.fromList(List<int>.filled(64, 1)),
+            rate: AeicRatePoint.ft2,
+            resolution: size,
+            aspectCode: 0,
+            chunkCount: 2,
+          );
+          expect(entry.resolution, size);
+          expect(entry.aspectCode, 0);
+          expect(entry.displayAspectRatio, isNull);
+          expect(entry.isOutgoing, isTrue);
+          expect(h.decoder.calls, 0);
+          h.store.dispose();
+          final reloaded = ReceivedImageStore(blobs: h.blobs);
+          await reloaded.load();
+          final saved = reloaded.entryFor(entry.streamId)!;
+          expect(saved.rate, AeicRatePoint.ft2);
+          expect(saved.resolution, size);
+          expect(saved.aspectCode, 0);
+          expect(saved.displayAspectRatio, isNull);
+          reloaded.dispose();
+        },
+      );
+    }
     test('registerOutgoing is decoded, not synthesized', () async {
       final h = _build();
       final entry = await h.store.registerOutgoing(
@@ -772,6 +915,8 @@ void main() {
       expect(entry.state, ReceivedImageState.decoded);
       expect(entry.isOutgoing, isTrue);
       expect(entry.synthesized, isFalse);
+      expect(entry.resolution, 512);
+      expect(entry.aspectCode, 0);
       expect(await h.store.ensurePng(entry.streamId), isNotNull);
       expect(h.decoder.calls, 0);
     });

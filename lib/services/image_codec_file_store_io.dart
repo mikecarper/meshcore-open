@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/image_codec_support.dart';
+import 'native_image_codec_installer.dart';
 
 /// On-disk storage for image-codec weights.
 ///
@@ -31,6 +32,8 @@ class ImageCodecFileStore {
       return const [];
     }
     final models = <ImageCodecModelRecord>[];
+    final native = await NativeImageCodecInstaller().scanInstalled(dir.path);
+    if (native != null) models.add(native);
     for (final entity in dir.listSync().whereType<File>()) {
       final name = entity.uri.pathSegments.last;
       if (name.startsWith('.')) {
@@ -59,9 +62,27 @@ class ImageCodecFileStore {
   }
 
   Future<void> deleteModel(ImageCodecModelRecord model) async {
+    if (model.bundleKind == ImageCodecBundleKind.nativeFt2Ncnn) {
+      final root = await modelDirectoryPath();
+      final target = Directory('$root/${NativeImageCodecInstaller.directoryName}');
+      if (model.localPath != '${target.path}/manifest.json') {
+        throw ArgumentError('The native model path is outside its private storage.');
+      }
+      if (await target.exists()) await target.delete(recursive: true);
+      return;
+    }
     await deleteFile(model.localPath);
     await deletePartialDownloads(model.name);
   }
+
+  Future<ImageCodecModelRecord> importNativeBundle({
+    required Stream<List<int>> chunks,
+    void Function(int completed, int total)? onProgress,
+  }) async => NativeImageCodecInstaller().importArchive(
+    modelRoot: await modelDirectoryPath(), chunks: chunks, onProgress: onProgress);
+
+  Future<ImageCodecModelRecord> validateNativeBundle() async =>
+      NativeImageCodecInstaller().validateInstalled(await modelDirectoryPath());
 
   /// Removes any resume state for [fileName].
   ///

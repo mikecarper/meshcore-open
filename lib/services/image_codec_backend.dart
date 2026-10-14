@@ -144,11 +144,10 @@ abstract class ImageCodecBackend {
 
 /// Compile-time answer to "can this build turn bytes into a picture?".
 ///
-/// The modern build includes ONNX and the worker wires the Dart rANS coder.
-/// The legacy ARM32 build omits the native plugin and cannot fit the decoder
-/// in its address space. Its UI must not offer an operation it cannot run.
-const bool kImageCodecBitstreamPathAvailable =
-    !kIsWeb && !bool.fromEnvironment('LEGACY_ARM32');
+/// Native FT2 uses the staged Android subprocess on both ARM32 and ARM64.
+/// The legacy ARM32 profile still omits ONNX; its backend factory returns null
+/// for legacy model bundles while the worker selects native FT2 separately.
+const bool kImageCodecBitstreamPathAvailable = !kIsWeb;
 
 /// Builds a range coder bound to the CDF tables at [tablesPath].
 ///
@@ -862,7 +861,8 @@ class ImageCodecCancelled implements Exception {
 /// turns a `null` here into an [ImageCodecUnimplemented], which the service
 /// surfaces as `lastError` and maps to `ImageCodecAvailability.unavailable`.
 ImageCodecBackend? createImageCodecBackend() {
-  if (!kImageCodecBitstreamPathAvailable) {
+  if (!kImageCodecBitstreamPathAvailable ||
+      const bool.fromEnvironment('LEGACY_ARM32')) {
     return null;
   }
   return OnnxImageCodecBackend();

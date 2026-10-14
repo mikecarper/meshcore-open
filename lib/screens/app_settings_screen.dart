@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:provider/provider.dart';
 
 import '../connector/meshcore_connector.dart';
@@ -697,6 +698,30 @@ class AppSettingsScreen extends StatelessWidget {
             style: textTheme.titleSmall,
           ),
           const SizedBox(height: 6),
+          Text(
+            context.l10n.imageMessages_nativeModelDescription,
+            style: textTheme.bodySmall,
+          ),
+          Wrap(
+            spacing: 8,
+            children: [
+              OutlinedButton.icon(
+                icon: const Icon(Icons.folder_open_outlined),
+                label: Text(context.l10n.imageMessages_importNativeModel),
+                onPressed: codec.isBusy || codec.isDownloading
+                    ? null
+                    : () => _importNativeModel(context, codec),
+              ),
+              TextButton(
+                onPressed: codec.isBusy || codec.isDownloading
+                    ? null
+                    : () => _validateNativeModel(context, codec),
+                child: Text(context.l10n.imageMessages_validateNativeModel),
+              ),
+            ],
+          ),
+          if (codec.isDownloading)
+            LinearProgressIndicator(value: codec.downloadProgress),
           if (reason != null)
             Container(
               padding: const EdgeInsets.all(12),
@@ -711,7 +736,15 @@ class AppSettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
-          for (final spec in imageCodecPresetModels)
+          if (const bool.fromEnvironment('LEGACY_ARM32'))
+            Text(
+              context.l10n.imageMessages_legacyModelUnavailable,
+              style: textTheme.bodySmall,
+            ),
+          for (final spec
+              in const bool.fromEnvironment('LEGACY_ARM32')
+                  ? <ImageCodecModelSpec>[]
+                  : imageCodecPresetModels)
             _buildImageCodecPreset(context, codec, spec),
           for (final model in codec.availableModels)
             ListTile(
@@ -720,6 +753,10 @@ class AppSettingsScreen extends StatelessWidget {
               leading: const Icon(Icons.check_circle_outline, size: 20),
               title: Text(model.name.isEmpty ? model.id : model.name),
               subtitle: Text(_formatModelBytes(model.fileSizeBytes)),
+              selected: model.id == codec.selectedModel?.id,
+              onTap: codec.isBusy || codec.isDownloading
+                  ? null
+                  : () => codec.setSelectedModelId(model.id),
               trailing: IconButton(
                 icon: const Icon(Icons.delete_outline, size: 20),
                 tooltip: context.l10n.imageMessages_removeModel,
@@ -738,6 +775,50 @@ class AppSettingsScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _importNativeModel(
+    BuildContext context,
+    ImageCodecService codec,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final file = await openFile(
+        acceptedTypeGroups: const [
+          XTypeGroup(label: 'AEIC phone model', extensions: ['tar']),
+        ],
+      );
+      if (file == null) return;
+      await codec.importNativeBundle(file.openRead());
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.imageMessages_modelReady)),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.imageMessages_nativeImportFailed)),
+      );
+    }
+  }
+
+  Future<void> _validateNativeModel(
+    BuildContext context,
+    ImageCodecService codec,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await codec.validateNativeBundle();
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.imageMessages_modelReady)),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.imageMessages_nativeImportFailed)),
+      );
+    }
   }
 
   Widget _buildImageCodecPreset(

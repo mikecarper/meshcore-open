@@ -54,13 +54,9 @@ const String kImageCodecDecoderOutputName = 'image';
 
 /// Rate point = which `AEIC_SE_ft*.pkl` the encoder was fine-tuned from.
 ///
-/// **ft32 IS THE ONLY SHIPPING RATE POINT** ([kShippingAeicRatePoint]). One
-/// checkpoint ships, so [aeicRatePointForUi] is constant and the UI has no
-/// quality selector to honour. The other members are retained *only* because
-/// their ordinals are already persisted in `image_codec_rate_point` and cross
-/// the isolate boundary, and because the measured byte counts below are real
-/// data worth keeping. Do not reorder, do not add a second shipping entry
-/// without a second model in [imageCodecPresetModels].
+/// Legacy ONNX uses ft32; the separately installed native bundle uses ft2.
+/// Other members retain their persisted ordinals. Never reorder them or mix
+/// a checkpoint's entropy assets with another bundle.
 ///
 /// NOTE ON THE WIRE VALUE. This enum's ordinal is NOT the on-air rate nibble.
 /// The on-air chunk-0 metadata byte is defined by `ImageStreamMetadata` in
@@ -72,15 +68,36 @@ const String kImageCodecDecoderOutputName = 'image';
 /// [uiRatePointForAeic]; never assume they are the same integer.
 ///
 /// Measured real rANS bitstream sizes at 512x512 over 26 images
-/// (Kodak 24 + 2 custom). `ft2`/`ft4` have not been measured on this corpus.
+/// (Kodak 24 + 2 custom). `ft2`/`ft4` have not been measured on this legacy
+/// corpus; the native FT2 photo benchmarks are separate measurements.
 enum AeicRatePoint { ft2, ft4, ft8, ft16, ft32 }
 
-/// The one rate point this build encodes and decodes at.
+/// The default rate point for the legacy ONNX bundle.
 ///
 /// ft32: mean 155.8 B, min 110 B, max 209 B over the 26-image corpus, i.e. 1-2
 /// data chunks plus one XOR parity chunk. ft16 was dropped: it needs 2-3 data
 /// chunks and leaves only 79 B of headroom under the 3-chunk ceiling.
 const AeicRatePoint kShippingAeicRatePoint = AeicRatePoint.ft32;
+
+const String kNativeFt2ModelId = 'AEIC_SE_FT2_NCNN';
+const List<int> kNativeFt2Resolutions = [
+  128,
+  192,
+  256,
+  320,
+  384,
+  448,
+  512,
+  576,
+];
+
+enum ImageCodecBundleKind { legacyOnnxFt32, nativeFt2Ncnn }
+
+abstract interface class ImageCodecDiagnostics {
+  bool get lastDegraded;
+  List<String> get lastWarnings;
+  int get lastRecoveryEvents;
+}
 
 extension AeicRatePointValue on AeicRatePoint {
   int get wireValue => index;
@@ -132,18 +149,17 @@ AeicRatePoint parseAeicRatePoint(int wireValue) {
 
 /// Maps the UI-level rate selector onto the codec's rate points.
 ///
-/// ft32-only, so this is deliberately constant and ignores [rate]. It is kept
-/// as a function (rather than inlining [kShippingAeicRatePoint] at the call
-/// sites) so that adding a second checkpoint is a one-function change, and so
-/// this file never names an [ImageCodecRatePoint] member — that enum is owned by
-/// `image_send_codec_binding.dart` and its membership is the UI's to shrink.
+/// Native FT2 uses its distinct wire identity; standard retains legacy ft32.
 AeicRatePoint aeicRatePointForUi(ImageCodecRatePoint rate) =>
-    kShippingAeicRatePoint;
+    rate == ImageCodecRatePoint.nativeFt2
+    ? AeicRatePoint.ft2
+    : AeicRatePoint.ft32;
 
-/// Inverse of [aeicRatePointForUi]. Constant for the same reason: every rate
-/// point this build can produce is the standard one.
+/// Converts the installed model identity back to the UI's explicit wire rate.
 ImageCodecRatePoint uiRatePointForAeic(AeicRatePoint rate) =>
-    ImageCodecRatePoint.standard;
+    rate == AeicRatePoint.ft2
+    ? ImageCodecRatePoint.nativeFt2
+    : ImageCodecRatePoint.standard;
 
 /// Bundle layout revision written into [ImageCodecModelRecord.bundleVersion].
 ///
@@ -195,6 +211,7 @@ class ImageCodecModelRecord {
 
   /// [kImageCodecBundleVersion] at install time; 0 for a pre-bundle install.
   final int bundleVersion;
+  final ImageCodecBundleKind bundleKind;
 
   const ImageCodecModelRecord({
     required this.id,
@@ -206,6 +223,7 @@ class ImageCodecModelRecord {
     this.assetFileNames = const [],
     this.assetRoles = const {},
     this.bundleVersion = 0,
+    this.bundleKind = ImageCodecBundleKind.legacyOnnxFt32,
   });
 
   /// The installed file recorded as [role], or null when none was.
@@ -233,6 +251,7 @@ class ImageCodecModelRecord {
         for (final entry in assetRoles.entries) entry.key: entry.value.name,
       },
       'bundle_version': bundleVersion,
+      'bundle_kind': bundleKind.name,
     };
   }
 
@@ -264,6 +283,9 @@ class ImageCodecModelRecord {
             }
           : const {},
       bundleVersion: json['bundle_version'] as int? ?? 0,
+      bundleKind: json['bundle_kind'] == ImageCodecBundleKind.nativeFt2Ncnn.name
+          ? ImageCodecBundleKind.nativeFt2Ncnn
+          : ImageCodecBundleKind.legacyOnnxFt32,
     );
   }
 
@@ -277,6 +299,7 @@ class ImageCodecModelRecord {
     List<String>? assetFileNames,
     Map<String, ImageCodecAssetRole>? assetRoles,
     int? bundleVersion,
+    ImageCodecBundleKind? bundleKind,
   }) {
     return ImageCodecModelRecord(
       id: id ?? this.id,
@@ -288,6 +311,7 @@ class ImageCodecModelRecord {
       assetFileNames: assetFileNames ?? this.assetFileNames,
       assetRoles: assetRoles ?? this.assetRoles,
       bundleVersion: bundleVersion ?? this.bundleVersion,
+      bundleKind: bundleKind ?? this.bundleKind,
     );
   }
 }
@@ -491,6 +515,16 @@ class ImageCodecModelSpec {
 /// none of them, and that install must keep working for latent synthesis rather
 /// than becoming unloadable.
 class ImageCodecBundle {
+  final String? nativeModelDirectory;
+  final String? nativeCodecIdentity;
+  final bool nativeBestEffort;
+  final int nativeThreads;
+
+  bool get isNativeFt2 =>
+      nativeModelDirectory != null &&
+      nativeCodecIdentity == kNativeFt2ModelId &&
+      ratePoint == AeicRatePoint.ft2;
+
   /// `*.onnx`; its `*.onnx.data` sibling must be in the same directory under
   /// the exact filename the graph records.
   final String decoderGraphPath;
@@ -520,6 +554,10 @@ class ImageCodecBundle {
     this.entropyDecodeGraphPath,
     this.tablesPath,
     this.ratePoint = kShippingAeicRatePoint,
+    this.nativeModelDirectory,
+    this.nativeCodecIdentity,
+    this.nativeBestEffort = false,
+    this.nativeThreads = 2,
   });
 
   /// True when this install can run the **send** half of the entropy path.
@@ -527,10 +565,12 @@ class ImageCodecBundle {
   /// Deliberately does NOT require [entropyDecodeGraphPath]: a version-1 install
   /// can still encode, and reporting it as unable to do anything would be wrong.
   /// Use [supportsDecode] to gate a decode.
-  bool get isComplete => entropyGraphPath != null && tablesPath != null;
+  bool get isComplete =>
+      isNativeFt2 || entropyGraphPath != null && tablesPath != null;
 
   /// True when this install can also turn a bitstream back into a picture.
-  bool get supportsDecode => isComplete && entropyDecodeGraphPath != null;
+  bool get supportsDecode =>
+      isNativeFt2 || isComplete && entropyDecodeGraphPath != null;
 
   @override
   bool operator ==(Object other) =>
@@ -539,7 +579,11 @@ class ImageCodecBundle {
       other.entropyGraphPath == entropyGraphPath &&
       other.entropyDecodeGraphPath == entropyDecodeGraphPath &&
       other.tablesPath == tablesPath &&
-      other.ratePoint == ratePoint;
+      other.ratePoint == ratePoint &&
+      other.nativeModelDirectory == nativeModelDirectory &&
+      other.nativeCodecIdentity == nativeCodecIdentity &&
+      other.nativeBestEffort == nativeBestEffort &&
+      other.nativeThreads == nativeThreads;
 
   @override
   int get hashCode => Object.hash(
@@ -548,6 +592,10 @@ class ImageCodecBundle {
     entropyDecodeGraphPath,
     tablesPath,
     ratePoint,
+    nativeModelDirectory,
+    nativeCodecIdentity,
+    nativeBestEffort,
+    nativeThreads,
   );
 
   @override
@@ -646,6 +694,10 @@ const int kImageCodecBundleTotalBytes = 1004548432;
 
 /// Result of an encode or a decode.
 class ImageCodecResult {
+  final bool degraded;
+  final List<String> warnings;
+  final int recoveryEvents;
+
   /// Encode result: the compressed payload only, with no chunk headers.
   final Uint8List? bitstream;
 
@@ -660,8 +712,7 @@ class ImageCodecResult {
 
   final AeicRatePoint ratePoint;
 
-  /// Square edge length. 512 today and a hard floor — the SD-Turbo UNet in the
-  /// decoder needs a 64x64 latent and collapses below it.
+  /// Square edge length: native FT2 supports 128..576 by 64; legacy ONNX uses 512.
   final int resolution;
 
   final int durationMs;
@@ -675,6 +726,9 @@ class ImageCodecResult {
     this.bitstream,
     this.pngBytes,
     this.rgbBytes,
+    this.degraded = false,
+    this.warnings = const [],
+    this.recoveryEvents = 0,
   });
 }
 
@@ -763,6 +817,8 @@ class ImageCodecIntegrityFailure implements Exception {
 /// the `image_codec_*` names the AppSettings migration will use, so moving them
 /// is a copy, not a rewrite.
 class ImageCodecPreferences {
+  final int nativeResolution;
+  final bool nativeBestEffort;
   final bool enabled;
   final String? selectedModelId;
   final String? modelSourceUrl;
@@ -778,6 +834,8 @@ class ImageCodecPreferences {
     this.modelSourceUrl,
     this.ratePoint = 4, // AeicRatePoint.ft32
     this.downloadedModels = const [],
+    this.nativeResolution = 128,
+    this.nativeBestEffort = false,
   });
 
   AeicRatePoint get aeicRatePoint => parseAeicRatePoint(ratePoint);
@@ -788,6 +846,8 @@ class ImageCodecPreferences {
       'image_codec_selected_model_id': selectedModelId,
       'image_codec_model_source_url': modelSourceUrl,
       'image_codec_rate_point': ratePoint,
+      'image_codec_native_resolution': nativeResolution,
+      'image_codec_native_best_effort': nativeBestEffort,
       'image_codec_downloaded_models': [
         for (final model in downloadedModels) model.toJson(),
       ],
@@ -801,6 +861,12 @@ class ImageCodecPreferences {
       selectedModelId: json['image_codec_selected_model_id'] as String?,
       modelSourceUrl: json['image_codec_model_source_url'] as String?,
       ratePoint: json['image_codec_rate_point'] as int? ?? 4,
+      nativeResolution:
+          kNativeFt2Resolutions.contains(json['image_codec_native_resolution'])
+          ? json['image_codec_native_resolution'] as int
+          : 128,
+      nativeBestEffort:
+          json['image_codec_native_best_effort'] as bool? ?? false,
       downloadedModels: rawModels is List
           ? [
               for (final entry in rawModels)
@@ -819,6 +885,8 @@ class ImageCodecPreferences {
     Object? modelSourceUrl = _unset,
     int? ratePoint,
     List<ImageCodecModelRecord>? downloadedModels,
+    int? nativeResolution,
+    bool? nativeBestEffort,
   }) {
     return ImageCodecPreferences(
       enabled: enabled ?? this.enabled,
@@ -830,6 +898,8 @@ class ImageCodecPreferences {
           : modelSourceUrl as String?,
       ratePoint: ratePoint ?? this.ratePoint,
       downloadedModels: downloadedModels ?? this.downloadedModels,
+      nativeResolution: nativeResolution ?? this.nativeResolution,
+      nativeBestEffort: nativeBestEffort ?? this.nativeBestEffort,
     );
   }
 }
