@@ -92,7 +92,7 @@ class RemotePrivateKeyBackup {
     return Uint8List.fromList(
       utf8.encode(
         jsonEncode({
-        'format': 'meshcore-private-key-backup-v1',
+          'format': 'meshcore-private-key-backup-v1',
           'public_key': _hex(publicKey),
           'kdf': 'pbkdf2-hmac-sha256',
           'iterations': iterations,

@@ -642,7 +642,9 @@ class NotificationService {
   /// summary.  Called when the user opens the discovery list
   /// (which shows all discovered nodes anyway).
   Future<void> clearAllAdvertNotifications() async {
-    _pendingNotifications.removeWhere((n) => n.type == _NotificationType.advert);
+    _pendingNotifications.removeWhere(
+      (n) => n.type == _NotificationType.advert,
+    );
     if (!await _ensureInitialized()) return;
     // Cancel the group summary.
     final summaryId = 'summary:meshcore_adverts'.hashCode;

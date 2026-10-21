@@ -4,20 +4,29 @@ import 'package:meshcore_open/widgets/image_send_codec_binding.dart';
 
 void main() {
   group('ImageCodecModelRecord', () {
-    test('native FT2 identity survives persistence without ONNX asset roles', () {
-      final record = ImageCodecModelRecord(
-        id: kNativeFt2ModelId, name: 'FT2', sourceUrl: '',
-        localPath: '/private/ft2/manifest.json', downloadedAt: DateTime(2026),
-        fileSizeBytes: 2036938808, bundleVersion: 1,
-        bundleKind: ImageCodecBundleKind.nativeFt2Ncnn,
-      );
-      final restored = ImageCodecModelRecord.fromJson(record.toJson());
-      expect(restored.bundleKind, ImageCodecBundleKind.nativeFt2Ncnn);
-      expect(restored.id, kNativeFt2ModelId);
-      expect(restored.assetRoles, isEmpty);
-      expect(ImageCodecModelRecord.fromJson({}).bundleKind,
-        ImageCodecBundleKind.legacyOnnxFt32);
-    });
+    test(
+      'native FT2 identity survives persistence without ONNX asset roles',
+      () {
+        final record = ImageCodecModelRecord(
+          id: kNativeFt2ModelId,
+          name: 'FT2',
+          sourceUrl: '',
+          localPath: '/private/ft2/manifest.json',
+          downloadedAt: DateTime(2026),
+          fileSizeBytes: 2036938808,
+          bundleVersion: 1,
+          bundleKind: ImageCodecBundleKind.nativeFt2Ncnn,
+        );
+        final restored = ImageCodecModelRecord.fromJson(record.toJson());
+        expect(restored.bundleKind, ImageCodecBundleKind.nativeFt2Ncnn);
+        expect(restored.id, kNativeFt2ModelId);
+        expect(restored.assetRoles, isEmpty);
+        expect(
+          ImageCodecModelRecord.fromJson({}).bundleKind,
+          ImageCodecBundleKind.legacyOnnxFt32,
+        );
+      },
+    );
     test('round-trips through JSON', () {
       final record = ImageCodecModelRecord(
         id: 'aeic-se-512-int8',
@@ -287,12 +296,20 @@ void main() {
       // ft16 was dropped: 2-3 data chunks with 79 B of headroom. The UI mapping
       // is constant now, so no selector value can reach another checkpoint.
       for (final rate in ImageCodecRatePoint.values) {
-        expect(aeicRatePointForUi(rate), rate == ImageCodecRatePoint.nativeFt2
-            ? AeicRatePoint.ft2 : AeicRatePoint.ft32);
+        expect(
+          aeicRatePointForUi(rate),
+          rate == ImageCodecRatePoint.nativeFt2
+              ? AeicRatePoint.ft2
+              : AeicRatePoint.ft32,
+        );
       }
       for (final rate in AeicRatePoint.values) {
-        expect(uiRatePointForAeic(rate), rate == AeicRatePoint.ft2
-            ? ImageCodecRatePoint.nativeFt2 : ImageCodecRatePoint.standard);
+        expect(
+          uiRatePointForAeic(rate),
+          rate == AeicRatePoint.ft2
+              ? ImageCodecRatePoint.nativeFt2
+              : ImageCodecRatePoint.standard,
+        );
       }
     });
 
@@ -312,13 +329,24 @@ void main() {
   });
 
   group('ImageCodecPreferences', () {
-    test('native size and recovery settings persist; invalid size returns to128', () {
-      const prefs = ImageCodecPreferences(nativeResolution: 576, nativeBestEffort: true);
-      final restored = ImageCodecPreferences.fromJson(prefs.toJson());
-      expect(restored.nativeResolution, 576);
-      expect(restored.nativeBestEffort, isTrue);
-      expect(ImageCodecPreferences.fromJson({'image_codec_native_resolution': 1024}).nativeResolution, 128);
-    });
+    test(
+      'native size and recovery settings persist; invalid size returns to128',
+      () {
+        const prefs = ImageCodecPreferences(
+          nativeResolution: 576,
+          nativeBestEffort: true,
+        );
+        final restored = ImageCodecPreferences.fromJson(prefs.toJson());
+        expect(restored.nativeResolution, 576);
+        expect(restored.nativeBestEffort, isTrue);
+        expect(
+          ImageCodecPreferences.fromJson({
+            'image_codec_native_resolution': 1024,
+          }).nativeResolution,
+          128,
+        );
+      },
+    );
     test('defaults to disabled at ft32 with no models', () {
       const prefs = ImageCodecPreferences();
       expect(prefs.enabled, isFalse);

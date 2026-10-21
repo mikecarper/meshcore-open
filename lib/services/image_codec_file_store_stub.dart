@@ -6,7 +6,8 @@ class ImageCodecFileStore {
   Future<ImageCodecModelRecord> importNativeBundle({
     required Stream<List<int>> chunks,
     void Function(int completed, int total)? onProgress,
-  }) async => throw UnsupportedError('Native model import is not supported on web.');
+  }) async =>
+      throw UnsupportedError('Native model import is not supported on web.');
 
   Future<ImageCodecModelRecord> validateNativeBundle() async =>
       throw UnsupportedError('Native model storage is not supported on web.');
