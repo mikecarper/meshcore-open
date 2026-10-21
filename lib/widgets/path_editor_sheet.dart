@@ -323,6 +323,8 @@ class _PathEditorSheetState extends State<PathEditorSheet> {
                   physics: const NeverScrollableScrollPhysics(),
                   buildDefaultDragHandles: false,
                   itemCount: _hops.length,
+                  // Required by the supported Flutter 3.32 Android profile.
+                  // ignore: deprecated_member_use
                   onReorder: _reorderHop,
                   itemBuilder: _hopTile,
                 ),

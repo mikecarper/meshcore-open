@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:nordic_dfu/nordic_dfu.dart';
@@ -14,19 +13,25 @@ import '../connector/meshcore_protocol.dart';
 import '../models/contact.dart';
 import '../services/github_mota_release_service.dart';
 import '../services/nrf_dfu_package.dart';
+import '../services/nrf_dfu_recovery.dart';
 import '../services/rak_bootloader_migration.dart';
 import '../services/repeater_command_service.dart';
 import '../widgets/update_status_card.dart';
+import '../widgets/dfu_bootloader_choice.dart';
 
 class NrfBluetoothDfuScreen extends StatefulWidget {
   const NrfBluetoothDfuScreen({
     super.key,
     required this.repeater,
     this.commandService,
+    this.dfuRecovery,
+    this.pickFirmware,
   });
 
   final Contact repeater;
   final RepeaterCommandService? commandService;
+  final NrfDfuRecovery? dfuRecovery;
+  final Future<XFile?> Function()? pickFirmware;
 
   @override
   State<NrfBluetoothDfuScreen> createState() => _NrfBluetoothDfuScreenState();
@@ -34,12 +39,16 @@ class NrfBluetoothDfuScreen extends StatefulWidget {
 
 class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
   late final RepeaterCommandService _commands;
+  late final NrfDfuRecovery _dfuRecovery;
+  final _knownBootloaderAddress = TextEditingController();
   final GitHubMotaReleaseService _releases = GitHubMotaReleaseService();
   StreamSubscription<Uint8List>? _frameSubscription;
   String? _packagePath;
   String? _packageName;
   NrfDfuPackage? _package;
   String? _address;
+  String? _board;
+  String? _bridgeAddress;
   String _status = 'Choose a board-matched Nordic DFU ZIP.';
   int? _progress;
   bool _busy = false;
@@ -53,6 +62,7 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
     super.initState();
     final connector = context.read<MeshCoreConnector>();
     _commands = widget.commandService ?? RepeaterCommandService(connector);
+    _dfuRecovery = widget.dfuRecovery ?? NrfDfuRecovery();
     _frameSubscription = connector.receivedFrames.listen(_handleFrame);
   }
 
@@ -69,6 +79,8 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
 
   @override
   void dispose() {
+    _knownBootloaderAddress.dispose();
+    _dfuRecovery.dispose();
     _frameSubscription?.cancel();
     if (widget.commandService == null) _commands.dispose();
     _releases.dispose();
@@ -104,29 +116,21 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
   }
 
   Future<bool> _bridgeIsAdvertising(String address) async {
-    if (FlutterBluePlus.isScanningNow) return false;
-    final seen = Completer<void>();
-    final subscription = FlutterBluePlus.onScanResults.listen((results) {
-      if (!seen.isCompleted &&
-          results.any(
-            (result) => result.device.remoteId.str.toUpperCase() == address,
-          )) {
-        seen.complete();
-      }
-    }, onError: (Object _) {});
-    try {
-      await FlutterBluePlus.startScan(
-        timeout: const Duration(seconds: 8),
-        androidScanMode: AndroidScanMode.lowLatency,
-      );
-      await seen.future.timeout(const Duration(seconds: 8));
-      return true;
-    } catch (_) {
-      return false;
-    } finally {
-      await subscription.cancel();
-      if (FlutterBluePlus.isScanningNow) await FlutterBluePlus.stopScan();
-    }
+    _bridgeAddress = await _dfuRecovery.discoverBootloader(
+      originalAddress: address,
+      board: _board ?? '',
+      knownBootloaderAddress: knownDfuAddress(_knownBootloaderAddress.text),
+      allowAddressChange: true,
+      allowKnownAddressProbe: true,
+      chooseBootloader: (candidates) async => mounted
+          ? chooseDfuBootloader(
+              context,
+              board: _board ?? 'Radio',
+              candidates: candidates,
+            )
+          : null,
+    );
+    return _bridgeAddress != null;
   }
 
   Future<void> _loadPackage(XFile file) async {
@@ -243,7 +247,9 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
 
   Future<void> _choosePackage() => _run(() async {
     const group = XTypeGroup(label: 'Nordic DFU ZIP', extensions: ['zip']);
-    final file = await openFile(acceptedTypeGroups: [group]);
+    final file = widget.pickFirmware == null
+        ? await openFile(acceptedTypeGroups: [group])
+        : await widget.pickFirmware!();
     if (file != null) await _loadPackage(file);
   });
 
@@ -285,19 +291,32 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
 
   Future<void> _enableRadioDfu() => _run(() async {
     if (_package == null) throw StateError('Choose firmware first.');
+    final board = await _commands.sendCommand(
+      widget.repeater,
+      'board',
+      retries: 1,
+      minimumTimeoutMs: 15000,
+    );
+    if (dfuBootloaderName(board) == null) {
+      throw StateError(
+        'This radio did not report a known Bluetooth DFU board.',
+      );
+    }
     final reply = await _commands.sendCommand(
       widget.repeater,
       'start ota',
-      retries: 2,
+      retries: 1,
       minimumTimeoutMs: 15000,
     );
     final address = NrfDfuPackage.macFromStartReply(reply);
     if (!mounted) return;
     setState(() {
       _address = address;
+      _board = board;
       _status =
-          '${widget.repeater.name} is advertising Nordic DFU at '
-          '$address. Keep the radio powered and the phone nearby.';
+          '${widget.repeater.name} enabled its Bluetooth updater at '
+          '$address. Its application may still need to hand off to the bootloader. '
+          'Keep the radio powered and the phone nearby.';
     });
   });
 
@@ -305,6 +324,13 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
     var address = _address;
     final path = _packagePath;
     if (address == null || path == null) return;
+    String? knownAddress;
+    try {
+      knownAddress = knownDfuAddress(_knownBootloaderAddress.text);
+    } on FormatException catch (error) {
+      setState(() => _status = error.message);
+      return;
+    }
     final needsBridge = _rakPlan?.needsRecovery == true && !_bridgeInstalled;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -323,6 +349,7 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
                     'erase the application; it may need reinstalling afterward. '
                     'Keep the phone close and radio powered through both stages.'
               : 'Send $_packageName to $address for ${widget.repeater.name}. '
+                    '${knownAddress == null ? '' : 'Known bootloader address: $knownAddress. It will be checked before recovery sends firmware. '}'
                     'A bootloader DFU ZIP may erase the application. The ZIP '
                     'must match this exact board and bootloader. Keep the phone '
                     'close and do not remove radio power.',
@@ -345,43 +372,89 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
         _status = 'Connecting to the radio DFU service...';
         _progress = 0;
       });
-      Future<void> transfer(String filePath, {required bool forceDfu}) =>
-          NordicDfu().startDfu(
-            address!,
-            filePath,
-            name: widget.repeater.name,
-            forceDfu: forceDfu,
-            androidParameters: const AndroidParameters(
-              startAsForegroundService: true,
-              packetReceiptNotificationsEnabled: true,
-              rebootTime: 5000,
-              numberOfRetries: 5,
-            ),
-            dfuEventHandler: DfuEventHandler(
-              onProgressChanged:
-                  (_, percent, speed, avgSpeed, currentPart, partsTotal) {
-                    if (mounted) setState(() => _progress = percent);
-                  },
-              onError: (_, error, errorType, message) {
-                if (mounted) {
-                  setState(() => _status = 'Bluetooth DFU error: $message');
-                }
-              },
-            ),
+      Future<void> transfer(String filePath, {required bool forceDfu}) async {
+        if (_package!.components.length == 1 &&
+            _package!.components.single == 'application') {
+          address = await _dfuRecovery.update(
+            originalAddress: address!,
+            path: filePath,
+            board: _board ?? '',
+            applicationOnly: true,
+            retryBootloader: forceDfu,
+            knownBootloaderAddress: knownAddress,
+            chooseBootloader: (candidates) async => mounted
+                ? chooseDfuBootloader(
+                    context,
+                    board: _board ?? 'Radio',
+                    candidates: candidates,
+                  )
+                : null,
+            onStatus: (message) {
+              if (mounted) setState(() => _status = message);
+            },
+            onProgress: (percent) {
+              if (mounted) setState(() => _progress = percent);
+            },
           );
+          return;
+        }
+        if (forceDfu) {
+          final found = await _dfuRecovery.discoverBootloader(
+            originalAddress: address!,
+            board: _board ?? '',
+            knownBootloaderAddress: knownAddress,
+            allowAddressChange: true,
+            allowKnownAddressProbe: true,
+            chooseBootloader: (candidates) async => mounted
+                ? chooseDfuBootloader(
+                    context,
+                    board: _board ?? 'Radio',
+                    candidates: candidates,
+                  )
+                : null,
+          );
+          if (found == null) {
+            throw StateError(
+              'The recovery bootloader identity was not confirmed. No firmware was sent.',
+            );
+          }
+          address = found;
+        }
+        await NordicDfu().startDfu(
+          address!,
+          filePath,
+          name: widget.repeater.name,
+          forceDfu: forceDfu,
+          androidParameters: const AndroidParameters(
+            startAsForegroundService: true,
+            packetReceiptNotificationsEnabled: true,
+            rebootTime: 5000,
+            numberOfRetries: 5,
+          ),
+          dfuEventHandler: DfuEventHandler(
+            onProgressChanged:
+                (_, percent, speed, avgSpeed, currentPart, partsTotal) {
+                  if (mounted) setState(() => _progress = percent);
+                },
+            onError: (_, error, errorType, message) {
+              if (mounted) {
+                setState(() => _status = 'Bluetooth DFU error: $message');
+              }
+            },
+          ),
+        );
+      }
+
       var bridgeAdvertising = false;
       try {
         await transfer(path, forceDfu: _bridgeInstalled);
       } catch (_) {
         if (!needsBridge || (_progress ?? 0) < 95) rethrow;
-        bridgeAdvertising = await _bridgeIsAdvertising(
-          NrfDfuPackage.bootloaderAddress(address!),
-        );
+        bridgeAdvertising = await _bridgeIsAdvertising(address!);
         if (!bridgeAdvertising) rethrow;
       }
       if (needsBridge) {
         _bridgeInstalled = true;
-        final bridgeAddress = NrfDfuPackage.bootloaderAddress(address!);
         await _loadPackageBytes(
           _rakFiles!.normalName,
           _rakFiles!.normalBytes,
@@ -397,10 +470,10 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
         await Future<void>.delayed(const Duration(seconds: 5));
         // A combined bootloader ZIP may leave the application running after
         // activation. If it does, ask it to enter DFU again. If it was erased,
-        // the bridge advertises at the previous Bluetooth address plus one.
+        // an exact, freshly probed bootloader must be found before continuing.
         if (bridgeAdvertising) {
-          address = bridgeAddress;
-          if (mounted) setState(() => _address = bridgeAddress);
+          address = _bridgeAddress!;
+          if (mounted) setState(() => _address = address);
         } else {
           try {
             final reply = await _commands.sendCommand(
@@ -412,13 +485,19 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
             address = NrfDfuPackage.macFromStartReply(reply);
             if (mounted) setState(() => _address = address);
           } catch (_) {
-            address = bridgeAddress;
-            if (mounted) setState(() => _address = bridgeAddress);
+            if (!await _bridgeIsAdvertising(address!)) {
+              throw StateError(
+                'The application did not answer and the exact recovery bootloader was not found. '
+                'Keep the radio powered; verify its known bootloader address before retrying.',
+              );
+            }
+            address = _bridgeAddress!;
+            if (mounted) setState(() => _address = address);
             if (mounted) {
               setState(
                 () => _status =
                     'The application did not answer after recovery. '
-                    'Trying the bridge at $bridgeAddress...',
+                    'Verified the recovery bootloader at $address...',
               );
             }
           }
@@ -460,6 +539,25 @@ class _NrfBluetoothDfuScreenState extends State<NrfBluetoothDfuScreen> {
               Text(
                 widget.repeater.name,
                 style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              ExpansionTile(
+                title: const Text('Bootloader address (optional)'),
+                children: [
+                  TextField(
+                    controller: _knownBootloaderAddress,
+                    enabled: !_busy,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Known bootloader address (optional)',
+                      hintText: 'AA:BB:CC:DD:EE:FF',
+                      helperText:
+                          'A custom radio address can differ from its bootloader. '
+                          'Use an address recorded for this radio or supplied by its administrator.',
+                      helperMaxLines: 4,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               UpdateStatusCard(

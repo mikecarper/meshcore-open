@@ -64,9 +64,13 @@ class ImageCodecFileStore {
   Future<void> deleteModel(ImageCodecModelRecord model) async {
     if (model.bundleKind == ImageCodecBundleKind.nativeFt2Ncnn) {
       final root = await modelDirectoryPath();
-      final target = Directory('$root/${NativeImageCodecInstaller.directoryName}');
+      final target = Directory(
+        '$root/${NativeImageCodecInstaller.directoryName}',
+      );
       if (model.localPath != '${target.path}/manifest.json') {
-        throw ArgumentError('The native model path is outside its private storage.');
+        throw ArgumentError(
+          'The native model path is outside its private storage.',
+        );
       }
       if (await target.exists()) await target.delete(recursive: true);
       return;
@@ -79,7 +83,10 @@ class ImageCodecFileStore {
     required Stream<List<int>> chunks,
     void Function(int completed, int total)? onProgress,
   }) async => NativeImageCodecInstaller().importArchive(
-    modelRoot: await modelDirectoryPath(), chunks: chunks, onProgress: onProgress);
+    modelRoot: await modelDirectoryPath(),
+    chunks: chunks,
+    onProgress: onProgress,
+  );
 
   Future<ImageCodecModelRecord> validateNativeBundle() async =>
       NativeImageCodecInstaller().validateInstalled(await modelDirectoryPath());

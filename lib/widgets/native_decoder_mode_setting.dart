@@ -17,6 +17,8 @@ class NativeDecoderModeSetting extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       DropdownButtonFormField<AeicDecoderMode>(
+        // Required by the supported Flutter 3.32 Android profile.
+        // ignore: deprecated_member_use
         value: mode,
         isExpanded: true,
         decoration: InputDecoration(

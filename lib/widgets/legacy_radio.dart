@@ -40,7 +40,11 @@ class RadioListTile<T> extends material.StatelessWidget {
     final group = RadioGroup.of<T>(context);
     return material.RadioListTile<T>(
       value: value,
+      // Required by the supported Flutter 3.32 Android profile.
+      // ignore: deprecated_member_use
       groupValue: group.groupValue,
+      // Required by the supported Flutter 3.32 Android profile.
+      // ignore: deprecated_member_use
       onChanged: group.onChanged,
       title: title,
       subtitle: subtitle,

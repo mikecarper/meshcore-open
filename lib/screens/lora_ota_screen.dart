@@ -30,8 +30,14 @@ import '../widgets/path_editor_sheet.dart';
 class LoRaOtaScreen extends StatefulWidget {
   final Contact repeater;
   final RepeaterCommandService? commandService;
+  final Future<XFile?> Function(String confirmButtonText)? pickBuildFile;
 
-  const LoRaOtaScreen({super.key, required this.repeater, this.commandService});
+  const LoRaOtaScreen({
+    super.key,
+    required this.repeater,
+    this.commandService,
+    this.pickBuildFile,
+  });
 
   @override
   State<LoRaOtaScreen> createState() => _LoRaOtaScreenState();
@@ -443,18 +449,15 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
       );
       XFile? installedFile;
       if (!fullWithoutBase) {
-        installedFile = await openFile(
-          acceptedTypeGroups: const <XTypeGroup>[firmwareType],
-          confirmButtonText: 'Use installed image',
+        installedFile = await _pickBuildFile(
+          firmwareType,
+          'Use installed image',
         );
         if (installedFile == null || !mounted) return;
       }
       XFile? updatedFile;
       if (!useGitHubImage) {
-        updatedFile = await openFile(
-          acceptedTypeGroups: const <XTypeGroup>[firmwareType],
-          confirmButtonText: 'Use new image',
-        );
+        updatedFile = await _pickBuildFile(firmwareType, 'Use new image');
         if (updatedFile == null || !mounted) return;
       }
       if ((installedFile != null && await installedFile.length() > 0x100000) ||
@@ -469,17 +472,28 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
               targetId: target.applicationTargetId,
             )
           : await updatedFile.readAsBytes();
-      if (installed != null &&
-          FirmwareImageIdentity.read(installed).bodyHashHex !=
-              target.baseHashPrefix) {
+      final old = installed == null
+          ? null
+          : FirmwareImageIdentity.read(installed);
+      final next = FirmwareImageIdentity.read(updated);
+      if (old != null && old.bodyHashHex != target.baseHashPrefix) {
         throw StateError(
           'The selected installed image does not match this radio. '
           'Find the exact build whose hash is ${target.baseHashPrefix}.',
         );
       }
-      if (FirmwareImageIdentity.read(updated).targetId !=
-          target.applicationTargetId) {
+      if (next.targetId != target.applicationTargetId) {
         throw StateError('The new image targets a different radio.');
+      }
+      if (next.firmwareVersion == 0) {
+        throw StateError('The new firmware must have a nonzero version.');
+      }
+      if (!mounted) return;
+      var allowNonUpgrade = false;
+      if (old != null && next.firmwareVersion <= old.firmwareVersion) {
+        final allowed = await _confirmNonUpgrade(old, next);
+        if (allowed != true || !mounted) return;
+        allowNonUpgrade = true;
       }
       final seed = await _chooseSigningSeed(target);
       if (seed == null) return;
@@ -497,10 +511,8 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                 signingSeed: seed,
                 targetId: target.applicationTargetId,
                 targetBaseHash: target.baseHashPrefix,
-                // A conservative window understood by older nRF52 bootloaders.
-                // A larger image uses a full package only on external storage.
-                inplaceMemory: 0x98000,
                 allowFull: target.receiverStorage != 'internal_flash',
+                allowNonUpgrade: allowNonUpgrade,
               );
         target.validatePackage(package);
         final catalog = await BleMotaCatalog.load(<XFile>[
@@ -522,6 +534,67 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
         seed.fillRange(0, seed.length, 0);
       }
     });
+  }
+
+  Future<XFile?> _pickBuildFile(XTypeGroup type, String confirmButtonText) {
+    return widget.pickBuildFile?.call(confirmButtonText) ??
+        openFile(
+          acceptedTypeGroups: <XTypeGroup>[type],
+          confirmButtonText: confirmButtonText,
+        );
+  }
+
+  Future<bool?> _confirmNonUpgrade(
+    FirmwareImageIdentity old,
+    FirmwareImageIdentity next,
+  ) {
+    // This choice belongs only to the image bytes selected for this action.
+    var allowed = false;
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Confirm firmware version'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Installed: ${old.versionLabel}\nSelected: ${next.versionLabel}',
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Different preview builds can share the same numeric version. '
+                  'Continue only if you intend to reinstall or install an older '
+                  'version using these selected images.',
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Allow reinstall or older version'),
+                  value: allowed,
+                  onChanged: (value) =>
+                      setDialogState(() => allowed = value ?? false),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: allowed
+                  ? () => Navigator.pop(dialogContext, true)
+                  : null,
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<Uint8List?> _chooseSigningSeed(LoraOtaTargetInfo target) async {
@@ -559,10 +632,7 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
         uniformTypeIdentifiers: <String>['public.data'],
         webWildCards: <String>['.key', '.txt', '.bin'],
       );
-      final keyFile = await openFile(
-        acceptedTypeGroups: const <XTypeGroup>[keyType],
-        confirmButtonText: 'Use signing key',
-      );
+      final keyFile = await _pickBuildFile(keyType, 'Use signing key');
       if (keyFile == null || !mounted) return null;
       if (await keyFile.length() > 128) {
         throw const FormatException('Signing key file is too large.');
@@ -2360,7 +2430,7 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Choose the exact installed .bin and the newer .bin. '
+                      'Choose the exact installed .bin and the new .bin. '
                       'Import a signing key or generate one on this phone. '
                       'The app checks this radio\'s '
                       'firmware hash and chooses a smaller delta when safe. '
@@ -2501,6 +2571,8 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<double>(
+                      // Required by the supported Flutter 3.32 Android profile.
+                      // ignore: deprecated_member_use
                       value: _bandwidth,
                       decoration: const InputDecoration(
                         labelText: 'Bandwidth (kHz)',
@@ -2526,6 +2598,8 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                       children: [
                         Expanded(
                           child: DropdownButtonFormField<int>(
+                            // Required by the supported Flutter 3.32 Android profile.
+                            // ignore: deprecated_member_use
                             value: _spreadingFactor,
                             decoration: const InputDecoration(labelText: 'SF'),
                             items: <int>[5, 6, 7, 8, 9, 10, 11, 12]
@@ -2548,6 +2622,8 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<int>(
+                            // Required by the supported Flutter 3.32 Android profile.
+                            // ignore: deprecated_member_use
                             value: _codingRate,
                             decoration: const InputDecoration(labelText: 'CR'),
                             items: <int>[5, 6, 7, 8]

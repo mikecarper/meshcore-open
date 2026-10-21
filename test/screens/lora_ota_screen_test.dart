@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +13,7 @@ import 'package:meshcore_open/screens/lora_ota_screen.dart';
 import 'package:meshcore_open/services/ble_mota_catalog.dart';
 import 'package:meshcore_open/services/repeater_command_service.dart';
 import 'package:meshcore_open/services/lora_ota_hop_session.dart';
+import 'package:meshcore_open/services/local_mota_builder.dart';
 import 'package:meshcore_open/services/storage_service.dart';
 import 'package:meshcore_open/storage/prefs_manager.dart';
 import 'package:meshcore_open/theme/mesh_theme.dart';
@@ -26,6 +28,131 @@ void main() {
     PrefsManager.reset();
     await PrefsManager.initialize();
   });
+  for (final version in [0x01120001, 0x01110000]) {
+    testWidgets('non-upgrade choice is explicit and local to build $version', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(430, 932);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final base = _localBuildImage(0x01120001, 0);
+      var next = _localBuildImage(version, 1);
+      final target = Contact(
+        publicKey: Uint8List.fromList(List.generate(pubKeySize, (i) => i + 1)),
+        name: 'Local build repeater',
+        type: advTypeRepeater,
+        pathLength: 0,
+        path: Uint8List(0),
+        lastSeen: DateTime(2026, 10, 20),
+      );
+      final connector = _FakeMotaConnector(target, null);
+      final commands = _FakeRepeaterCommandService(
+        connector,
+        replies: {
+          'ota status': 'OTA | target:11223344 env:TEST_BOARD_repeat',
+          'ota self':
+              'self base_hash=${FirmwareImageIdentity.read(base).bodyHashHex}',
+          'ota bootloader': 'target=D50D2D44 caps=0A',
+        },
+      );
+      final picks = <String>[];
+      await tester.pumpWidget(
+        ChangeNotifierProvider<MeshCoreConnector>.value(
+          value: connector,
+          child: MaterialApp(
+            home: LoRaOtaScreen(
+              repeater: target,
+              commandService: commands,
+              pickBuildFile: (label) async {
+                picks.add(label);
+                return XFile.fromData(switch (label) {
+                  'Use installed image' => base,
+                  'Use new image' => next,
+                  'Use signing key' => Uint8List(32),
+                  _ => throw StateError('Unexpected file chooser'),
+                }, name: '$label.bin');
+              },
+            ),
+          ),
+        ),
+      );
+      Future<void> startBuild() async {
+        final button = find.text('Build signed update on this phone');
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(find.text('Confirm firmware version'), findsOneWidget);
+        expect(
+          tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+          isFalse,
+        );
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Continue'),
+              )
+              .onPressed,
+          isNull,
+        );
+        expect(find.textContaining('Different preview builds'), findsOneWidget);
+      }
+
+      // Cancelling after checking the box must not authorize another build.
+      await startBuild();
+      await tester.tap(find.text('Allow reinstall or older version'));
+      await tester.pump();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(picks, isNot(contains('Use signing key')));
+
+      // Select new bytes, confirm, and exercise the real signing/builder path.
+      next = _localBuildImage(version, 2);
+      await startBuild();
+      await tester.tap(find.text('Allow reinstall or older version'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sign this update'), findsOneWidget);
+      await tester.tap(find.text('Use key file'));
+      for (var tick = 0; tick < 20; tick++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(picks.where((label) => label == 'Use signing key'), hasLength(1));
+      expect(find.text('1 verified file(s)'), findsOneWidget);
+      final pageScroll = find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(
+        find.textContaining(
+          '_v${FirmwareImageIdentity.read(next).versionLabel}_ipdelta.mota',
+        ),
+        100,
+        scrollable: pageScroll,
+      );
+      expect(
+        find.textContaining(
+          '_v${FirmwareImageIdentity.read(next).versionLabel}_ipdelta.mota',
+        ),
+        findsWidgets,
+      );
+
+      // Success also discards the choice; there is no saved downgrade policy.
+      await startBuild();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(picks.where((label) => label == 'Use signing key'), hasLength(1));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await connector.closeFake();
+    });
+  }
+
   testWidgets('restores saved path when both preflight routes time out', (
     tester,
   ) async {
@@ -1363,6 +1490,7 @@ class _FakeMotaConnector extends MeshCoreConnector {
 }
 
 class _FakeRepeaterCommandService extends RepeaterCommandService {
+  final Map<String, String> replies;
   final String? unreachableProbeContact;
   final bool readyToInstall;
   final String? statusManifestId;
@@ -1391,6 +1519,7 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
     this.pullReplyTimesOut = false,
     this.installReplyTimesOut = false,
     this.bootloaderStatus,
+    this.replies = const {},
   });
 
   @override
@@ -1415,6 +1544,7 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
     onAttempt?.call(1);
     onPacketSent?.call();
     inspectCommand?.call(command);
+    if (replies.containsKey(command)) return replies[command]!;
     if (command == 'ota config') {
       return hopConfigError ??
           'ota config: speed=1x hops=${otaHops[repeater.name] ?? 3} keys=0';
@@ -1464,4 +1594,23 @@ class _FakeRepeaterCommandService extends RepeaterCommandService {
 
   @override
   void dispose() {}
+}
+
+Uint8List _localBuildImage(int version, int change) {
+  final body = Uint8List.fromList(
+    List.generate(20000, (i) => (i * 17 + i ~/ 256 + 7) & 0xff),
+  )..[17] ^= change;
+  final image = Uint8List(body.length + 56)..setRange(0, body.length, body);
+  final fields = ByteData.sublistView(image, body.length);
+  image.setRange(body.length, body.length + 4, 'EndF'.codeUnits);
+  fields.setUint32(4, body.length, Endian.little);
+  image.setRange(
+    body.length + 8,
+    body.length + 16,
+    crypto.sha256.convert(body).bytes.sublist(0, 8),
+  );
+  fields.setUint32(16, version, Endian.little);
+  fields.setUint32(20, 0x11223344, Endian.little);
+  image.setRange(body.length + 24, body.length + 34, 'TEST_BOARD'.codeUnits);
+  return image;
 }

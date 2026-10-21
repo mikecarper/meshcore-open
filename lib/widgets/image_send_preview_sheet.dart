@@ -478,6 +478,8 @@ class _ImageSendPreviewSheetState extends State<ImageSendPreviewSheet> {
                       if (_isNative) ...[
                         DropdownButtonFormField<int>(
                           key: const ValueKey('native-image-resolution'),
+                          // Required by the supported Flutter 3.32 Android profile.
+                          // ignore: deprecated_member_use
                           value: _resolution,
                           decoration: InputDecoration(
                             labelText: l10n.imageSend_resolutionLabel,

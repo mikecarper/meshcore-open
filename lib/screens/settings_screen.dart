@@ -955,6 +955,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               DropdownButtonFormField<int>(
+                // Required by the supported Flutter 3.32 Android profile.
+                // ignore: deprecated_member_use
                 value: selectedMode,
                 decoration: InputDecoration(
                   labelText: l10n.repeater_pathHashMode,
@@ -1548,6 +1550,8 @@ void _privacySettings(BuildContext context, MeshCoreConnector connector) {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<int>(
+                // Required by the supported Flutter 3.32 Android profile.
+                // ignore: deprecated_member_use
                 value: telemetryMode,
                 decoration: InputDecoration(
                   labelText: l10n.settings_telemetryBaseMode,
@@ -1562,6 +1566,8 @@ void _privacySettings(BuildContext context, MeshCoreConnector connector) {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<int>(
+                // Required by the supported Flutter 3.32 Android profile.
+                // ignore: deprecated_member_use
                 value: telemetryLocMode,
                 decoration: InputDecoration(
                   labelText: l10n.settings_telemetryLocationMode,
@@ -1576,6 +1582,8 @@ void _privacySettings(BuildContext context, MeshCoreConnector connector) {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<int>(
+                // Required by the supported Flutter 3.32 Android profile.
+                // ignore: deprecated_member_use
                 value: telemetryEnvMode,
                 decoration: InputDecoration(
                   labelText: l10n.settings_telemetryEnvironmentMode,
@@ -2145,6 +2153,8 @@ class _RadioSettingsDialogState extends State<_RadioSettingsDialog> {
           children: [
             DropdownButtonFormField<int>(
               key: ValueKey<int?>(_selectedPresetIndex),
+              // Required by the supported Flutter 3.32 Android profile.
+              // ignore: deprecated_member_use
               value: _selectedPresetIndex,
               decoration: InputDecoration(
                 labelText: l10n.settings_presets,
@@ -2179,6 +2189,8 @@ class _RadioSettingsDialogState extends State<_RadioSettingsDialog> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<LoRaBandwidth>(
+              // Required by the supported Flutter 3.32 Android profile.
+              // ignore: deprecated_member_use
               value: _bandwidth,
               decoration: InputDecoration(
                 labelText: l10n.settings_bandwidth,
@@ -2201,6 +2213,8 @@ class _RadioSettingsDialogState extends State<_RadioSettingsDialog> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<LoRaSpreadingFactor>(
+              // Required by the supported Flutter 3.32 Android profile.
+              // ignore: deprecated_member_use
               value: _spreadingFactor,
               decoration: InputDecoration(
                 labelText: l10n.settings_spreadingFactor,
@@ -2225,6 +2239,8 @@ class _RadioSettingsDialogState extends State<_RadioSettingsDialog> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<LoRaCodingRate>(
+              // Required by the supported Flutter 3.32 Android profile.
+              // ignore: deprecated_member_use
               value: _codingRate,
               decoration: InputDecoration(
                 labelText: l10n.settings_codingRate,

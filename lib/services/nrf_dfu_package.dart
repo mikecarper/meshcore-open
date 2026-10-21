@@ -24,8 +24,9 @@ class NrfDfuPackage {
     return match.group(1)!.toUpperCase();
   }
 
-  /// The legacy Nordic bootloader advertises at the application's address +1.
-  /// Match Nordic's last-octet wrap without carrying into the preceding octet.
+  /// Scan hint for an unbonded bootloader using its factory address, not an
+  /// identity proof. Bonded entry can use the factory address unchanged, and
+  /// a custom application address does not determine either factory address.
   static String bootloaderAddress(String address) {
     if (!RegExp(r'^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$').hasMatch(address)) {
       throw const FormatException('Invalid Bluetooth DFU address.');
