@@ -65,6 +65,22 @@ The OTA target must remain the endpoint: do not use it as a relay in a
 controlled intermediate's setup or restore path. The app rejects that topology
 because installing the target reboots it before the other nodes can be restored.
 
+### Packages built on the phone
+
+For nRF52 in-place updates, the phone reads each image's `mOTALay1` layout only
+after checking the enclosing EndF body hash. When both images contain valid
+layouts, it chooses a page-aligned workspace large enough for the complete new
+image and the old image plus two spare pages. It checks the running image's
+application and staging bounds, including the complete signed container and
+the bounded flash/RAM split when the layout supports it. External SD/QSPI
+staging does not consume the internal apply workspace.
+
+Older images keep the conservative legacy delta limit. External targets may
+still use an allowed full-image fallback; internal targets cannot. The builder
+continues to require a higher numeric EndF firmware version: different preview
+labels or body hashes with the same numeric version are not silently treated
+as upgrades. This sizing change does not authorize reinstalling or downgrading.
+
 The first handoff always uses a fixed three-minute safety window, regardless of
 the longer duration entered on screen. Once every selected radio has changed,
 the app confirms that the Companion reports TempRadio active, requires an

@@ -497,9 +497,6 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                 signingSeed: seed,
                 targetId: target.applicationTargetId,
                 targetBaseHash: target.baseHashPrefix,
-                // A conservative window understood by older nRF52 bootloaders.
-                // A larger image uses a full package only on external storage.
-                inplaceMemory: 0x98000,
                 allowFull: target.receiverStorage != 'internal_flash',
               );
         target.validatePackage(package);

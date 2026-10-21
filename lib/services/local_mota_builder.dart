@@ -73,7 +73,7 @@ class LocalMotaBuilder {
     required Uint8List signingSeed,
     required int targetId,
     required String targetBaseHash,
-    required int inplaceMemory,
+    int? inplaceMemory,
     bool allowFull = true,
   }) async {
     if (signingSeed.length != 32) {
@@ -102,14 +102,51 @@ class LocalMotaBuilder {
       );
     }
 
-    Uint8List? delta;
-    if (inplaceMemory > 0 &&
-        inplaceMemory % _segmentSize == 0 &&
-        updatedImage.length <= inplaceMemory &&
-        _roundUp(installedImage.length, _segmentSize) + 2 * _segmentSize <=
-            inplaceMemory) {
-      delta = _encodeInPlace(installedImage, updatedImage, inplaceMemory);
+    final minimum = math.max(
+      _roundUp(installedImage.length, _segmentSize) + 2 * _segmentSize,
+      _roundUp(updatedImage.length, _segmentSize),
+    );
+    final authenticatedPair =
+        old.nrf52Layout != null && next.nrf52Layout != null;
+    if (authenticatedPair &&
+        old.nrf52Layout!.appBase != next.nrf52Layout!.appBase) {
+      throw StateError(
+        'The firmware images use different SoftDevice application addresses.',
+      );
     }
+    final memory = inplaceMemory ?? (authenticatedPair ? minimum : 0x98000);
+    var fullFallback =
+        inplaceMemory == null &&
+        !authenticatedPair &&
+        memory < minimum &&
+        allowFull;
+    if (memory <= 0 ||
+        memory % _segmentSize != 0 ||
+        (memory < minimum && !fullFallback)) {
+      throw StateError(
+        'The in-place workspace is too small or not page aligned. '
+        'Both images need valid layout records for automatic sizing beyond the legacy limit.',
+      );
+    }
+    final layout = old.nrf52Layout;
+    if (layout != null && updatedImage.length > layout.applicationSpan) {
+      throw StateError(
+        'The update exceeds the running image\'s authenticated application workspace.',
+      );
+    }
+    if (layout != null && memory > layout.workspaceSpan) {
+      if (inplaceMemory != null || !allowFull) {
+        throw StateError(
+          'The selected workspace exceeds the running image\'s authenticated layout.',
+        );
+      }
+      // A full image on an allowed external store does not need the delta's
+      // extra relocation pages. Preserve that existing fallback near the limit.
+      fullFallback = true;
+    }
+    final delta = fullFallback
+        ? null
+        : _encodeInPlace(installedImage, updatedImage, memory);
     final useDelta = delta != null && delta.length < updatedImage.length;
     if (!useDelta && !allowFull) {
       throw StateError(
@@ -126,6 +163,26 @@ class LocalMotaBuilder {
       signingSeed: signingSeed,
       full: !useDelta,
     );
+    if (useDelta && !(layout?.externalBacked ?? false)) {
+      final span =
+          layout?.workspaceSpan ?? (inplaceMemory == null ? 0xad000 : null);
+      if (span != null &&
+          memory + _roundUp(bytes.length, _segmentSize) > span) {
+        final flashLength = _roundUp(
+          math.max(_segmentSize, bytes.length - 65536),
+          _segmentSize,
+        );
+        final ramLength = bytes.length - flashLength;
+        if (layout?.hybridRam != true ||
+            memory + flashLength > span ||
+            ramLength <= 0 ||
+            ramLength > 65536) {
+          throw StateError(
+            'The signed update container does not fit beside the in-place workspace.',
+          );
+        }
+      }
+    }
     final name =
         '${next.hardwareId}_${next.targetId.toRadixString(16).padLeft(8, '0')}'
         '_v${next.versionLabel}_${useDelta ? 'ipdelta' : 'full'}.mota';
@@ -351,12 +408,14 @@ class FirmwareImageIdentity {
   final int firmwareVersion;
   final String hardwareId;
   final Uint8List bodyHash;
+  final Nrf52OtaLayout? nrf52Layout;
 
   const FirmwareImageIdentity({
     required this.targetId,
     required this.firmwareVersion,
     required this.hardwareId,
     required this.bodyHash,
+    this.nrf52Layout,
   });
 
   String get bodyHashHex => bodyHash
@@ -402,6 +461,62 @@ class FirmwareImageIdentity {
       firmwareVersion: fields.getUint32(16, Endian.little),
       hardwareId: hardware,
       bodyHash: hash,
+      // The record is inside the body whose hash was checked above.
+      nrf52Layout: Nrf52OtaLayout._read(bytes),
     );
+  }
+}
+
+/// Version-1 mOTALay1 geometry, authenticated by the enclosing EndF body hash.
+/// Mirrors OTAFIX/motatool's layout contract; unknown geometry fails closed.
+class Nrf52OtaLayout {
+  const Nrf52OtaLayout._(
+    this.appBase,
+    this.linkedEnd,
+    this.stageCeiling,
+    this.flags,
+  );
+  final int appBase, linkedEnd, stageCeiling, flags;
+  bool get externalBacked => flags & 5 != 0;
+  bool get hybridRam => flags & 0x10 != 0;
+  int get applicationSpan => (flags & 8 != 0 ? linkedEnd : 0xed000) - appBase;
+  int get workspaceSpan =>
+      externalBacked ? applicationSpan : stageCeiling - appBase;
+
+  static Nrf52OtaLayout? _read(Uint8List image) {
+    if (image.length < 80) return null;
+    final start = image.length - 80;
+    final record = ByteData.sublistView(image, start, start + 24);
+    if (String.fromCharCodes(image.sublist(start, start + 8)) != 'mOTALay1') {
+      return null;
+    }
+    final flags = record.getUint8(9);
+    final base = record.getUint32(12, Endian.little);
+    final end = record.getUint32(16, Endian.little);
+    final ceiling = record.getUint32(20, Endian.little);
+    final sd = flags & 1 != 0, fs = flags & 2 != 0, qspi = flags & 4 != 0;
+    final scratch = flags & 8 != 0,
+        hybrid = flags & 0x10 != 0,
+        auto = flags & 0x20 != 0;
+    final external = sd || qspi;
+    if (record.getUint8(8) != 1 ||
+        record.getUint16(10, Endian.little) != 24 ||
+        !const [0x26000, 0x27000].contains(base) ||
+        !const [0xd4000, 0xe0000, 0xed000].contains(end) ||
+        !const [0xd4000, 0xed000].contains(ceiling) ||
+        base >= end ||
+        flags & ~0x3f != 0 ||
+        (sd && qspi) ||
+        (external && fs) ||
+        (auto && (external || fs)) ||
+        (hybrid && (external || fs || end != 0xed000 || ceiling != 0xed000)) ||
+        (scratch ? !qspi || sd || end != 0xe0000 : end == 0xe0000) ||
+        ceiling != (external || !fs ? 0xed000 : 0xd4000) ||
+        image.length > math.min(end, ceiling) - base) {
+      throw const FormatException(
+        'Firmware has an invalid authenticated nRF52 layout.',
+      );
+    }
+    return Nrf52OtaLayout._(base, end, ceiling, flags);
   }
 }

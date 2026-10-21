@@ -6,11 +6,244 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meshcore_open/services/local_mota_builder.dart';
+import 'package:meshcore_open/services/ble_mota_catalog.dart';
 
 const _targetId = 0x11223344;
 const _hardware = 'TEST_BOARD';
 
 void main() {
+  Future<BleMotaFile> build(Uint8List base, Uint8List next, {int? memory}) =>
+      LocalMotaBuilder().buildForTarget(
+        installedImage: base,
+        updatedImage: next,
+        signingSeed: Uint8List(32),
+        targetId: _targetId,
+        targetBaseHash: FirmwareImageIdentity.read(base).bodyHashHex,
+        inplaceMemory: memory,
+        allowFull: false,
+      );
+
+  for (final size in [(664104, 0xa5000), (619232, 0x9a000)]) {
+    test(
+      'hash-bound layout sizes a ${size.$1}-byte image and reconstructs it',
+      () async {
+        final base = _layoutImage(size.$1, 0x01120000, flags: 0x30);
+        final next = _layoutImage(size.$1 + 8, 0x01120001, flags: 0x30);
+        final package = await build(base, next);
+        expect(package.isFull, isFalse);
+        final payload = await package.read(
+          package.payloadOffset,
+          package.payloadSize,
+        );
+        expect(_applyInPlace(base, payload, expectedMemory: size.$2), next);
+      },
+    );
+  }
+
+  test('legacy images keep the conservative default workspace', () async {
+    final body = _randomBytes(20000, 7);
+    final base = _image(body, 0x01120000);
+    final next = _image(body, 0x01120001);
+    final package = await build(base, next);
+    final payload = await package.read(
+      package.payloadOffset,
+      package.payloadSize,
+    );
+    expect(_applyInPlace(base, payload, expectedMemory: 0x98000), next);
+  });
+
+  test('large legacy images cannot silently expand their workspace', () async {
+    final body = _randomBytes(664104 - 56, 7);
+    await expectLater(
+      build(_image(body, 0x01120000), _image(body, 0x01120001)),
+      throwsStateError,
+    );
+  });
+
+  test(
+    'an allowed external legacy full fallback does not expand delta memory',
+    () async {
+      final body = _randomBytes(664104 - 56, 7);
+      final base = _image(body, 0x01120000), next = _image(body, 0x01120001);
+      final package = await LocalMotaBuilder().buildForTarget(
+        installedImage: base,
+        updatedImage: next,
+        signingSeed: Uint8List(32),
+        targetId: _targetId,
+        targetBaseHash: FirmwareImageIdentity.read(base).bodyHashHex,
+      );
+      expect(package.isFull, isTrue);
+      expect(
+        await package.read(package.payloadOffset, package.payloadSize),
+        next,
+      );
+    },
+  );
+
+  test('an explicit safe workspace override remains supported', () async {
+    final base = _layoutImage(664104, 0x01120000);
+    final next = _layoutImage(664112, 0x01120001);
+    final package = await build(base, next, memory: 0xa6000);
+    final payload = await package.read(
+      package.payloadOffset,
+      package.payloadSize,
+    );
+    expect(_applyInPlace(base, payload, expectedMemory: 0xa6000), next);
+  });
+
+  test(
+    'an external image near its apply limit may use an allowed full fallback',
+    () async {
+      final base = _layoutImage(0xc7000 - 4096, 0x01120000, flags: 4);
+      final next = _layoutImage(0xc7000 - 4096 + 8, 0x01120001, flags: 4);
+      final package = await LocalMotaBuilder().buildForTarget(
+        installedImage: base,
+        updatedImage: next,
+        signingSeed: Uint8List(32),
+        targetId: _targetId,
+        targetBaseHash: FirmwareImageIdentity.read(base).bodyHashHex,
+      );
+      expect(package.isFull, isTrue);
+      expect(
+        await package.read(package.payloadOffset, package.payloadSize),
+        next,
+      );
+    },
+  );
+
+  test(
+    'same numeric preview version is still rejected despite a different body',
+    () async {
+      final base = _layoutImage(20000, 0x01120001);
+      final next = _layoutImage(
+        20000,
+        0x01120001,
+        body: _randomBytes(20000 - 56, 9),
+      );
+      expect(
+        FirmwareImageIdentity.read(base).bodyHashHex,
+        isNot(FirmwareImageIdentity.read(next).bodyHashHex),
+      );
+      await expectLater(
+        build(base, next),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('version must be greater'),
+          ),
+        ),
+      );
+    },
+  );
+
+  test('layout is checked only after its enclosing EndF hash', () {
+    final image = _layoutImage(20000, 0x01120000);
+    image[image.length - 80 + 12] ^= 1;
+    expect(
+      () => FirmwareImageIdentity.read(image),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('body hash'),
+        ),
+      ),
+    );
+    expect(
+      () => FirmwareImageIdentity.read(
+        _layoutImage(20000, 0x01120000, flags: 0x40),
+      ),
+      throwsFormatException,
+    );
+  });
+
+  test(
+    'different authenticated SoftDevice bases cannot make a delta',
+    () async {
+      await expectLater(
+        build(
+          _layoutImage(20000, 0x01120000),
+          _layoutImage(20000, 0x01120001, appBase: 0x27000),
+        ),
+        throwsStateError,
+      );
+    },
+  );
+
+  for (final memory in [0x98000, 0xc8000, 0xa5001]) {
+    test(
+      'explicit workspace override is checked: ${memory.toRadixString(16)}',
+      () async {
+        await expectLater(
+          build(
+            _layoutImage(664104, 0x01120000),
+            _layoutImage(664112, 0x01120001),
+            memory: memory,
+          ),
+          throwsStateError,
+        );
+      },
+    );
+  }
+
+  test(
+    'an authenticated image cannot exceed its own linked application range',
+    () {
+      expect(
+        () => FirmwareImageIdentity.read(_layoutImage(0xc7001, 0x01120000)),
+        throwsFormatException,
+      );
+    },
+  );
+
+  test('internal staging accounts for the complete signed container', () async {
+    const total = 0xc7000 - 8192;
+    await expectLater(
+      build(_layoutImage(total, 0x01120000), _layoutImage(total, 0x01120001)),
+      throwsStateError,
+    );
+  });
+
+  test(
+    'external staging does not charge the container against apply memory',
+    () async {
+      const total = 0xc7000 - 8192;
+      final base = _layoutImage(total, 0x01120000, flags: 4);
+      final next = _layoutImage(total, 0x01120001, flags: 4);
+      final package = await build(base, next);
+      final payload = await package.read(
+        package.payloadOffset,
+        package.payloadSize,
+      );
+      expect(_applyInPlace(base, payload, expectedMemory: 0xc7000), next);
+    },
+  );
+
+  test(
+    'hybrid staging uses the bounded flash/RAM split from the running layout',
+    () async {
+      const total = 0xc7000 - 3 * 4096;
+      final base = _layoutImage(total, 0x01120000, flags: 0x10);
+      final body = _randomBytes(total - 56, 7)..fillRange(4096, 24096, 0xa5);
+      final next = _layoutImage(total, 0x01120001, flags: 0x10, body: body);
+      final package = await build(base, next);
+      expect(package.payloadSize, greaterThan(4096));
+      final payload = await package.read(
+        package.payloadOffset,
+        package.payloadSize,
+      );
+      expect(_applyInPlace(base, payload, expectedMemory: 0xc6000), next);
+      await expectLater(
+        build(
+          _layoutImage(total, 0x01120000),
+          _layoutImage(total, 0x01120001, body: body),
+        ),
+        throwsStateError,
+      );
+    },
+  );
+
   test('builds a signed delta that reconstructs the exact new image', () async {
     final baseBody = Uint8List.fromList(
       List<int>.generate(20000, (i) => (i * 13 + i ~/ 91) & 0xFF),
@@ -210,6 +443,28 @@ Uint8List _image(Uint8List body, int version) {
   return image;
 }
 
+Uint8List _layoutImage(
+  int total,
+  int version, {
+  int flags = 0,
+  int appBase = 0x26000,
+  Uint8List? body,
+}) {
+  final bytes = body == null
+      ? _randomBytes(total - 56, 7)
+      : Uint8List.fromList(body);
+  final start = bytes.length - 24;
+  bytes.setRange(start, start + 8, 'mOTALay1'.codeUnits);
+  final record = ByteData.sublistView(bytes, start);
+  record.setUint8(8, 1);
+  record.setUint8(9, flags);
+  record.setUint16(10, 24, Endian.little);
+  record.setUint32(12, appBase, Endian.little);
+  record.setUint32(16, 0xed000, Endian.little);
+  record.setUint32(20, 0xed000, Endian.little);
+  return _image(bytes, version);
+}
+
 Uint8List _randomBytes(int length, int seed) {
   var state = seed;
   return Uint8List.fromList(
@@ -223,7 +478,11 @@ Uint8List _randomBytes(int length, int seed) {
   );
 }
 
-Uint8List _applyInPlace(Uint8List base, Uint8List patch) {
+Uint8List _applyInPlace(
+  Uint8List base,
+  Uint8List patch, {
+  int? expectedMemory,
+}) {
   var cursor = 0;
   expect(patch[cursor++], 0x12);
   int size() {
@@ -240,6 +499,7 @@ Uint8List _applyInPlace(Uint8List base, Uint8List patch) {
   }
 
   final memorySize = size();
+  if (expectedMemory != null) expect(memorySize, expectedMemory);
   final segmentSize = size();
   final shiftSize = size();
   expect(size(), base.length);
