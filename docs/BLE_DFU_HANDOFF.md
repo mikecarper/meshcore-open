@@ -36,6 +36,20 @@ same packed test version. Open does not use equality between these labels as
 an application DFU gate. It checks the actual Legacy DFU revision and model;
 these tests do not establish support for every bootloader or Secure DFU build.
 
+## Pairing repair
+
+An explicit missing-key or authentication failure can mean the phone's saved
+pairing no longer matches the radio. With the intended radio physically
+available, forget only that radio in the phone's Bluetooth settings, return it
+to its normal application, and pair again through the app before restarting
+the update. Follow the radio's pairing controls if it requires a new pairing
+window. Do not remove other devices' pairings or erase the radio's identity.
+
+A generic GATT 133, disconnect, or timeout does not establish a stale bond.
+Check the radio's updater state and connection first. Open preserves valid
+bonds and does not delete pairings automatically. A radio that cannot return
+to its application may need the documented recovery procedure for that board.
+
 Host tests cover changed factory addresses, missing protocol evidence, wrong
 model/revision, multiple/cancelled selections, and transfer ordering. They do
 not replace a phone-to-radio transfer and post-reboot version verification.
