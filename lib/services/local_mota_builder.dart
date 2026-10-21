@@ -67,6 +67,8 @@ class LocalMotaBuilder {
     return BleMotaFile.load(XFile.fromData(bytes, name: name, path: name));
   }
 
+  /// [allowNonUpgrade] requires explicit intent for this selected image pair;
+  /// callers should not persist it as a global update policy.
   Future<BleMotaFile> buildForTarget({
     required Uint8List installedImage,
     required Uint8List updatedImage,
@@ -75,6 +77,7 @@ class LocalMotaBuilder {
     required String targetBaseHash,
     int? inplaceMemory,
     bool allowFull = true,
+    bool allowNonUpgrade = false,
   }) async {
     if (signingSeed.length != 32) {
       throw const FormatException(
@@ -95,8 +98,10 @@ class LocalMotaBuilder {
         '${old.bodyHashHex} != ${targetBaseHash.toUpperCase()}.',
       );
     }
-    if (next.firmwareVersion == 0 ||
-        next.firmwareVersion <= old.firmwareVersion) {
+    if (next.firmwareVersion == 0) {
+      throw StateError('The new firmware must have a nonzero version.');
+    }
+    if (!allowNonUpgrade && next.firmwareVersion <= old.firmwareVersion) {
       throw StateError(
         'The new firmware version must be greater than the installed version.',
       );

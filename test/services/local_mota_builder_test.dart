@@ -12,16 +12,21 @@ const _targetId = 0x11223344;
 const _hardware = 'TEST_BOARD';
 
 void main() {
-  Future<BleMotaFile> build(Uint8List base, Uint8List next, {int? memory}) =>
-      LocalMotaBuilder().buildForTarget(
-        installedImage: base,
-        updatedImage: next,
-        signingSeed: Uint8List(32),
-        targetId: _targetId,
-        targetBaseHash: FirmwareImageIdentity.read(base).bodyHashHex,
-        inplaceMemory: memory,
-        allowFull: false,
-      );
+  Future<BleMotaFile> build(
+    Uint8List base,
+    Uint8List next, {
+    int? memory,
+    bool allowNonUpgrade = false,
+  }) => LocalMotaBuilder().buildForTarget(
+    installedImage: base,
+    updatedImage: next,
+    signingSeed: Uint8List(32),
+    targetId: _targetId,
+    targetBaseHash: FirmwareImageIdentity.read(base).bodyHashHex,
+    inplaceMemory: memory,
+    allowFull: false,
+    allowNonUpgrade: allowNonUpgrade,
+  );
 
   for (final size in [(664104, 0xa5000), (619232, 0x9a000)]) {
     test(
@@ -136,6 +141,34 @@ void main() {
       );
     },
   );
+
+  for (final version in [0x01120001, 0x01110000]) {
+    test('explicit non-upgrade intent builds version $version', () async {
+      final body = _randomBytes(20000 - 56, 7)..[17] ^= 0xff;
+      final base = _layoutImage(20000, 0x01120001);
+      final next = _layoutImage(20000, version, body: body);
+      await expectLater(build(base, next), throwsStateError);
+      final package = await build(base, next, allowNonUpgrade: true);
+      expect(package.firmwareVersion, version);
+      expect(package.isFull, isFalse);
+      final payload = await package.read(
+        package.payloadOffset,
+        package.payloadSize,
+      );
+      expect(_applyInPlace(base, payload), next);
+    });
+  }
+
+  test('non-upgrade intent never permits an unspecified version', () async {
+    await expectLater(
+      build(
+        _layoutImage(20000, 0x01120001),
+        _layoutImage(20000, 0),
+        allowNonUpgrade: true,
+      ),
+      throwsStateError,
+    );
+  });
 
   test('layout is checked only after its enclosing EndF hash', () {
     final image = _layoutImage(20000, 0x01120000);
@@ -352,6 +385,7 @@ void main() {
           targetId: _targetId,
           targetBaseHash: 'C2CFC98C42CBEFDB',
           inplaceMemory: 0x98000,
+          allowNonUpgrade: true,
         ),
         throwsA(isA<StateError>()),
       );

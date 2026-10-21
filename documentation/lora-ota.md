@@ -77,9 +77,13 @@ staging does not consume the internal apply workspace.
 
 Older images keep the conservative legacy delta limit. External targets may
 still use an allowed full-image fallback; internal targets cannot. The builder
-continues to require a higher numeric EndF firmware version: different preview
-labels or body hashes with the same numeric version are not silently treated
-as upgrades. This sizing change does not authorize reinstalling or downgrading.
+requires a higher numeric EndF firmware version by default. Different preview
+builds can share that version, so building an equal or older version requires
+checking **Allow reinstall or older version** for the selected images. This
+choice is discarded after each build or cancellation and is never saved as a
+global policy. The builder's `allowNonUpgrade` option also defaults to `false`.
+Manual pull/install already supports this intent; it adds no wire flag and
+does not relax the receiver's forward-only automatic-update policy.
 
 The first handoff always uses a fixed three-minute safety window, regardless of
 the longer duration entered on screen. Once every selected radio has changed,
