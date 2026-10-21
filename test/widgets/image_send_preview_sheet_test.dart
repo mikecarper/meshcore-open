@@ -410,11 +410,10 @@ void main() {
       await _scrollTo(tester, choice128);
       await tester.tap(choice128);
       await tester.pumpAndSettle();
-      expect(
-        codec.requestedSizes,
-        [128, 576],
-        reason: 'returning to a measured size uses its cached bytes',
-      );
+      expect(codec.requestedSizes, [
+        128,
+        576,
+      ], reason: 'returning to a measured size uses its cached bytes');
       await tester.tap(
         find.byWidgetPredicate((widget) => widget is FilledButton),
       );

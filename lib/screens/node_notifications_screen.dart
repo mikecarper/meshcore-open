@@ -306,16 +306,11 @@ class _NodeNotificationsScreenState
           _targets,
           ready && caps != null ? (v) => _select(v, _condition) : null,
         ),
-        controlChoice(
-          'Connection condition',
-          _condition,
-          const {
-            '': 'Any state',
-            '@connected': 'While connected',
-            '@disconnected': 'While disconnected',
-          },
-          ready && caps != null ? (v) => _select(_target, v) : null,
-        ),
+        controlChoice('Connection condition', _condition, const {
+          '': 'Any state',
+          '@connected': 'While connected',
+          '@disconnected': 'While disconnected',
+        }, ready && caps != null ? (v) => _select(_target, v) : null),
         const ControlNote(
           'Inherit leaves that field to broader rules or normal firmware behavior. All-message rules apply first; target and connection-specific fields override them.',
         ),

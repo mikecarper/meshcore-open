@@ -191,167 +191,168 @@ void main() {
     await connector.closeFake();
   });
 
-  testWidgets('runs phone OTA workflow and renders both progress measures', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(430, 932);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets(
+    'runs phone OTA workflow and renders both progress measures',
+    (tester) async {
+      tester.view.physicalSize = const Size(430, 932);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    final catalog = (await tester.runAsync(
-      () => BleMotaCatalog.load(<XFile>[
-        XFile.fromData(
-          buildTestFullMotaContainer(),
-          path: 'TEST_BOARD-full-v1.17.1.2.mota',
-          name: 'TEST_BOARD-full-v1.17.1.2.mota',
-        ),
-      ]),
-    ))!;
-    final target = Contact(
-      publicKey: Uint8List.fromList(
-        List<int>.generate(pubKeySize, (index) => index + 16),
-      ),
-      name: 'Test repeater',
-      type: advTypeRepeater,
-      pathLength: 2,
-      path: Uint8List.fromList(<int>[0xA1, 0xB2]),
-      lastSeen: DateTime(2026, 8, 26),
-    );
-    final connector = _FakeMotaConnector(
-      target,
-      catalog,
-      radioFrequencyHz: 910525000,
-      radioBandwidthHz: 62500,
-      radioSf: 7,
-      radioCr: 5,
-    );
-    final commands = _FakeRepeaterCommandService(connector);
-
-    await tester.pumpWidget(
-      ChangeNotifierProvider<MeshCoreConnector>.value(
-        value: connector,
-        child: MaterialApp(
-          theme: MeshTheme.dark().copyWith(
-            splashFactory: NoSplash.splashFactory,
+      final catalog = (await tester.runAsync(
+        () => BleMotaCatalog.load(<XFile>[
+          XFile.fromData(
+            buildTestFullMotaContainer(),
+            path: 'TEST_BOARD-full-v1.17.1.2.mota',
+            name: 'TEST_BOARD-full-v1.17.1.2.mota',
           ),
-          home: LoRaOtaScreen(repeater: target, commandService: commands),
+        ]),
+      ))!;
+      final target = Contact(
+        publicKey: Uint8List.fromList(
+          List<int>.generate(pubKeySize, (index) => index + 16),
         ),
-      ),
-    );
+        name: 'Test repeater',
+        type: advTypeRepeater,
+        pathLength: 2,
+        path: Uint8List.fromList(<int>[0xA1, 0xB2]),
+        lastSeen: DateTime(2026, 8, 26),
+      );
+      final connector = _FakeMotaConnector(
+        target,
+        catalog,
+        radioFrequencyHz: 910525000,
+        radioBandwidthHz: 62500,
+        radioSf: 7,
+        radioCr: 5,
+      );
+      final commands = _FakeRepeaterCommandService(connector);
 
-    expect(find.text('Encrypted mOTA channel: Ready'), findsOneWidget);
-    final pageScroll = find
-        .descendant(
-          of: find.byType(ListView),
-          matching: find.byType(Scrollable),
-        )
-        .first;
-    await tester.scrollUntilVisible(
-      find.textContaining('Passive hops need no entry'),
-      300,
-      scrollable: pageScroll,
-    );
-    expect(find.textContaining('Passive hops need no entry'), findsOneWidget);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<MeshCoreConnector>.value(
+          value: connector,
+          child: MaterialApp(
+            theme: MeshTheme.dark().copyWith(
+              splashFactory: NoSplash.splashFactory,
+            ),
+            home: LoRaOtaScreen(repeater: target, commandService: commands),
+          ),
+        ),
+      );
 
-    final start = find.text('Test radios and start source');
-    await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
-    final startButton = find.ancestor(
-      of: start,
-      matching: find.byWidgetPredicate((widget) => widget is FilledButton),
-    );
-    final startCallback = tester.widget<FilledButton>(startButton).onPressed;
-    expect(startCallback, isNotNull);
-    startCallback!();
-    for (var tick = 0; tick < 40; tick++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
+      expect(find.text('Encrypted mOTA channel: Ready'), findsOneWidget);
+      final pageScroll = find
+          .descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(
+        find.textContaining('Passive hops need no entry'),
+        300,
+        scrollable: pageScroll,
+      );
+      expect(find.textContaining('Passive hops need no entry'), findsOneWidget);
 
-    expect(
-      connector.localCommands
-          .where((command) => command != 'ota config')
-          .take(3),
-      <String>[
+      final start = find.text('Test radios and start source');
+      await tester.scrollUntilVisible(start, 300, scrollable: pageScroll);
+      final startButton = find.ancestor(
+        of: start,
+        matching: find.byWidgetPredicate((widget) => widget is FilledButton),
+      );
+      final startCallback = tester.widget<FilledButton>(startButton).onPressed;
+      expect(startCallback, isNotNull);
+      startCallback!();
+      for (var tick = 0; tick < 40; tick++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      expect(
+        connector.localCommands
+            .where((command) => command != 'ota config')
+            .take(3),
+        <String>[
+          'tempradio 910.525,62.5,7,5,3',
+          'tempradio',
+          'tempradio 910.525,62.5,7,5,120',
+        ],
+      );
+      final radioCalls = commands.calls.where(
+        (call) => call.command != 'ota config',
+      );
+      expect(radioCalls.take(4).map((call) => call.command), <String>[
         'tempradio 910.525,62.5,7,5,3',
-        'tempradio',
+        'ota status',
         'tempradio 910.525,62.5,7,5,120',
-      ],
-    );
-    final radioCalls = commands.calls.where(
-      (call) => call.command != 'ota config',
-    );
-    expect(radioCalls.take(4).map((call) => call.command), <String>[
-      'tempradio 910.525,62.5,7,5,3',
-      'ota status',
-      'tempradio 910.525,62.5,7,5,120',
-      'ota ls',
-    ]);
-    expect(radioCalls.take(4).map((call) => call.minimumTimeoutMs), <int>[
-      15000,
-      20000,
-      15000,
-      20000,
-    ]);
-    expect(connector.sourceStarts, 1);
+        'ota ls',
+      ]);
+      expect(radioCalls.take(4).map((call) => call.minimumTimeoutMs), <int>[
+        15000,
+        20000,
+        15000,
+        20000,
+      ]);
+      expect(connector.sourceStarts, 1);
 
-    final pull = find.text('Pull');
-    await tester.scrollUntilVisible(pull, -300, scrollable: pageScroll);
-    expect(pull, findsOneWidget);
-    await tester.tap(pull);
-    await tester.pump();
-    await tester.tap(find.text('Start download'));
-    await tester.pump();
-    await tester.pump();
+      final pull = find.text('Pull');
+      await tester.scrollUntilVisible(pull, -300, scrollable: pageScroll);
+      expect(pull, findsOneWidget);
+      await tester.tap(pull);
+      await tester.pump();
+      await tester.tap(find.text('Start download'));
+      await tester.pump();
+      await tester.pump();
 
-    final file = catalog.files.single;
-    await tester.runAsync(() => file.read(file.payloadOffset, 1024));
-    await tester.pump(const Duration(seconds: 2));
+      final file = catalog.files.single;
+      await tester.runAsync(() => file.read(file.payloadOffset, 1024));
+      await tester.pump(const Duration(seconds: 2));
 
-    final check = find.text('Check download');
-    await tester.scrollUntilVisible(check, 300, scrollable: pageScroll);
-    await tester.ensureVisible(check);
-    await tester.pump();
-    expect(check, findsOneWidget);
-    await tester.tap(check);
-    await tester.pump();
-    await tester.pump();
+      final check = find.text('Check download');
+      await tester.scrollUntilVisible(check, 300, scrollable: pageScroll);
+      await tester.ensureVisible(check);
+      await tester.pump();
+      expect(check, findsOneWidget);
+      await tester.tap(check);
+      await tester.pump();
+      await tester.pump();
 
-    expect(find.text('Sent / queued by source'), findsOneWidget);
-    expect(find.text('1 / 3 blocks'), findsOneWidget);
-    expect(find.text('Confirmed by target'), findsOneWidget);
-    expect(find.text('1 / 3 verified blocks'), findsOneWidget);
-    expect(find.text('LoRa source packets: 42'), findsOneWidget);
-    expect(commands.commands, contains('ota pull ${file.manifestId} flash'));
+      expect(find.text('Sent / queued by source'), findsOneWidget);
+      expect(find.text('1 / 3 blocks'), findsOneWidget);
+      expect(find.text('Confirmed by target'), findsOneWidget);
+      expect(find.text('1 / 3 verified blocks'), findsOneWidget);
+      expect(find.text('LoRa source packets: 42'), findsOneWidget);
+      expect(commands.commands, contains('ota pull ${file.manifestId} flash'));
 
-    final stop = find.text('Stop and restore controlled radios');
-    await tester.scrollUntilVisible(stop, 300, scrollable: pageScroll);
-    final stopButton = find.ancestor(
-      of: stop,
-      matching: find.byWidgetPredicate((widget) => widget is OutlinedButton),
-    );
-    final stopCallback = tester.widget<OutlinedButton>(stopButton).onPressed;
-    expect(stopCallback, isNotNull);
-    stopCallback!();
-    await tester.pump();
-    await tester.pump();
-    expect(connector.bleMotaCatalog, isNull);
+      final stop = find.text('Stop and restore controlled radios');
+      await tester.scrollUntilVisible(stop, 300, scrollable: pageScroll);
+      final stopButton = find.ancestor(
+        of: stop,
+        matching: find.byWidgetPredicate((widget) => widget is OutlinedButton),
+      );
+      final stopCallback = tester.widget<OutlinedButton>(stopButton).onPressed;
+      expect(stopCallback, isNotNull);
+      stopCallback!();
+      await tester.pump();
+      await tester.pump();
+      expect(connector.bleMotaCatalog, isNull);
 
-    final remove = find.byTooltip(
-      'Remove TEST_BOARD-full-v1.17.1.2.mota from catalog',
-    );
-    await tester.scrollUntilVisible(remove, -300, scrollable: pageScroll);
-    await tester.tap(remove);
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('No packages selected'),
-      -300,
-      scrollable: pageScroll,
-    );
-    expect(find.text('No packages selected'), findsOneWidget);
+      final remove = find.byTooltip(
+        'Remove TEST_BOARD-full-v1.17.1.2.mota from catalog',
+      );
+      await tester.scrollUntilVisible(remove, -300, scrollable: pageScroll);
+      await tester.tap(remove);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('No packages selected'),
+        -300,
+        scrollable: pageScroll,
+      );
+      expect(find.text('No packages selected'), findsOneWidget);
 
-    await tester.pumpWidget(const SizedBox.shrink());
-    await connector.closeFake();
-  });
+      await tester.pumpWidget(const SizedBox.shrink());
+      await connector.closeFake();
+    },
+  );
 
   testWidgets('rejects non-finite frequencies before sending radio commands', (
     tester,
