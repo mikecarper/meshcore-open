@@ -127,7 +127,7 @@ Future<void> _loadDfuScreen(
   final browse = tester.widget<TextButton>(
     find.ancestor(
       of: find.text('Browse files'),
-        matching: find.byWidgetPredicate((widget) => widget is TextButton),
+      matching: find.byWidgetPredicate((widget) => widget is TextButton),
     ),
   );
   // This fixture copies a real ZIP. Await its callback in real async time;
@@ -160,13 +160,18 @@ void main() {
       addTearDown(connector.dispose);
       var scans = 0, transfers = 0;
       final recovery = NrfDfuRecovery(
+        probe: (_, _) async => true,
         scan: (addresses, _) async {
           connector.events.add('DFU scan');
           expect(addresses, ['EB:9D:56:B2:48:48', 'EB:9D:56:B2:48:49']);
           scans++;
           return scans == 1
               ? []
-              : [const DfuAdvertisement('EB:9D:56:B2:48:49', 'T096_DFU', [])];
+              : [
+                  const DfuAdvertisement('EB:9D:56:B2:48:49', 'T096_DFU', [
+                    legacyDfuServiceUuid,
+                  ]),
+                ];
         },
         wait: (_) async {},
         transfer: (address, _, force, _) async {
@@ -213,8 +218,13 @@ void main() {
       addTearDown(connector.dispose);
       var inBootloader = false, calls = 0;
       final recovery = NrfDfuRecovery(
+        probe: (_, _) async => true,
         scan: (_, _) async => inBootloader
-            ? [const DfuAdvertisement('EB:9D:56:B2:48:49', 'T096_DFU', [])]
+            ? [
+                const DfuAdvertisement('EB:9D:56:B2:48:49', 'T096_DFU', [
+                  legacyDfuServiceUuid,
+                ]),
+              ]
             : [],
         wait: (_) async {},
         transfer: (address, _, force, _) async {
@@ -263,6 +273,7 @@ void main() {
         final connector = _CompanionConnector(board: 'Heltec T096');
         addTearDown(connector.dispose);
         final recovery = NrfDfuRecovery(
+          probe: (_, _) async => true,
           scan: (_, _) async => throw StateError('Must not scan'),
           transfer: (_, _, _, _) async => fail('Must not send firmware'),
         );

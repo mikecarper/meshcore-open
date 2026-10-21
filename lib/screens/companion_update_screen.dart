@@ -14,6 +14,7 @@ import '../services/github_mota_release_service.dart';
 import '../services/local_mota_builder.dart';
 import '../services/nrf_dfu_package.dart';
 import '../services/nrf_dfu_recovery.dart';
+import '../widgets/dfu_bootloader_choice.dart';
 import '../widgets/mesh_ui.dart';
 import '../widgets/update_status_card.dart';
 
@@ -39,6 +40,7 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
   String? _dfuPath;
   String? _dfuAddress;
   String? _dfuBootloaderAddress;
+  final _knownBootloaderAddress = TextEditingController();
   String? _companionKey;
   String? _companionAddress;
   late final NrfDfuRecovery _dfuRecovery;
@@ -72,6 +74,7 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
 
   @override
   void dispose() {
+    _knownBootloaderAddress.dispose();
     _dfuRecovery.dispose();
     _dfuConnector?.setPreserveUpdateScreenOnDisconnect(false);
     _wifi.dispose();
@@ -164,6 +167,7 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
       _dfuPath = null;
       _dfuAddress = null;
       _dfuBootloaderAddress = null;
+      _knownBootloaderAddress.clear();
       _dfu = null;
       _espImage = null;
       _imageIdentity = null;
@@ -466,12 +470,22 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
       return;
     }
     final address = retryBootloader ? _dfuAddress! : connector.deviceIdLabel;
+    String? knownAddress;
+    try {
+      knownAddress =
+          knownDfuAddress(_knownBootloaderAddress.text) ??
+          _dfuBootloaderAddress;
+    } on FormatException catch (error) {
+      setState(() => _status = error.message);
+      return;
+    }
     final bootMessage = retryBootloader
         ? 'The bootloader must still be advertising. Keep it powered.'
         : 'The Companion will disconnect and reboot. Keep it powered.';
     if (!await _confirm(
       retryBootloader ? 'Retry bootloader?' : 'Update Companion?',
       'Send $_filename to $_board at $address. '
+      '${knownAddress == null ? '' : 'Known bootloader address: $knownAddress. It will be checked before recovery sends firmware. '}'
       '${retryBootloader && _dfuBootloaderAddress != null ? 'Last discovered bootloader: $_dfuBootloaderAddress. It will be checked again. ' : ''}'
       'The ZIP must match this exact board and bootloader. '
       '$bootMessage',
@@ -526,6 +540,14 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
               package.components.length == 1 &&
               package.components.single == 'application',
           retryBootloader: retryBootloader,
+          knownBootloaderAddress: knownAddress,
+          chooseBootloader: (candidates) async => mounted
+              ? chooseDfuBootloader(
+                  context,
+                  board: _board ?? 'Radio',
+                  candidates: candidates,
+                )
+              : null,
           onStatus: (message) {
             if (mounted) setState(() => _status = message);
           },
@@ -738,7 +760,7 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
               ),
               const SizedBox(height: 8),
             ],
-            if (_dfu != null)
+            if (_dfu != null) ...[
               FilledButton.icon(
                 onPressed: _busy ? null : _startBluetoothDfu,
                 icon: const Icon(Icons.bluetooth),
@@ -749,6 +771,25 @@ class _CompanionUpdateScreenState extends State<CompanionUpdateScreen> {
                       : 'Update over Bluetooth',
                 ),
               ),
+              ExpansionTile(
+                title: const Text('Bootloader address (optional)'),
+                children: [
+                  TextField(
+                    controller: _knownBootloaderAddress,
+                    enabled: !_busy,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Known bootloader address (optional)',
+                      hintText: 'AA:BB:CC:DD:EE:FF',
+                      helperText:
+                          'A custom Companion address can differ from its bootloader. '
+                          'Use an address recorded for this radio or supplied by its administrator.',
+                      helperMaxLines: 4,
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (_espImage != null) ...[
               FilledButton.icon(
                 onPressed: _busy ? null : _startWifi,

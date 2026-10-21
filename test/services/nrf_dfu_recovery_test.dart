@@ -25,6 +25,311 @@ Future<String> update(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final profile in [
+    ('Heltec MeshTower V2 SD', 'TOWER_V2', 'HT-n5262'),
+    ('RAK WisMesh Tag', 'RTAG_DFU', 'WisMesh Tag'),
+    ('Heltec MeshPocket', 'MESH_POC', 'Mesh Pocket'),
+    ('ProMicro DIY', 'PROM_DFU', 'ProMicro NRF52840'),
+    ('ThinkNode M3', 'TNM3_DFU', 'ThinkNode-M3'),
+    ('Keepteen LT1', 'KEEPTEEN', 'LT1'),
+    ('RAK4631 + W25Q16', '4631_W25', 'RAK4631 + W25Q16'),
+  ]) {
+    test('verified supported profile remains available: ${profile.$1}', () {
+      expect(
+        selectDfuBootloader(
+          [
+            DfuAdvertisement(original, profile.$2, [legacyDfuServiceUuid]),
+          ],
+          originalAddress: original,
+          board: profile.$1,
+        ),
+        original,
+      );
+      expect(
+        matchesDfuBootloaderIdentity(
+          board: profile.$1,
+          name: profile.$2,
+          model: profile.$3,
+          revision: [8, 0],
+        ),
+        isTrue,
+      );
+      expect(
+        matchesDfuBootloaderIdentity(
+          board: profile.$1,
+          name: profile.$2,
+          model: 'Another board',
+          revision: [8, 0],
+        ),
+        isFalse,
+      );
+    });
+  }
+  test('an unrelated factory address requires this radio known address', () {
+    const factory = 'C3:C6:A8:FC:AD:A6';
+    const custom = 'D2:90:05:46:31:01';
+    const value = DfuAdvertisement(factory, '4631_DFU', [legacyDfuServiceUuid]);
+    expect(
+      selectDfuBootloader([value], originalAddress: custom, board: 'RAK 4631'),
+      isNull,
+    );
+    expect(
+      selectDfuBootloader(
+        [value],
+        originalAddress: custom,
+        board: 'RAK 4631',
+        knownBootloaderAddress: factory.toLowerCase(),
+      ),
+      factory,
+    );
+    expect(() => knownDfuAddress(' not-an-address '), throwsFormatException);
+  });
+
+  test('bootloader profile requires the actual model and revision 0.8', () {
+    bool match(String model, List<int> revision, {String name = '4631_DFU'}) =>
+        matchesDfuBootloaderIdentity(
+          board: 'RAK 4631',
+          name: name,
+          model: model,
+          revision: revision,
+        );
+    expect(match('RAK4631', [8, 0]), isTrue);
+    expect(match('RAK3401', [8, 0]), isFalse);
+    expect(match('RAK4631', [1, 0]), isFalse);
+    expect(match('RAK4631', [8]), isFalse);
+    expect(match('RAK4631', [8, 0], name: 'RAK4631_OTA'), isFalse);
+    expect(match('RAK4631', [8, 0], name: 'ADADFU'), isTrue);
+  });
+
+  test(
+    'generic stock name needs a known address, DFU service and actual profile',
+    () {
+      const unbound = 'C3:C6:A8:FC:AD:A6';
+      String? select(String address, List<String> services) =>
+          selectDfuBootloader(
+            [DfuAdvertisement(address, 'AdaDFU', services)],
+            originalAddress: original,
+            board: 'Heltec T096',
+            allowAddressChange: true,
+          );
+      expect(select(original, [legacyDfuServiceUuid]), original);
+      expect(select(bootloader, [legacyDfuServiceUuid]), bootloader);
+      expect(select(original, []), isNull);
+      expect(select(unbound, [legacyDfuServiceUuid]), isNull);
+      expect(
+        matchesDfuBootloaderIdentity(
+          board: 'Heltec T096',
+          name: 'AdaDFU',
+          model: 'RAK4631',
+          revision: [8, 0],
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'unsupported board stops before discovery and gives a clear error',
+    () async {
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async => fail('Do not scan an unsupported model'),
+        transfer: (_, _, _, _) async => fail('No unverified board transfer'),
+      );
+      await expectLater(
+        recovery.update(
+          originalAddress: original,
+          path: '/test/app.zip',
+          board: 'Unknown board',
+          applicationOnly: true,
+        ),
+        throwsUnsupportedError,
+      );
+    },
+  );
+
+  test(
+    'factory-address recovery probes before its sole forced transfer',
+    () async {
+      const factory = 'C3:C6:A8:FC:AD:A6';
+      const custom = 'D2:90:05:46:31:01';
+      final steps = <String>[];
+      final recovery = NrfDfuRecovery(
+        scan: (addresses, _) async {
+          expect(addresses, contains(factory));
+          return []; // Retained peer whitelist hides it from discovery.
+        },
+        wait: (_) async {},
+        probe: (address, board) async {
+          steps.add('probe:$address');
+          expect(board, 'RAK 4631');
+          return true;
+        },
+        transfer: (address, _, force, _) async {
+          steps.add('transfer:$address:$force');
+        },
+      );
+      expect(
+        await recovery.update(
+          originalAddress: custom,
+          path: '/test/app.zip',
+          board: 'RAK 4631',
+          applicationOnly: true,
+          retryBootloader: true,
+          knownBootloaderAddress: factory,
+        ),
+        factory,
+      );
+      expect(steps, ['probe:$factory', 'transfer:$factory:true']);
+    },
+  );
+
+  test('failed actual GATT identity never starts a native transfer', () async {
+    var transfers = 0;
+    final recovery = NrfDfuRecovery(
+      scan: (_, _) async => [advert],
+      probe: (_, _) async => false,
+      transfer: (_, _, _, _) async {
+        transfers++;
+      },
+    );
+    await expectLater(
+      update(recovery, retryBootloader: true),
+      throwsStateError,
+    );
+    expect(transfers, 0);
+  });
+
+  test(
+    'a custom-address handoff discovers its factory updater automatically',
+    () async {
+      const custom = 'D2:90:05:46:31:01';
+      const factory = 'C3:C6:A8:FC:AD:A6';
+      final steps = <String>[];
+      var scans = 0;
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async => ++scans == 1
+            ? []
+            : [
+                const DfuAdvertisement(factory, '4631_DFU', [
+                  legacyDfuServiceUuid,
+                ]),
+              ],
+        wait: (_) async {},
+        probe: (address, _) async {
+          steps.add('probe:$address');
+          return true;
+        },
+        transfer: (address, _, force, events) async {
+          steps.add('transfer:$address:$force');
+          if (!force) {
+            events.onEnablingDfuMode?.call(address);
+            throw PlatformException(code: '8');
+          }
+        },
+      );
+      expect(
+        await recovery.update(
+          originalAddress: custom,
+          path: '/test/app.zip',
+          board: 'RAK 4631',
+          applicationOnly: true,
+        ),
+        factory,
+      );
+      expect(steps, [
+        'transfer:$custom:false',
+        'probe:$factory',
+        'transfer:$factory:true',
+      ]);
+    },
+  );
+
+  test(
+    'multiple factory updaters require an explicit current-candidate choice',
+    () async {
+      const second = 'C3:C6:A8:FC:AD:A6';
+      final steps = <String>[];
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async => [
+          advert,
+          const DfuAdvertisement(second, 'T096_DFU', [legacyDfuServiceUuid]),
+        ],
+        probe: (address, _) async {
+          steps.add('probe:$address');
+          return true;
+        },
+        transfer: (address, _, _, _) async {
+          steps.add('transfer:$address');
+        },
+      );
+      expect(
+        await recovery.update(
+          originalAddress: original,
+          path: '/test/app.zip',
+          board: 'Heltec T096',
+          applicationOnly: true,
+          retryBootloader: true,
+          chooseBootloader: (candidates) async {
+            expect(candidates.map((c) => c.address), [bootloader, second]);
+            steps.add('choose');
+            return second;
+          },
+        ),
+        second,
+      );
+      expect(steps, ['choose', 'probe:$second', 'transfer:$second']);
+    },
+  );
+
+  for (final choice in <String?>[null, 'AA:BB:CC:DD:EE:FF']) {
+    test(
+      'cancelled or invented choice cannot authorize firmware: $choice',
+      () async {
+        final recovery = NrfDfuRecovery(
+          scan: (_, _) async => [
+            advert,
+            const DfuAdvertisement(original, 'T096_DFU', [
+              legacyDfuServiceUuid,
+            ]),
+          ],
+          probe: (_, _) async => fail('No selected candidate to probe'),
+          transfer: (_, _, _, _) async =>
+              fail('No firmware after cancelled or invalid choice'),
+        );
+        await expectLater(
+          recovery.update(
+            originalAddress: original,
+            path: '/test/app.zip',
+            board: 'Heltec T096',
+            applicationOnly: true,
+            retryBootloader: true,
+            chooseBootloader: (_) async => choice,
+          ),
+          throwsStateError,
+        );
+      },
+    );
+  }
+
+  test(
+    'ambiguous candidates are rejected before any GATT probe or transfer',
+    () async {
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async => [
+          advert,
+          const DfuAdvertisement(original, 'T096_DFU', [legacyDfuServiceUuid]),
+        ],
+        probe: (_, _) async => fail('Do not probe an ambiguous handoff'),
+        transfer: (_, _, _, _) async =>
+            fail('Do not transfer to an ambiguous handoff'),
+      );
+      await expectLater(
+        update(recovery, retryBootloader: true),
+        throwsStateError,
+      );
+    },
+  );
+
   for (final applicationOnly in [true, false]) {
     test(
       'native DFU retains bonds only for applicationOnly=$applicationOnly',
@@ -51,7 +356,10 @@ void main() {
           messenger.setMockMethodCallHandler(method, null);
           messenger.setMockMethodCallHandler(event, null);
         });
-        final recovery = NrfDfuRecovery(scan: (_, _) async => []);
+        final recovery = NrfDfuRecovery(
+          probe: (_, _) async => true,
+          scan: (_, _) async => [],
+        );
         expect(
           await update(recovery, applicationOnly: applicationOnly),
           original,
@@ -84,11 +392,8 @@ void main() {
       board: 'Heltec T096',
     );
     expect(select([advert]), bootloader);
-    expect(
-      select([const DfuAdvertisement(original, 'T096_DFU', [])]),
-      original,
-    );
-    expect(select([const DfuAdvertisement(original, 'AdaDFU', [])]), original);
+    expect(select([const DfuAdvertisement(original, 'T096_DFU', [])]), isNull);
+    expect(select([const DfuAdvertisement(original, 'AdaDFU', [])]), isNull);
     expect(
       select([const DfuAdvertisement('AA:BB:CC:DD:EE:01', 'T096_DFU', [])]),
       isNull,
@@ -113,14 +418,44 @@ void main() {
       isNull,
     );
     expect(
-      () => select([advert, const DfuAdvertisement(original, 'T096_DFU', [])]),
+      () => select([
+        advert,
+        const DfuAdvertisement(original, 'T096_DFU', [legacyDfuServiceUuid]),
+      ]),
       throwsStateError,
     );
     expect(select([advert, advert]), bootloader);
   });
 
   test(
-    'unknown boards require both a DFU name and service at the known address',
+    'an initial connection failure cannot select an unrelated factory radio',
+    () async {
+      const factory = 'C3:C6:A8:FC:AD:A6';
+      final transfers = <String>[];
+      var scans = 0;
+      final recovery = NrfDfuRecovery(
+        scan: (_, _) async => ++scans == 1
+            ? []
+            : [
+                const DfuAdvertisement(factory, 'T096_DFU', [
+                  legacyDfuServiceUuid,
+                ]),
+              ],
+        wait: (_) async {},
+        probe: (_, _) async =>
+            fail('No handoff authorized another factory address'),
+        transfer: (address, _, _, _) async {
+          transfers.add(address);
+          throw PlatformException(code: '133');
+        },
+      );
+      await expectLater(update(recovery), throwsStateError);
+      expect(transfers, [original]);
+    },
+  );
+
+  test(
+    'unknown boards are not identified by a generic DFU name and service',
     () {
       String? select(List<String> services) => selectDfuBootloader(
         [DfuAdvertisement(original, 'BOARD_DFU', services)],
@@ -128,7 +463,7 @@ void main() {
         board: 'Unknown board',
       );
       expect(select([]), isNull);
-      expect(select([legacyDfuServiceUuid]), original);
+      expect(select([legacyDfuServiceUuid]), isNull);
     },
   );
 
@@ -169,6 +504,7 @@ void main() {
       final scans = <Duration>[];
       final waits = <Duration>[];
       final recovery = NrfDfuRecovery(
+        probe: (_, _) async => true,
         scan: (addresses, timeout) async {
           expect(addresses, [original, bootloader]);
           scans.add(timeout);
@@ -199,7 +535,10 @@ void main() {
       () async {
         var calls = 0;
         final recovery = NrfDfuRecovery(
-          scan: (_, _) async => [DfuAdvertisement(address, 'T096_DFU', [])],
+          probe: (_, _) async => true,
+          scan: (_, _) async => [
+            DfuAdvertisement(address, 'T096_DFU', [legacyDfuServiceUuid]),
+          ],
           transfer: (found, _, force, _) async {
             calls++;
             expect(found, address);
@@ -217,6 +556,7 @@ void main() {
     () async {
       var calls = 0, scans = 0;
       final recovery = NrfDfuRecovery(
+        probe: (_, _) async => true,
         scan: (_, _) async {
           scans++;
           return [];
@@ -251,6 +591,7 @@ void main() {
     () async {
       var calls = 0;
       final recovery = NrfDfuRecovery(
+        probe: (_, _) async => true,
         scan: (_, timeout) async {
           expect(timeout, const Duration(seconds: 8));
           return [advert];
@@ -264,6 +605,7 @@ void main() {
       expect(await update(recovery, retryBootloader: true), bootloader);
       expect(calls, 1);
       final absent = NrfDfuRecovery(
+        probe: (_, _) async => true,
         scan: (_, _) async => [],
         transfer: (_, _, _, _) async => fail('No proven bootloader'),
       );
@@ -286,6 +628,7 @@ void main() {
     test('does not add another attempt after $reason', () async {
       var calls = 0, scans = 0;
       final recovery = NrfDfuRecovery(
+        probe: (_, _) async => true,
         scan: (_, _) async {
           scans++;
           return reason == 'explicit retry' ? [advert] : [];
@@ -322,6 +665,7 @@ void main() {
   test('second connection failure is surfaced without a retry loop', () async {
     var calls = 0, scans = 0;
     final recovery = NrfDfuRecovery(
+      probe: (_, _) async => true,
       scan: (_, _) async {
         scans++;
         return scans == 1 ? [] : [advert];
@@ -341,6 +685,7 @@ void main() {
     final scanned = Completer<List<DfuAdvertisement>>();
     var calls = 0;
     final recovery = NrfDfuRecovery(
+      probe: (_, _) async => true,
       scan: (_, _) => scanned.future,
       transfer: (_, _, _, _) async {
         calls++;
@@ -363,6 +708,7 @@ void main() {
       final entered = Completer<void>();
       var calls = 0, scans = 0;
       final recovery = NrfDfuRecovery(
+        probe: (_, _) async => true,
         scan: (_, _) async {
           scans++;
           return [];
@@ -389,6 +735,7 @@ void main() {
 
   test('iOS manual retry uses its unchanged native identifier', () async {
     final recovery = NrfDfuRecovery(
+      probe: (_, _) async => true,
       scan: (_, _) async => [],
       transfer: (address, _, force, _) async {
         expect(address, 'ios-uuid');
