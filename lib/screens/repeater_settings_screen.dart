@@ -1335,6 +1335,8 @@ class _RepeaterSettingsScreenState extends State<RepeaterSettingsScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
+                // Required by the supported Flutter 3.32 Android profile.
+                // ignore: deprecated_member_use
                 value: _bandwidth,
                 decoration: InputDecoration(labelText: l10n.repeater_bandwidth),
                 items: _bandwidthOptions.map((bw) {
@@ -1354,6 +1356,8 @@ class _RepeaterSettingsScreenState extends State<RepeaterSettingsScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
+                // Required by the supported Flutter 3.32 Android profile.
+                // ignore: deprecated_member_use
                 value: _spreadingFactor,
                 decoration: InputDecoration(
                   labelText: l10n.repeater_spreadingFactor,
@@ -1372,6 +1376,8 @@ class _RepeaterSettingsScreenState extends State<RepeaterSettingsScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
+                // Required by the supported Flutter 3.32 Android profile.
+                // ignore: deprecated_member_use
                 value: _codingRate,
                 decoration: InputDecoration(
                   labelText: l10n.repeater_codingRate,
@@ -1784,6 +1790,8 @@ class _RepeaterSettingsScreenState extends State<RepeaterSettingsScreen> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
+                      // Required by the supported Flutter 3.32 Android profile.
+                      // ignore: deprecated_member_use
                       value: _loopDetect,
                       decoration: InputDecoration(
                         labelText: l10n.repeater_loopDetect,
@@ -1975,6 +1983,8 @@ class _RepeaterSettingsScreenState extends State<RepeaterSettingsScreen> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<int>(
+                  // Required by the supported Flutter 3.32 Android profile.
+                  // ignore: deprecated_member_use
                   value: _pathHashMode,
                   decoration: InputDecoration(
                     labelText: l10n.repeater_pathHashMode,

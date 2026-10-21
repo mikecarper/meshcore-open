@@ -161,6 +161,8 @@ class RepeaterHubScreen extends StatelessWidget {
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
                 child: DropdownButtonFormField<String>(
+                  // Required by the supported Flutter 3.32 Android profile.
+                  // ignore: deprecated_member_use
                   value: chemistry,
                   isExpanded: true,
                   decoration: InputDecoration(

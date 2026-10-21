@@ -971,6 +971,8 @@ class AppSettingsScreen extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
+          // Required by the supported Flutter 3.32 Android profile.
+          // ignore: deprecated_member_use
           value: selection,
           isExpanded: true,
           decoration: const InputDecoration(
@@ -1661,6 +1663,8 @@ class AppSettingsScreen extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: DropdownButtonFormField<String>(
+            // Required by the supported Flutter 3.32 Android profile.
+            // ignore: deprecated_member_use
             value: settings.translationSelectedModelId,
             isExpanded: true,
             decoration: InputDecoration(
@@ -1684,6 +1688,8 @@ class AppSettingsScreen extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: DropdownButtonFormField<String>(
+            // Required by the supported Flutter 3.32 Android profile.
+            // ignore: deprecated_member_use
             value: null,
             isExpanded: true,
             decoration: InputDecoration(
@@ -1854,6 +1860,8 @@ class AppSettingsScreen extends StatelessWidget {
       children: [
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
+          // Required by the supported Flutter 3.32 Android profile.
+          // ignore: deprecated_member_use
           value: settingsService.settings.selectedCyr2latProfileId,
           decoration: InputDecoration(
             labelText: context.l10n.channels_cyr2latSettingsSubheading,

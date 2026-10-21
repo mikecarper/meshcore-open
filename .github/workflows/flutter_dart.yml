@@ -25,7 +25,10 @@ jobs:
         run: flutter analyze --fatal-infos --fatal-warnings
 
       - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed .
+        # Keep the compatibility shims in their vendored source format.
+        run: |
+          git ls-files -z -- '*.dart' ':(exclude)legacy_shims/**' |
+            xargs -0 --no-run-if-empty dart format --output=none --set-exit-if-changed
 
       - name: Run tests
         run: flutter test -r github

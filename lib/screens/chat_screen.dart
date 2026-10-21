@@ -1008,6 +1008,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
                     child: DropdownButtonFormField<String>(
+                      // Required by the supported Flutter 3.32 Android profile.
+                      // ignore: deprecated_member_use
                       value: selectedCyr2LatProfileId,
                       decoration: InputDecoration(
                         labelText:

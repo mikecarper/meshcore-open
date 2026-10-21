@@ -2571,6 +2571,8 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<double>(
+                      // Required by the supported Flutter 3.32 Android profile.
+                      // ignore: deprecated_member_use
                       value: _bandwidth,
                       decoration: const InputDecoration(
                         labelText: 'Bandwidth (kHz)',
@@ -2596,6 +2598,8 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                       children: [
                         Expanded(
                           child: DropdownButtonFormField<int>(
+                            // Required by the supported Flutter 3.32 Android profile.
+                            // ignore: deprecated_member_use
                             value: _spreadingFactor,
                             decoration: const InputDecoration(labelText: 'SF'),
                             items: <int>[5, 6, 7, 8, 9, 10, 11, 12]
@@ -2618,6 +2622,8 @@ class _LoRaOtaScreenState extends State<LoRaOtaScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<int>(
+                            // Required by the supported Flutter 3.32 Android profile.
+                            // ignore: deprecated_member_use
                             value: _codingRate,
                             decoration: const InputDecoration(labelText: 'CR'),
                             items: <int>[5, 6, 7, 8]
